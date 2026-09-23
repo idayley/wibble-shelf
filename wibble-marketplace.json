@@ -1,0 +1,18 @@
+{
+  "name": "Isaac's Wibble shelf",
+  "items": [
+    {
+      "kind": "extension",
+      "id": "claude-usage",
+      "name": "Claude usage",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "563fee70ecf18b78a2545506d6555e3c5871b93e",
+      "path": "items/claude-usage",
+      "version": "1.0.0",
+      "description": "How much of Claude's five-hour and weekly limits you've used, and when each one resets.",
+      "history": [
+        { "version": "1.0.0", "date": "23 Sep", "note": "First version." }
+      ]
+    }
+  ]
+}
