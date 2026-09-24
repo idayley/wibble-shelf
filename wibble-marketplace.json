@@ -6,12 +6,21 @@
       "id": "claude-usage",
       "name": "Claude usage",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "563fee70ecf18b78a2545506d6555e3c5871b93e",
+      "ref": "bfc6d4d5df0c7e99b15c36fe389c0087cdd0032f",
       "path": "items/claude-usage",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "How much of Claude's five-hour and weekly limits you've used, and when each one resets.",
       "history": [
-        { "version": "1.0.0", "date": "23 Sep", "note": "First version." }
+        {
+          "version": "1.1.0",
+          "date": "23 Sep",
+          "note": "Two pills across the top of the canvas instead of bars beside the chat."
+        },
+        {
+          "version": "1.0.0",
+          "date": "23 Sep",
+          "note": "First version."
+        }
       ]
     }
   ]
