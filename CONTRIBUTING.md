@@ -25,6 +25,8 @@ Then, four steps:
 
 4. **Open a pull request.**
 
+A check runs on the pull request: it fetches your commit and runs the same rules Wibble uses when someone clicks Add, then lists what people will be told about your item. Fix anything it marks ✗.
+
 The shelf's owner reads the code at that exact commit before merging. Nothing you push later reaches anyone until it's listed.
 
 ## Updating

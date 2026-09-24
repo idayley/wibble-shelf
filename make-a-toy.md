@@ -35,7 +35,7 @@ Up to 14 parts. Distances are pixels, `y` goes **down**, and the lowest part bec
 
 `links` join parts: `{ "a": 0, "b": 1, "kind": "rope" | "hinge" | "pulley" }`.
 
-Numbers outside a range are pulled back into it rather than refused. Keep inside them anyway: a toy that gets pulled back isn't quite what you drew, and a reviewer will ask you to fix it.
+Numbers outside a range are pulled back into it rather than refused. Keep inside them anyway: a toy that gets pulled back isn't quite what you drew, and the shelf's check will flag it.
 
 ## Start from a copy
 

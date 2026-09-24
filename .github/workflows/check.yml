@@ -1,0 +1,27 @@
+# Runs Wibble's own install rules on every entry a pull request adds or
+# changes. The check fetches each entry at its pinned commit and reads its
+# files; it never runs them. Built from the Wibble repo by
+# scripts/build-shelf-check.mjs.
+name: Check the shelf
+
+on:
+  pull_request:
+    paths: [wibble-marketplace.json]
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Read the index before this change
+        run: git show "origin/${{ github.base_ref }}:wibble-marketplace.json" > base.json 2>/dev/null || rm -f base.json
+      - name: Check what changed
+        run: node .github/check/shelf-check.mjs --base base.json --head wibble-marketplace.json
