@@ -1,0 +1,59 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Starter</title>
+<style>
+  /* Your own props. Scene children are absolutely positioned in world pixels. */
+  .name { left: 0; right: 0; top: 560px; }
+  .sub { left: 0; right: 0; top: 700px; font: 700 34px/1.2 var(--sans); text-align: center; color: var(--muted); transform-origin: 50% 0; }
+</style>
+<body>
+<script src="https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@KIT_REF/items/director/kit/motion.js"></script>
+<script>
+// A 12-second starter: a hook, one idea shown, and an end card.
+const F = film({ title: "Starter", end: 12000 });
+
+// 1. The hook: something moves in the first second.
+scene(0, 4000, (root, at) => {
+  const tr = troupe(root);
+  const W = tr.add("W", 760, { h: 170 });
+  W.at(300, -200).run(420, 700, { dust: true }).skid(540, 380).until(1900).hop(620, { H: 70 }).until(9000);
+  const D = tr.add("director", 760, { h: 150, slot: 3 });
+  D.at(2300, 1300).run(820, 520, { dust: true }).skid(780, 320).until(9000);
+  return lt => tr.draw(lt);
+});
+
+// 2. One idea, shown rather than said.
+scene(4000, 8200, (root, at) => {
+  const card = pos(el("div", "mo-card", root, `<div class="mo-kick">Pinned</div><div style="font:800 44px/1.15 var(--sans);margin-top:12px">Your idea, on a card</div>`), 240, 360, 600, 260);
+  const ptr = pointer(root, at).at(300, 1000, 1100).to(700, 640, 560, 700).click(1500).hide(2600);
+  const cf = confetti(root, 70, 5, at, 1550);
+  at(200, "pin", 0.8, 540);
+  const tr = troupe(root);
+  tr.add("A", 900, { h: 110, slot: 1 }).at(1550, 540, -300).arc(380, 0, 620, { peak: 200 }).plop(380).until(9000);
+  return lt => {
+    const press = ptr.press(lt);
+    popIn(card, tl(lt, 200, 640), -2, -80, `scale(${1 - 0.05 * press})`);
+    card.style.borderColor = lt > 1500 ? "var(--accent)" : "";
+    cf(540, 480, lt - 1550);
+    tr.draw(lt);
+    ptr.draw(lt);
+  };
+});
+
+// 3. The end card: the name, then where to get it.
+scene(8200, F.end, (root, at) => {
+  const name = el("div", "mo-big-t name", root, "Make it <em>move.</em>");
+  const sub = el("div", "sub", root, "github.com/you/your-thing");
+  const tr = troupe(root);
+  tr.add("W", 500, { h: 150 }).at(0, 540, -700).arc(540, 0, 640, { peak: 120 }).plop(520, { big: true }).until(1700).hop(560, { H: 50 }).until(9000);
+  at(900, "bubble", 0.7); at(1300, "type", 0.5);
+  return lt => { popIn(name, tl(lt, 800, 1200), 0, 40); popIn(sub, tl(lt, 1200, 1600), 0, 20); tr.draw(lt); };
+}, { enter: "zoom" });
+
+captions([
+  [500, 3800, "Meet *your new thing.*"],
+  [4300, 8000, "Show it, *don't say it.*"],
+]);
+beats([[0, "Hook"], [4000, "The idea"], [8200, "End card"]]);
+groove({ from: 300, to: 9300, resolve: 9300 });
+</script>

@@ -1,0 +1,115 @@
+/* Director's motion kit: the player, the world and the props.
+   Every class is prefixed `mo-` so nothing here meets a page's own names,
+   or the parts Wibble puts in front of an html pin. The wibblet art is
+   appended below by tools/art.mjs; edit this file, not motion.css. */
+
+/* ---------- the player ---------- */
+html, body { margin: 0 !important; padding: 0 !important; background: #0d0d10 !important; overflow: hidden; }
+.mo-player {
+  --p-ink: #efeef4; --p-muted: #8e8c9c; --p-line: rgba(255, 255, 255, .09); --p-accent: oklch(66% 0.22 20);
+  position: fixed; inset: 0; background: radial-gradient(120% 90% at 50% 0%, #1a1a20 0%, #0d0d10 70%);
+  color: var(--p-ink); font: 13px/1.4 "Noto Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none;
+}
+.mo-stage { position: absolute; overflow: hidden; border-radius: 14px; background: #000; box-shadow: 0 0 0 1px var(--p-line), 0 40px 80px -40px #000; cursor: pointer; }
+.mo-stage .mo-world { transform-origin: 0 0; }
+
+.mo-over { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(10, 10, 14, .08); transition: opacity .25s; z-index: 50; }
+.mo-over[hidden] { display: grid; opacity: 0; pointer-events: none; }
+.mo-big { width: 84px; height: 84px; border-radius: 50%; border: 0; background: rgba(255, 255, 255, .94); color: #141418; display: grid; place-items: center; cursor: pointer; box-shadow: 0 18px 40px -12px rgba(0, 0, 0, .6); transition: transform .18s cubic-bezier(.3, 1.6, .5, 1); }
+.mo-big:hover { transform: scale(1.07); }
+.mo-big svg { width: 34px; height: 34px; margin-left: 4px; }
+.mo-big.replay svg { margin-left: 0; }
+
+.mo-bar { position: absolute; display: flex; align-items: center; gap: 12px; height: 40px; }
+.mo-btn { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 0; background: transparent; color: var(--p-ink); display: grid; place-items: center; cursor: pointer; transition: background .15s; }
+.mo-btn:hover { background: rgba(255, 255, 255, .08); }
+.mo-btn svg { width: 18px; height: 18px; }
+.mo-btn.play { background: var(--p-ink); color: #111; }
+.mo-btn.play:hover { background: #fff; }
+.mo-btn[aria-pressed="false"] { color: var(--p-muted); }
+.mo-btn:focus-visible, .mo-scrub:focus-visible, .mo-big:focus-visible { outline: 2px solid var(--p-accent); outline-offset: 2px; }
+.mo-time { flex: none; font: 500 12px/1 "Geist Mono", ui-monospace, monospace; color: var(--p-muted); font-variant-numeric: tabular-nums; min-width: 84px; }
+.mo-time b { color: var(--p-ink); font-weight: 500; }
+.mo-scrub { position: relative; flex: 1; height: 28px; cursor: pointer; touch-action: none; }
+.mo-rail { position: absolute; left: 0; right: 0; top: 12px; height: 4px; border-radius: 2px; background: rgba(255, 255, 255, .13); transition: height .12s, top .12s; }
+.mo-scrub:hover .mo-rail { top: 11px; height: 6px; border-radius: 3px; }
+.mo-fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: inherit; background: var(--p-accent); }
+.mo-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; border-radius: 1px; background: #0d0d10; }
+.mo-knob { position: absolute; top: 14px; width: 14px; height: 14px; margin: -7px 0 0 -7px; border-radius: 50%; background: #fff; box-shadow: 0 2px 6px rgba(0, 0, 0, .5); transform: scale(0); transition: transform .15s; }
+.mo-scrub:hover .mo-knob, .mo-scrub.drag .mo-knob, .mo-scrub:focus-visible .mo-knob { transform: scale(1); }
+.mo-tip { position: absolute; bottom: 30px; transform: translateX(-50%); white-space: nowrap; background: #25252c; color: var(--p-ink); font: 600 12px/1 "Noto Sans", system-ui, sans-serif; padding: 7px 9px; border-radius: 7px; box-shadow: 0 0 0 1px var(--p-line); pointer-events: none; opacity: 0; transition: opacity .12s; }
+.mo-tip i { font: 500 11px/1 "Geist Mono", ui-monospace, monospace; font-style: normal; color: var(--p-muted); margin-right: 6px; }
+.mo-scrub:hover .mo-tip, .mo-scrub.drag .mo-tip { opacity: 1; }
+.mo-beat.title { color: var(--p-ink); }
+.mo-beat { flex: none; max-width: 30%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-weight: 600; color: var(--p-muted); }
+
+.mo-render .mo-bar, .mo-render .mo-over { display: none !important; }
+.mo-render .mo-stage { border-radius: 0; box-shadow: none; cursor: default; }
+.mo-stamp { position: absolute; left: 14px; top: 14px; z-index: 60; font: 600 22px/1 "Geist Mono", ui-monospace, monospace; background: rgba(0, 0, 0, .78); color: #fff; padding: 8px 12px; border-radius: 8px; }
+
+/* ---------- the world: one fixed look, whatever the viewer's theme ---------- */
+.mo-world {
+  --bg: #f4f3f7; --ink: #1f1e25; --muted: #6d6b7b; --line: #dfdde7; --card: #ffffff; --floor: #e9e7ef;
+  --accent: oklch(62% 0.22 20); --puff: #d9d7e2; --shade: rgba(40, 32, 70, 0.2); --dot: #d2cfdc;
+  --term: #17161c; --ok: #2f9a66; --alert: #e4665f; --face: #fff;
+  --sans: "Noto Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "Geist Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  position: absolute; left: 0; top: 0; background: var(--bg); color: var(--ink); font-family: var(--sans); overflow: hidden; color-scheme: light;
+  font-size: 30px; line-height: 1.3;
+}
+.mo-world.mo-dark {
+  --bg: #17161c; --ink: #f1f0f6; --muted: #9c9aab; --line: #34323e; --card: #211f28; --floor: #2a2833;
+  --accent: oklch(70% 0.2 20); --puff: #3a3844; --shade: rgba(0, 0, 0, 0.45); --dot: #2f2d38; --term: #0c0b10; color-scheme: dark;
+}
+.mo-world * { box-sizing: border-box; }
+.mo-scene { position: absolute; inset: 0; background: var(--bg); overflow: hidden; }
+.mo-scene > *, .mo-cam > * { position: absolute; }
+.mo-cam { position: absolute; inset: 0; transform-origin: 0 0; }
+
+/* wibblets: a tinted body and a light face, both masks from the art below */
+.mo-wb { left: 0; top: 0; transform-origin: 50% 100%; will-change: transform; }
+.mo-wb::before, .mo-wb::after { content: ""; position: absolute; inset: 0; -webkit-mask-repeat: no-repeat; mask-repeat: no-repeat; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+.mo-wb::before { -webkit-mask-image: var(--mo-body); mask-image: var(--mo-body);
+  background: linear-gradient(158deg, color-mix(in oklab, var(--tint) 66%, #fff) 0%, var(--tint) 34%, var(--tint2, var(--tint)) 76%, color-mix(in oklab, var(--tint2, var(--tint)) 74%, #000) 100%); }
+.mo-wb::after { -webkit-mask-image: var(--mo-face); mask-image: var(--mo-face); background: color-mix(in oklab, var(--tint) 8%, #fff); }
+.mo-sh { left: 0; top: 0; height: 16px; border-radius: 50%; background: var(--shade); filter: blur(2px); }
+.mo-puff { left: 0; top: 0; width: 40px; height: 40px; border-radius: 50%; background: var(--puff); }
+
+/* captions */
+.mo-cap { position: absolute; left: 50px; right: 50px; text-align: center; font-weight: 800; line-height: 1.08; letter-spacing: -0.025em; color: var(--ink); z-index: 20; text-wrap: balance; pointer-events: none; }
+.mo-cap span { display: inline-block; transform-origin: 50% 100%; }
+.mo-cap .hi { color: var(--accent); }
+.mo-streak { position: absolute; left: 0; top: 0; height: 12px; border-radius: 6px; background: var(--ink); z-index: 30; display: none; }
+.mo-flash { inset: 0; background: #fff; pointer-events: none; opacity: 0; }
+
+/* props: small, plain, and meant to be restyled */
+.mo-bits { left: 0; top: 0; }
+.mo-cf { position: absolute; left: 0; top: 0; border-radius: 3px; display: none; }
+.mo-ring { left: 0; top: 0; border-radius: 50%; border: 12px solid var(--accent); display: none; }
+.mo-ptr { left: 0; top: 0; width: 44px; height: 60px; z-index: 40; filter: drop-shadow(0 4px 5px var(--shade)); visibility: hidden; }
+.mo-ptr svg { width: 100%; height: 100%; display: block; }
+.mo-card { background: var(--card); border: 2px solid var(--line); border-radius: 24px; box-shadow: 0 30px 60px -30px var(--shade); padding: 24px 28px; transform-origin: 50% 100%; overflow: hidden; }
+.mo-kick { font: 700 17px/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.mo-bub { background: var(--card); border: 2px solid var(--line); border-radius: 26px; padding: 18px 26px; font: 600 30px/1.3 var(--sans); box-shadow: 0 16px 30px -18px var(--shade); transform-origin: 0 100%; max-width: 620px; white-space: pre-wrap; }
+.mo-bub.me { background: var(--ink); color: var(--bg); border-color: var(--ink); transform-origin: 100% 100%; }
+.mo-bub .gh { visibility: hidden; }
+.mo-chip { display: inline-flex; align-items: center; gap: 12px; font: 700 26px/1 var(--sans); background: var(--floor); padding: 14px 22px; border-radius: 999px; white-space: nowrap; }
+.mo-chip.dark { background: var(--ink); color: var(--bg); }
+.mo-chip.ok { background: var(--ok); color: #fff; }
+.mo-chip.bad { background: var(--alert); color: #fff; }
+.mo-stampx { left: 0; top: 0; font: 800 34px/1 var(--sans); color: var(--accent); border: 5px solid var(--accent); border-radius: 14px; padding: 10px 16px; letter-spacing: .06em; text-transform: uppercase; background: rgba(255, 255, 255, .85); }
+.mo-term { background: var(--term); border-radius: 30px; box-shadow: 0 40px 80px -30px rgba(20, 16, 40, .5); overflow: hidden; color: #ebe9f2; }
+.mo-term .tb { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: #221f29; font: 500 22px var(--mono); color: #8e8a9e; }
+.mo-term .tb i { width: 16px; height: 16px; border-radius: 50%; background: #3b3845; }
+.mo-term .tb span { margin-left: 14px; }
+.mo-term pre { margin: 0; padding: 30px 40px; font: 400 28px/1.62 var(--mono); white-space: pre-wrap; }
+.mo-term .d { color: #8e8a9e; } .mo-term .a { color: #d97757; } .mo-term .g { color: #6fcf97; }
+.mo-term .cur { display: inline-block; width: .6em; height: 1.1em; vertical-align: -.2em; background: #ebe9f2; }
+.mo-win { background: var(--card); border: 2px solid var(--line); border-radius: 30px; box-shadow: 0 30px 70px -40px var(--shade); overflow: hidden; }
+.mo-win > .tb { height: 58px; display: flex; align-items: center; gap: 12px; padding: 0 26px; background: var(--floor); font: 600 22px var(--sans); color: var(--muted); border-bottom: 2px solid var(--line); }
+.mo-win > .tb i { width: 15px; height: 15px; border-radius: 50%; background: #d3d0dc; }
+.mo-win > .tb span { margin-left: 12px; }
+.mo-dots { left: -2000px; top: -2000px; width: 6000px; height: 6000px; background-image: radial-gradient(var(--dot) 2.4px, transparent 2.9px); background-size: 38px 38px; }
+.mo-big-t { font: 800 66px/1.08 var(--sans); letter-spacing: -0.025em; text-align: center; transform-origin: 50% 100%; }
+.mo-big-t em { font-style: normal; color: var(--accent); }
+.mo-url { font: 500 34px/1 var(--mono); color: var(--muted); text-align: center; transform-origin: 50% 0; }

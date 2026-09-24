@@ -1,0 +1,615 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Wibble, the teaser</title>
+<style>
+/* The teaser's own props, as it was cut for Wibble. */
+.cam { position: absolute; inset: 0; transform-origin: 0 0; }
+.cam > * { position: absolute; }
+.streak { position: absolute; left: 0; top: 0; height: 12px; border-radius: 6px; background: var(--ink); z-index: 30; }
+.flash { inset: 0; background: #fff; pointer-events: none; }
+/* cold open */
+.dots { left: -2000px; top: -2000px; width: 5080px; height: 5080px; background-image: radial-gradient(var(--dot) 2.4px, transparent 2.9px); background-size: 38px 38px; }
+.term { left: 0; top: 0; width: 900px; height: 700px; transform-origin: 450px 350px; background: var(--term); border-radius: 30px; box-shadow: 0 40px 80px -30px rgba(20, 16, 40, .5); overflow: hidden; color: #ebe9f2; }
+.tb { height: 64px; display: flex; align-items: center; gap: 12px; padding: 0 28px; background: #221f29; font: 500 22px var(--mono); color: #8e8a9e; }
+.tb i { width: 16px; height: 16px; border-radius: 50%; background: #3b3845; }
+.tb span { margin-left: 14px; }
+.tx { margin: 0; padding: 30px 40px; font: 400 28px/1.62 var(--mono); white-space: pre-wrap; }
+.tx .d { color: #8e8a9e; } .tx .a { color: #d97757; } .tx .g { color: #6fcf97; }
+.tx .cur { display: inline-block; width: .6em; height: 1.1em; vertical-align: -.2em; background: #ebe9f2; }
+.ring { left: 0; top: 0; border-radius: 50%; border: 14px solid var(--accent); }
+.still { left: 240px; width: 600px; top: 770px; text-align: center; transform-origin: 50% 0; }
+.still span { display: inline-block; font: 700 26px/1 var(--sans); background: var(--ink); color: #fff; padding: 14px 22px; border-radius: 999px; }
+.still span b { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: #6fcf97; margin-right: 12px; vertical-align: 2px; }
+
+.pin { background: var(--card); border: 2px solid var(--line); border-radius: 24px; box-shadow: 0 30px 60px -30px var(--shade); padding: 24px 28px; transform-origin: 50% 100%; overflow: hidden; }
+.pk { font: 700 17px/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.pt { font: 700 30px/1.22 var(--sans); margin-top: 10px; }
+.bars { position: absolute; left: 28px; right: 28px; bottom: 26px; height: 180px; display: flex; align-items: flex-end; gap: 14px; }
+.bars i { flex: 1; border-radius: 9px 9px 3px 3px; background: oklch(66% 0.16 250); transform-origin: 50% 100%; }
+.bars i:last-child { background: var(--accent); }
+.mini { position: absolute; left: 28px; right: 28px; top: 118px; bottom: 26px; border: 2px solid var(--line); border-radius: 14px; overflow: hidden; }
+.mini .mnav { position: absolute; left: 16px; right: 16px; top: 14px; height: 14px; border-radius: 7px; background: var(--floor); }
+.mini .mhero { position: absolute; left: 16px; right: 16px; top: 42px; height: 96px; border-radius: 12px; background: linear-gradient(120deg, oklch(70% 0.15 200), oklch(64% 0.18 280)); }
+.m3 { position: absolute; left: 16px; right: 16px; bottom: 16px; height: 44px; display: flex; gap: 12px; }
+.m3 i { flex: 1; border-radius: 10px; background: var(--floor); }
+.ck { display: flex; align-items: center; gap: 16px; font: 600 26px/1 var(--sans); margin-top: 26px; color: var(--muted); }
+.ck i { width: 30px; height: 30px; border-radius: 9px; border: 3px solid var(--line); display: grid; place-items: center; font: 800 20px/1 var(--sans); font-style: normal; color: #fff; }
+.ck.on { color: var(--ink); }
+.ck.on i { background: var(--ink); border-color: var(--ink); }
+.photo { padding: 18px; }
+.photo .img { height: 340px; border-radius: 12px; background: radial-gradient(circle at 50% 44%, oklch(62% 0.22 20) 0 64px, transparent 65px), radial-gradient(circle at 30% 30%, oklch(88% 0.08 80), oklch(78% 0.1 40)); }
+.photo .pt { font-size: 28px; margin-top: 18px; }
+.df { margin: 20px 0 0; font: 500 23px/1.7 var(--mono); white-space: pre; }
+.df .dm { color: #b8453f; } .df .dp { color: var(--ok); }
+
+/* models */
+.win { background: var(--card); border: 2px solid var(--line); border-radius: 30px; box-shadow: 0 30px 70px -40px var(--shade); overflow: hidden; }
+.tb2 { height: 58px; display: flex; align-items: center; gap: 12px; padding: 0 26px; background: var(--floor); font: 600 22px var(--sans); color: var(--muted); border-bottom: 2px solid var(--line); }
+.tb2 i { width: 15px; height: 15px; border-radius: 50%; background: #d3d0dc; }
+.tb2 span { margin-left: 12px; }
+.split { position: absolute; left: 0; right: 0; top: 378px; border-top: 2px dashed var(--line); }
+.eng { display: flex; align-items: center; gap: 12px; font: 700 26px/1 var(--sans); background: var(--floor); padding: 10px 18px 10px 10px; border-radius: 999px; }
+.eng b { width: 38px; height: 38px; border-radius: 11px; background: var(--ink); color: #fff; display: grid; place-items: center; font: 700 18px/1 var(--mono); }
+.bub { background: var(--card); border: 2px solid var(--line); border-radius: 26px; padding: 18px 26px; font: 600 30px/1.3 var(--sans); box-shadow: 0 16px 30px -18px var(--shade); transform-origin: 0 100%; max-width: 620px; white-space: pre-wrap; }
+.bub.me { background: var(--ink); color: #fff; border-color: var(--ink); transform-origin: 100% 100%; }
+.bub .gh { visibility: hidden; }
+.dlab { font: 700 30px/1 var(--sans); transform-origin: 0 100%; white-space: nowrap; }
+.dlab b { color: var(--ok); }
+.track { border-radius: 11px; background: var(--floor); overflow: hidden; }
+.track i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, oklch(66% 0.2 150), oklch(66% 0.2 172)); border-radius: 11px; }
+.cf { left: 0; top: 0; border-radius: 3px; }
+
+/* plans */
+.edges { left: 0; top: 0; width: 1080px; height: 1080px; overflow: visible; }
+.edges path { fill: none; stroke-width: 6; stroke-linecap: round; }
+.edges .base { stroke: #cfccd9; }
+.edges .over { stroke: var(--ink); }
+.node { width: 400px; height: 112px; background: var(--card); border: 4px solid #cfccd9; border-radius: 26px; padding: 18px 24px; transform-origin: 50% 50%; box-shadow: 0 18px 30px -22px var(--shade); }
+.node .kind { font: 700 16px/1 var(--sans); letter-spacing: .09em; text-transform: uppercase; color: var(--muted); }
+.node .nl { font: 700 30px/1.2 var(--sans); margin-top: 10px; white-space: nowrap; }
+.node .led { position: absolute; right: 20px; top: 16px; width: 26px; height: 26px; border-radius: 50%; background: #dcdae3; display: grid; place-items: center; font: 800 16px/1 var(--sans); font-style: normal; color: #fff; }
+.node .tape { position: absolute; left: 24px; right: 24px; bottom: 12px; height: 8px; border-radius: 4px; background: var(--floor); overflow: hidden; }
+.node .tape i { display: block; height: 100%; width: 0; border-radius: 4px; }
+.node .you { position: absolute; right: 20px; bottom: 16px; font: 800 16px/1 var(--sans); letter-spacing: .06em; text-transform: uppercase; background: var(--accent); color: #fff; padding: 8px 12px; border-radius: 999px; }
+
+/* options */
+.opt { left: 0; top: 0; width: 240px; height: 320px; background: var(--card); border: 3px solid var(--line); border-radius: 22px; box-shadow: 0 26px 40px -26px var(--shade); transform-origin: 50% 50%; padding: 14px; }
+.opt .ol { position: absolute; left: -14px; top: -14px; width: 46px; height: 46px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font: 800 22px/1 var(--sans); }
+.opt .nav { height: 12px; border-radius: 6px; background: var(--floor); width: 60%; margin-left: auto; }
+.opt .hero { margin-top: 12px; height: 130px; border-radius: 12px; }
+.opt .r3 { display: flex; gap: 8px; margin-top: 12px; }
+.opt .r3 i { flex: 1; height: 56px; border-radius: 8px; background: var(--floor); }
+.opt .ln { height: 12px; border-radius: 6px; background: var(--floor); margin-top: 12px; width: 80%; }
+.opt.a .hero { background: linear-gradient(135deg, oklch(72% 0.13 230), oklch(62% 0.16 260)); }
+.opt.b .hero { background: radial-gradient(circle at 72% 50%, oklch(62% 0.22 20) 0 34px, transparent 35px), linear-gradient(90deg, #fff 0 50%, oklch(94% 0.03 20) 50%); border: 2px solid var(--line); }
+.opt.c .hero { background: linear-gradient(160deg, #26242e, #3b3748); }
+.stamp { left: 0; top: 0; font: 800 34px/1 var(--sans); color: var(--accent); border: 5px solid var(--accent); border-radius: 14px; padding: 10px 16px; letter-spacing: .06em; text-transform: uppercase; background: rgba(255,255,255,.85); }
+.ptr { left: 0; top: 0; width: 44px; height: 60px; filter: drop-shadow(0 4px 5px var(--shade)); }
+.ptr svg { width: 100%; height: 100%; display: block; }
+
+/* phone */
+.dev { background: var(--card); border-style: solid; border-color: var(--ink); overflow: hidden; box-shadow: 0 40px 80px -40px var(--shade); }
+.dev > div { position: absolute; inset: 0; }
+.desk .side { position: absolute; left: 0; top: 0; bottom: 0; width: 170px; background: var(--floor); }
+.desk .side i { display: block; height: 16px; border-radius: 8px; background: #d8d5e1; margin: 26px 22px 0; }
+.desk .blk { position: absolute; border-radius: 16px; border: 2px solid var(--line); background: #fbfbfd; }
+.phonec .bar { position: absolute; left: 30px; right: 30px; top: 20px; display: flex; justify-content: space-between; font: 700 20px/1 var(--sans); }
+.phonec .ttl { position: absolute; left: 30px; top: 78px; font: 800 36px/1 var(--sans); }
+.pcard { position: absolute; left: 22px; right: 22px; top: 150px; height: 330px; border: 2px solid var(--line); border-radius: 26px; padding: 26px; background: #fbfbfd; }
+.pcard .pk { font-size: 15px; }
+.pcard h3 { margin: 12px 0 8px; font: 800 32px/1.15 var(--sans); }
+.pcard p { margin: 0; font: 500 22px/1.35 var(--sans); color: var(--muted); }
+.pbtn { position: absolute; bottom: 24px; height: 64px; border-radius: 18px; display: grid; place-items: center; font: 800 24px/1 var(--sans); }
+.pbtn.no { left: 20px; width: 112px; font-size: 21px; background: var(--floor); }
+.pbtn.yes { right: 20px; width: 150px; font-size: 21px; background: var(--ink); color: #fff; }
+.note { position: absolute; left: 14px; right: 14px; top: 0; height: 104px; border-radius: 24px; background: rgba(250,250,252,.97); border: 2px solid var(--line); box-shadow: 0 18px 30px -18px var(--shade); display: flex; align-items: center; gap: 14px; padding: 0 18px; font: 600 21px/1.25 var(--sans); }
+.note b { flex: none; width: 50px; height: 50px; border-radius: 14px; background: linear-gradient(158deg, oklch(72% 0.17 20), oklch(66% 0.22 352)); color: #fff; display: grid; place-items: center; font: 800 26px/1 var(--sans); }
+.note small { display: block; color: var(--muted); font-weight: 500; }
+.thumb { left: 0; top: 0; width: 110px; height: 110px; border-radius: 50%; background: rgba(31,30,37,.16); border: 4px solid rgba(31,30,37,.4); }
+.okring { left: 0; top: 0; border-radius: 50%; border: 8px solid var(--ok); }
+
+/* shelf */
+.tabs2 { left: 70px; top: 262px; display: flex; gap: 10px; }
+.tabs2 span { font: 700 22px/1 var(--sans); padding: 12px 18px; border-radius: 999px; background: var(--floor); color: var(--muted); }
+.tabs2 span:first-child { background: var(--ink); color: #fff; }
+.plank { left: 60px; width: 960px; height: 24px; border-radius: 6px; background: #d9d5e3; box-shadow: 0 6px 0 #c7c2d4, 0 20px 24px -14px var(--shade); }
+.tile { left: 0; top: 0; width: 200px; height: 236px; background: var(--card); border: 2px solid var(--line); border-radius: 22px; padding: 16px; transform-origin: 50% 100%; box-shadow: 0 16px 30px -20px var(--shade); }
+.tile .pk { font-size: 14px; }
+.tile .ic { margin-top: 12px; height: 92px; border-radius: 14px; display: grid; place-items: center; font: 800 44px/1 var(--sans); color: #fff; }
+.tile .tn { margin-top: 12px; font: 800 23px/1.1 var(--sans); white-space: nowrap; }
+.tile .add { position: absolute; right: 12px; top: 12px; width: 36px; height: 36px; border-radius: 50%; background: var(--ink); color: #fff; display: grid; place-items: center; font: 800 24px/1 var(--sans); }
+.toast { right: 60px; top: 262px; font: 700 23px/1 var(--sans); background: var(--ink); color: #fff; padding: 14px 20px; border-radius: 16px; transform-origin: 100% 0; white-space: nowrap; }
+.toast b { color: #6fcf97; }
+
+/* charm */
+.composer { left: 140px; top: 900px; width: 800px; height: 92px; border-radius: 46px; background: var(--card); border: 2px solid var(--line); box-shadow: 0 16px 30px -22px var(--shade); display: flex; align-items: center; padding: 0 36px; font: 500 30px/1 var(--sans); color: var(--muted); }
+.stopb { position: absolute; right: 14px; top: 12px; width: 64px; height: 64px; border-radius: 50%; background: var(--ink); display: grid; place-items: center; }
+.stopb i { width: 22px; height: 22px; border-radius: 4px; background: #fff; }
+.tag { left: 140px; width: 800px; top: 300px; text-align: center; transform-origin: 50% 100%; }
+.tag span { display: inline-block; font: 800 34px/1 var(--sans); padding: 16px 26px; border-radius: 999px; background: var(--floor); }
+.tag span.bad { background: var(--alert); color: #fff; }
+.tag span.good { background: var(--ok); color: #fff; }
+.rod { left: 0; top: 0; width: 1080px; height: 1080px; overflow: visible; }
+.star { left: 0; top: 0; width: 40px; height: 40px; background: oklch(82% 0.16 88); clip-path: polygon(50% 0, 62% 38%, 100% 50%, 62% 62%, 50% 100%, 38% 62%, 0 50%, 38% 38%); }
+
+/* end */
+.tagline { left: 40px; right: 40px; top: 694px; text-align: center; font: 800 66px/1.08 var(--sans); letter-spacing: -0.025em; transform-origin: 50% 100%; }
+.tagline em { font-style: normal; color: var(--accent); }
+.engs { left: 40px; right: 40px; top: 862px; display: flex; justify-content: center; gap: 12px; transform-origin: 50% 0; }
+.engs span { font: 700 28px/1 var(--sans); background: var(--floor); padding: 12px 20px; border-radius: 999px; }
+.free { left: 40px; right: 40px; top: 940px; text-align: center; font: 800 38px/1 var(--sans); letter-spacing: -0.01em; transform-origin: 50% 0; }
+.free em { font-style: normal; color: var(--accent); }
+.url { left: 40px; right: 40px; top: 996px; text-align: center; font: 500 34px/1 var(--mono); color: var(--muted); transform-origin: 50% 0; }
+</style>
+<body>
+<script src="https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@KIT_REF/items/director/kit/motion.js"></script>
+<script>
+// The film Director was made from: Wibble's 36-second launch teaser, whole.
+// Read it for the moves -- the terminal breaking open, a stampede that spells
+// a name, a pointer that picks, a phone that squeezes out of a desk.
+const END = 36000;
+film({ title: "Wibble, the teaser", end: END, whip: 420 });
+
+scene(0, 10800, (root, at) => {
+  const cam = el("div", "cam", root);
+  const dots = el("div", "dots", cam);
+  const PINS = [
+    { x: -300, y: 20, w: 520, h: 340, rot: -2, html: `<div class="pk">Chart</div><div class="pt">Build time, last 7 runs</div><div class="bars">${[88, 74, 80, 61, 52, 44, 36].map(v => `<i style="height:${v}%"></i>`).join("")}</div>` },
+    { x: 860, y: 0, w: 520, h: 360, rot: 2, html: `<div class="pk">Live page</div><div class="pt">localhost:5173</div><div class="mini"><i class="mnav"></i><i class="mhero"></i><div class="m3"><i></i><i></i><i></i></div></div>` },
+    { x: 900, y: 470, w: 420, h: 470, rot: 4, cls: "photo", html: `<div class="img"></div><div class="pt">New logo, take 3</div>` },
+    { x: -320, y: 480, w: 460, h: 400, rot: 1.5, html: `<div class="pk">Checklist</div><div class="pt">Release</div>${["Bump the version", "Write the changelog", "Run the full suite", "Tag and push"].map(s => `<div class="ck"><i>✓</i>${s}</div>`).join("")}` },
+    { x: -200, y: 960, w: 520, h: 290, rot: -1.5, html: `<div class="pk">Diff</div><pre class="df"><span class="dm">- const total = sum(items)</span>\n<span class="dp">+ const total = subtotal(cart)</span>\n<span class="dp">+   .withTax(region)</span></pre>` },
+    { x: 860, y: 1010, w: 480, h: 260, rot: -3, html: `<div class="pk">Note</div><div class="pt">Check the coupon rule before Friday.</div>` },
+  ].map(d => ({ ...d, e: pos(el("div", "pin " + (d.cls || ""), cam, d.html), d.x, d.y, d.w, d.h) }));
+  const term = el("div", "term", cam, `<div class="tb"><i></i><i></i><i></i><span>claude — ~/shop</span></div><pre class="tx"></pre>`);
+  const tx = term.querySelector(".tx");
+  const chip = el("div", "still", cam, `<span><b></b>Your terminal, still running</span>`);
+  const ring = el("div", "ring", cam);
+  const tr = troupe(cam);
+  const W = tr.add("W", 900, { h: 150, logo: true, ph: 0.1 });
+  W.at(3380, 540, -300).arc(540, 0, 820, { peak: 380, spin: 360 }).plop(560, { big: true })
+    .until(5500).hop(640, { to: 860, H: 60 }).until(6500).hop(480, { H: 34 })
+    .until(8900).arc(560, -470, 760, { peak: 220 }).plop(440).until(9950).hop(640, { H: 80 }).until(40000);
+  const r = rng(7);
+  "ABCDEFGHKMNPRSTUVYZ".split("").forEach((ch, i) => {
+    const gy = 872 + r() * 110, a = tr.add(ch, gy, { h: 108, slot: i });
+    const lx = 90 + r() * 900, spin = r() < 0.35 ? (r() < 0.5 ? 360 : -360) : 0;
+    a.at(3600 + i * 50, 540 + (r() - 0.5) * 140, 585 - gy).arc(lx, 0, 620 + r() * 260, { peak: 250 + r() * 260, spin }).plop(360).hold(120 + r() * 380);
+    const out = lx < 540 ? -200 : 1280;
+    a.run(out, Math.abs(out - lx) / 1.5, { dust: true, stride: 150, jump: 30 }).gone();
+  });
+  tr.sortZ();
+  const bang = el("div", "flash", root);
+  const LINES = [
+    [300, '<span class="d">~/shop $</span> ', "claude"],
+    [850, '<span class="a">✻</span> Welcome to Claude Code'],
+    [900, ""],
+    [1050, '<span class="d">&gt;</span> ', "tidy up the checkout flow"],
+    [2000, '<span class="a">⏺</span> Read(src/checkout.ts)'],
+    [2250, '<span class="a">⏺</span> Update(src/cart.ts)'],
+    [2350, '  <span class="d">⎿  +48 −31</span>'],
+    [2600, '<span class="a">⏺</span> Bash(npm test)'],
+    [6000, '  <span class="g">⎿  ✓ 214 tests passed</span>'],
+  ];
+  for (const L of LINES) {
+    if (L[2]) for (let i = 0; i < L[2].length; i++) at(L[0] + i * 45, "type", 0.55, 300);
+    else if (L[1]) at(L[0], "type", 0.3, 300);
+  }
+  at(2300, "shake", 1); at(3380, "burst", 1); at(4700, "bubble", 0.7); at(7400, "whip", 0.35);
+  PINS.forEach((p, i) => at(8000 + i * 170, "pin", 0.7, 540 + (p.x + p.w / 2 - 540) * 0.6));
+  function termAt(lt) {
+    if (lt < 3420) return { x: 90, y: 270, s: 1 };
+    const k = eob(tl(lt, 3420, 4070));
+    return { x: lerp(90, 340, k), y: lerp(270, 430, k), s: lerp(1, 0.4444, k) };
+  }
+  return lt => {
+    const s = lerp(1, 0.6, eio(tl(lt, 7400, 8300)));
+    cam.style.transform = `translate(540px, 640px) scale(${s}) translate(-540px, -640px)`;
+    dots.style.opacity = String(tl(lt, 4300, 5100));
+
+    let jx = 0, jy = 0, jr = 0, bx = 1, by = 1;
+    if (lt > 2300 && lt < 3420) { const a = 13 * Math.pow(tl(lt, 2300, 3400), 2); jx = a * Math.sin(lt / 17); jy = a * Math.cos(lt / 23); jr = a * 0.1 * Math.sin(lt / 29); }
+    if (lt > 3050 && lt < 3420) { const u = tl(lt, 3050, 3420), w = Math.sin(u * Math.PI * 4) * u; bx = 1 + 0.06 * w; by = 1 - 0.05 * w; }
+    const R = termAt(lt);
+    term.style.transform = `translate(${R.x + jx - 450 * (1 - R.s)}px, ${R.y + jy - 350 * (1 - R.s)}px) rotate(${jr}deg) scale(${R.s * bx}, ${R.s * by})`;
+    let html = "";
+    for (const L of LINES) {
+      if (lt < L[0]) break;
+      html += L[1] + (L[2] ? L[2].slice(0, Math.floor((lt - L[0]) / 45)) : "") + "\n";
+    }
+    if (Math.floor(lt / 500) % 2 === 0) html += '<span class="cur"></span>';
+    tx.innerHTML = html;
+
+    const ru = tl(lt, 3380, 3950);
+    if (ru > 0 && ru < 1) { const d = 60 + 1500 * eo3(ru); ring.style.display = "block"; ring.style.opacity = String(1 - ru); ring.style.width = ring.style.height = `${d}px`; ring.style.transform = `translate(${540 - d / 2}px, ${620 - d / 2}px)`; }
+    else ring.style.display = "none";
+    bang.style.opacity = lt >= 3380 && lt < 3620 ? String(0.75 * (1 - tl(lt, 3380, 3620))) : "0";
+    popIn(chip, tl(lt, 4700, 5120));
+
+    PINS.forEach((p, i) => {
+      const t0 = 8000 + i * 170;
+      popIn(p.e, tl(lt, t0, t0 + 460), p.rot, -90);
+      p.e.querySelectorAll(".bars i").forEach((b, k) => { b.style.transform = `scaleY(${eob(tl(lt, t0 + 250 + k * 60, t0 + 650 + k * 60))})`; });
+      p.e.querySelectorAll(".ck").forEach((c, k) => c.classList.toggle("on", k < 3 && lt > t0 + 450 + k * 260));
+    });
+    tr.draw(lt);
+  };
+});
+
+// 4. Two engines, one window.
+scene(10800, 14200, (root, at) => {
+  pos(el("div", "win", root, `<div class="tb2"><i></i><i></i><i></i><span>wibble — shop</span></div><div class="split"></div>`), 60, 270, 960, 760);
+  pos(el("div", "eng", root, "<b>C</b>Claude"), 96, 352);
+  pos(el("div", "eng", root, "<b>›_</b>Codex"), 96, 684);
+  const ub = el("div", "bub me", root, "Rename the checkout API."); ub.style.right = "100px"; ub.style.top = "350px";
+  const wb = pos(el("div", "bub", root, '<span class="s1"></span><span class="gh"></span>'), 310, 452);
+  const s1 = wb.querySelector(".s1"), gh = wb.querySelector(".gh");
+  const lab = pos(el("div", "dlab", root, ""), 330, 780);
+  const track = pos(el("div", "track", root, "<i></i>"), 330, 900, 620, 24);
+  const cf = confetti(root, 70, 5);
+  const tr = troupe(root);
+  const W = tr.add("W", 622, { h: 140, logo: true, ph: 0.3 });
+  W.at(0, 190).until(1000).hop(420, { H: 22 }).until(1550).hop(420, { H: 22 }).until(2150).hop(420, { H: 22 }).until(9000);
+  const X = tr.add("X", 900, { h: 80, slot: 3 });
+  X.at(0, 335).until(700).run(935, 1900, { stride: 110, jump: 16 }).plop(380).until(2750).hop(640, { H: 100 }).until(9000);
+  const TXT = "On it. Renaming 6 endpoints and everything that calls them.";
+  at(250, "bubble", 0.8, 800); at(900, "bubble", 0.8, 500); at(2650, "chime", 1, 900); at(2650, "confetti", 1, 950);
+  return lt => {
+    const ua = lt - 250; vis(ub, ua >= 0); if (ua >= 0) ub.style.transform = `scale(${popBub(ua)})`;
+    const age = lt - 900; vis(wb, age >= 0);
+    if (age >= 0) { const n = Math.floor(age / 24); s1.textContent = TXT.slice(0, n); gh.textContent = TXT.slice(n); wb.style.transform = `scale(${popBub(age)})`; }
+    track.firstChild.style.width = `${clamp((lt - 700) / 1900) * 100}%`;
+    const done = lt >= 2650;
+    lab.innerHTML = done ? "Deployed to production <b>✓</b>" : "Deploying checkout-v2 to production…";
+    lab.style.transform = done ? `scale(${popBub(lt - 2650)})` : "none";
+    cf(950, 900, lt - 2650);
+    tr.draw(lt);
+  };
+});
+
+// 5. Plans you can read, agents you can watch.
+scene(14200, 17800, (root, at) => {
+  const N = [
+    { x: 90, y: 360, k: "Step 1", l: "Read the checkout code", slot: 0, L: "R" },
+    { x: 590, y: 360, k: "Step 2", l: "Sketch the new flow", slot: 2, L: "S" },
+    { x: 90, y: 600, k: "Step 3", l: "Rewrite the cart", slot: 4, L: "C" },
+    { x: 590, y: 600, k: "Step 4", l: "Update the tests", slot: 6, L: "T" },
+    { x: 340, y: 840, k: "Step 5", l: "Ship it", you: true },
+  ];
+  const E = [[0, 1, "M490 416 L590 416"], [1, 2, "M790 472 C790 540, 290 530, 290 600"], [1, 3, "M790 472 L790 600"], [2, 4, "M290 712 C290 780, 540 770, 540 840"], [3, 4, "M790 712 C790 780, 540 770, 540 840"]];
+  const svg = svgEl(root, "edges");
+  svg.setAttribute("viewBox", "0 0 1080 1080");
+  svg.innerHTML = E.map(e => `<path class="base" pathLength="1" stroke-dasharray="1" d="${e[2]}"/>`).join("") + E.map(e => `<path class="over" pathLength="1" stroke-dasharray="1" d="${e[2]}"/>`).join("");
+  const base = [...svg.querySelectorAll(".base")], over = [...svg.querySelectorAll(".over")];
+  N.forEach(n => {
+    n.e = pos(el("div", "node", root, `<div class="kind">${n.k}</div><div class="nl">${n.l}</div>${n.you ? '<span class="you">Needs your OK</span>' : '<i class="led"></i><div class="tape"><i></i></div>'}`), n.x, n.y);
+    n.led = n.e.querySelector(".led"); n.tape = n.e.querySelector(".tape i");
+  });
+  const tr = troupe(root);
+  N.slice(0, 4).forEach((n, i) => {
+    const a = tr.add(n.L, n.y, { h: 86, slot: n.slot });
+    n.land = 1000 + i * 120 + 600; n.done = 2300 + i * 180;
+    a.at(1000 + i * 120, n.x + 330, 1200 - n.y).arc(n.x + 330, 0, 600, { peak: 240 }).plop(380).until(n.done).hop(440, { H: 40 }).until(9000);
+    n.tint = slotTint(n.slot)[0];
+    n.tape.style.background = n.tint;
+  });
+  N.forEach((n, i) => at(i * 130, "pin", 0.6, n.x + 200));
+  N.slice(0, 4).forEach((n, i) => at(n.done, "note:" + ["e4", "g4", "a4", "c5"][i], 0.9, n.x + 200));
+  at(2750, "throw", 0.8, 660); at(3350, "note:e5", 0.9, 540);
+  const W = tr.add("W", 840, { h: 110, logo: true });
+  W.at(2750, 660, 360).arc(660, 0, 600, { peak: 260 }).plop(420).until(3180).hop(600, { H: 80 }).until(9000);
+  return lt => {
+    N.forEach((n, i) => {
+      popIn(n.e, tl(lt, i * 130, i * 130 + 420), 0, -40);
+      if (n.you) { n.e.style.borderColor = lt > 3350 ? "var(--accent)" : ""; return; }
+      const on = lt >= n.land, fin = lt >= n.done;
+      n.e.style.borderColor = fin ? "var(--ink)" : on ? n.tint : "";
+      n.e.style.background = fin ? `color-mix(in oklab, ${n.tint} 12%, #fff)` : "";
+      n.led.style.background = fin ? "var(--ink)" : on ? n.tint : "";
+      n.led.style.boxShadow = on && !fin ? `0 0 0 ${4 + 5 * (0.5 + 0.5 * Math.sin(lt / 140))}px color-mix(in oklab, ${n.tint} 35%, transparent)` : "none";
+      n.led.textContent = fin ? "✓" : "";
+      n.tape.style.width = `${tl(lt, n.land, n.done) * 100}%`;
+    });
+    E.forEach((e, i) => {
+      base[i].style.strokeDashoffset = String(1 - eio(tl(lt, 450 + i * 120, 950 + i * 120)));
+      over[i].style.strokeDashoffset = String(1 - eio(tl(lt, N[e[0]].done, N[e[0]].done + 380)));
+    });
+    tr.draw(lt);
+  };
+});
+
+// 6. Answer by pointing.
+scene(17800, 21200, (root, at) => {
+  const bub = pos(el("div", "bub", root, '<span class="s1"></span><span class="gh"></span>'), 290, 360);
+  const s1 = bub.querySelector(".s1"), gh = bub.querySelector(".gh");
+  const O = [
+    { c: "a", l: "A", x: 360, y: 790, r: -9, ox: -260, oy: 1300, orr: -50 },
+    { c: "b", l: "B", x: 620, y: 770, r: 0 },
+    { c: "c", l: "C", x: 880, y: 790, r: 9, ox: 1340, oy: 1300, orr: 50 },
+  ].map(o => ({ ...o, e: el("div", "opt " + o.c, root, `<b class="ol">${o.l}</b><i class="nav"></i><div class="hero"></div><div class="ln"></div><div class="r3"><i></i><i></i><i></i></div>`) }));
+  const stamp = el("div", "stamp", root, "Picked");
+  const tr = troupe(root);
+  const W = tr.add("W", 600, { h: 150, logo: true, ph: 0.6 });
+  W.at(0, 170).until(350).hop(460, { H: 30 }).until(2350).hop(700, { H: 110 }).until(9000);
+  tr.sortZ();
+  const ptr = el("div", "ptr", root, PTR);
+  at(150, "bubble", 0.8, 400); [0, 1, 2].forEach(i => at(450 + i * 110, "card", 0.8, [360, 620, 880][i]));
+  at(1950, "click", 0.9, 640); at(2250, "whip", 0.45); at(2450, "bubble", 0.7, 400); at(2650, "stamp", 1, 760);
+  return lt => {
+    const txt = lt < 2450 ? "Which landing page?" : "B it is. Building it now.";
+    const t0 = lt < 2450 ? 150 : 2450, age = lt - t0;
+    vis(bub, age >= 0);
+    if (age >= 0) { const n = Math.floor(age / 26); s1.textContent = txt.slice(0, n); gh.textContent = txt.slice(n); bub.style.transform = `scale(${popBub(age)})`; bub.style.transformOrigin = "0 100%"; }
+    const press = lt >= 1950 && lt < 2200 ? Math.sin(tl(lt, 1950, 2200) * Math.PI) : 0;
+    O.forEach((o, i) => {
+      const u = tl(lt, 450 + i * 110, 950 + i * 110);
+      if (u <= 0) { vis(o.e, false); return; }
+      vis(o.e, true);
+      const k = eob(u);
+      let x = lerp(170, o.x, k), y = lerp(480, o.y, k), r = o.r * k, s = lerp(0.2, 1, k), sx = 1, sy = 1;
+      const g = eio(tl(lt, 2250, 2800));
+      if (o.l === "B") { x = lerp(x, 640, g); y = lerp(y, 720, g); s *= lerp(1, 1.4, g); sx = 1 + 0.12 * press; sy = 1 - 0.12 * press; }
+      else { x = lerp(x, o.ox, g); y = lerp(y, o.oy, g); r = lerp(r, o.orr, g); s *= lerp(1, 0.6, g); }
+      o.e.style.transform = `translate(${x - 120}px, ${y - 160}px) rotate(${r}deg) scale(${s * sx}, ${s * sy})`;
+      o.e.style.borderColor = o.l === "B" && lt > 1950 ? "var(--accent)" : "";
+    });
+    const su = tl(lt, 2650, 3000);
+    if (su > 0) { vis(stamp, true); const k = eob(su); stamp.style.transform = `translate(${700}px, ${560}px) rotate(${-14 * k}deg) scale(${lerp(2.4, 1, k)})`; stamp.style.opacity = String(clamp(su * 3)); }
+    else vis(stamp, false);
+    const pu = eio(tl(lt, 1250, 1900));
+    vis(ptr, lt > 1100 && lt < 2700);
+    ptr.style.opacity = String(1 - tl(lt, 2400, 2700));
+    ptr.style.transform = `translate(${lerp(1080, 628, pu)}px, ${lerp(1100, 800, pu)}px) scale(${1 - 0.15 * press})`;
+    tr.draw(lt);
+  };
+});
+
+// 7. Fast, smooth, and on your phone.
+scene(21200, 24600, (root, at) => {
+  const streaks = [0, 1, 2, 3, 4, 5].map(() => el("div", "streak", root));
+  const dev = el("div", "dev", root, `
+    <div class="desk"><div class="side"><i></i><i></i><i></i><i></i></div>
+      <div class="blk" style="left:210px;top:40px;width:300px;height:220px"></div><div class="blk" style="left:540px;top:60px;width:320px;height:180px"></div>
+      <div class="blk" style="left:230px;top:300px;width:260px;height:260px"></div><div class="blk" style="left:520px;top:280px;width:340px;height:290px"></div></div>
+    <div class="phonec"><div class="bar"><span>9:41</span><span>●●●</span></div><div class="ttl">wibble</div>
+      <div class="pcard"><div class="pk">Codex · shop</div><h3>Deploy checkout-v2?</h3><p class="pp">Tests pass. It's ready when you are.</p>
+        <div class="pbtn no">Not yet</div><div class="pbtn yes">Approve</div></div>
+      <div class="note"><b>W</b><div>Needs you<small>A deploy is waiting for your OK</small></div></div></div>`);
+  const desk = dev.querySelector(".desk"), phone = dev.querySelector(".phonec"), note = dev.querySelector(".note"), yes = dev.querySelector(".yes"), pp = dev.querySelector(".pp");
+  const ring = el("div", "okring", root);
+  const tr = troupe(root);
+  const W = tr.add("W", 1004, { h: 84, logo: true });
+  W.at(900, 540).plop(420).until(2200).hop(640, { H: 70 }).until(9000);
+  const thumb = el("div", "thumb", root);
+  at(300, "squish", 1); at(1100, "notify", 1); at(2000, "click", 0.9, 594); at(2100, "chime", 1, 594);
+  const D = { x: 90, y: 300, w: 900, h: 620, r: 28, b: 3 }, P = { x: 350, y: 270, w: 380, h: 770, r: 58, b: 12 };
+  return lt => {
+    const k = eob(tl(lt, 300, 950));
+    const R = {}; for (const key in D) R[key] = lerp(D[key], P[key], k);
+    Object.assign(dev.style, { left: `${R.x}px`, top: `${R.y}px`, width: `${R.w}px`, height: `${R.h}px`, borderRadius: `${R.r}px`, borderWidth: `${Math.max(2, R.b)}px` });
+    desk.style.opacity = String(1 - tl(lt, 300, 600));
+    phone.style.opacity = String(tl(lt, 700, 950));
+    streaks.forEach((s, i) => {
+      const u = tl(lt, 250 + i * 40, 750 + i * 40), side = i % 2 ? 1 : -1;
+      s.style.opacity = String(Math.sin(Math.PI * u) * 0.35);
+      s.style.width = `${160 + 60 * (i % 3)}px`;
+      s.style.transform = `translate(${540 + side * lerp(520, 230, eo3(u)) - 100}px, ${380 + i * 90}px)`;
+    });
+    const nu = tl(lt, 1100, 1500), nout = tl(lt, 2250, 2550);
+    note.style.transform = `translateY(${lerp(-130, 24, eob(nu)) - 150 * eio(nout)}px)`;
+    const tu = eio(tl(lt, 1500, 2000)), press = lt >= 2000 && lt < 2220 ? Math.sin(tl(lt, 2000, 2220) * Math.PI) : 0;
+    vis(thumb, lt > 1450 && lt < 2600);
+    thumb.style.opacity = String(1 - tl(lt, 2350, 2600));
+    thumb.style.transform = `translate(${lerp(880, 539, tu)}px, ${lerp(1150, 651, tu)}px) scale(${1 - 0.18 * press})`;
+    const ok = lt >= 2100;
+    yes.textContent = ok ? "Approved ✓" : "Approve";
+    yes.style.background = ok ? "var(--ok)" : "";
+    yes.style.transform = `scale(${1 + 0.1 * press}, ${1 - 0.14 * press})`;
+    pp.textContent = ok ? "Shipping now. We'll tell you when it lands." : "Tests pass. It's ready when you are.";
+    const ru = tl(lt, 2100, 2650);
+    if (ru > 0 && ru < 1) { const d = 60 + 420 * eo3(ru); ring.style.display = "block"; ring.style.opacity = String(1 - ru); ring.style.width = ring.style.height = `${d}px`; ring.style.transform = `translate(${594 - d / 2}px, ${706 - d / 2}px)`; }
+    else ring.style.display = "none";
+    tr.draw(lt);
+  };
+});
+
+// 8. The shelf.
+scene(24600, 28000, (root, at) => {
+  el("div", "tabs2", root, "<span>All</span><span>Agents</span><span>Pins</span><span>Extensions</span><span>Toys</span>");
+  const P1 = 600, P2 = 910;
+  const T = [
+    { k: "Pin", n: "Flame graph", x: 250, py: P1, ic: "▮▮▮", c: "oklch(66% 0.16 250)" },
+    { k: "Agent", n: "Reviewer", x: 540, py: P1, ic: "R", c: "oklch(66% 0.2 150)", go: 500, L: "J", slot: 1 },
+    { k: "Extension", n: "Figma bridge", x: 830, py: P1, ic: "⌘", c: "oklch(66% 0.2 300)" },
+    { k: "Agent", n: "Test writer", x: 250, py: P2, ic: "T", c: "oklch(70% 0.16 88)", go: 1250, L: "V", slot: 5 },
+    { k: "Pin", n: "Standup notes", x: 540, py: P2, ic: "✎", c: "oklch(66% 0.14 200)" },
+    { k: "Toy", n: "Ball pit", x: 830, py: P2, ic: "●", c: "oklch(62% 0.22 20)", go: 2000, L: "U", slot: 7 },
+  ];
+  T.forEach(t => { t.e = el("div", "tile", root, `<div class="pk">${t.k}</div><div class="ic" style="background:${t.c}">${t.ic}</div><div class="tn">${t.n}</div><span class="add">+</span>`); });
+  pos(el("div", "plank", root), 60, P1); pos(el("div", "plank", root), 60, P2);
+  const toast = el("div", "toast", root, "");
+  const tr = troupe(root);
+  T.filter(t => t.go).forEach(t => {
+    t.a = tr.add(t.L, t.py, { h: 82, slot: t.slot });
+    t.a.at(0, t.x - 150).until(t.go + 150).hop(500, { to: t.x, H: 60 }).until(t.go + 850).run(1300, 800, { dust: true, stride: 130, jump: 20 }).gone();
+  });
+  tr.add("Q", P1, { h: 76, slot: 3 }).at(0, 100).until(9000);
+  tr.add("Y", P2, { h: 76, slot: 6 }).at(0, 990).until(2700).hop(560, { H: 40 }).until(9000);
+  const ptr = el("div", "ptr", root, PTR);
+  T.forEach((t, i) => at(i * 90, "pin", 0.45, t.x));
+  T.filter(t => t.go).forEach(t => { at(t.go - 30, "click", 0.8, t.x); at(t.go + 50, "pickup", 0.9, t.x); at(t.go + 250, "bubble", 0.5, 900); });
+  return lt => {
+    tr.draw(lt);
+    T.forEach((t, i) => {
+      const u = tl(lt, i * 90, i * 90 + 420);
+      let x = t.x, bottom = t.py, s = 1, rot = 0;
+      if (t.go) {
+        const up = eio(tl(lt, t.go + 50, t.go + 380)), down = eio(tl(lt, t.go + 650, t.go + 820)), p = t.a.pose;
+        s = lerp(1, 0.62, up);
+        const lifted = t.py - 170;
+        bottom = lerp(t.py, lifted, up);
+        if (p && lt >= t.go + 650) { const head = t.a.gy + p.y - t.a.o.h * p.sy - 2; bottom = lerp(lifted, head, down); x = p.x; rot = p.rot || 0; }
+        if (lt > t.go + 700 && !p) { vis(t.e, false); return; }
+      }
+      if (u <= 0) { vis(t.e, false); return; }
+      vis(t.e, true);
+      const k = eob(u), sq = t.go && lt > t.go && lt < t.go + 160 ? Math.sin(tl(lt, t.go, t.go + 160) * Math.PI) : 0;
+      t.e.style.transform = `translate(${x - 100}px, ${bottom - 236 + (1 - Math.min(1, k)) * -60}px) rotate(${rot}deg) scale(${k * s * (1 + 0.1 * sq)}, ${k * s * (1 - 0.1 * sq)})`;
+    });
+    let cur = null;
+    for (const t of T) if (t.go && lt >= t.go + 250 && lt < t.go + 1150) cur = t;
+    if (cur) { vis(toast, true); toast.innerHTML = `<b>✓</b> Installed ${cur.n}`; toast.style.transform = `scale(${popBub(lt - cur.go - 250)})`; } else vis(toast, false);
+    // the pointer visits each Add button in turn
+    const gos = T.filter(t => t.go);
+    let px = 1100, py = 1100, press = 0;
+    for (let i = 0; i < gos.length; i++) {
+      const t = gos[i], from = i ? gos[i - 1] : null, ax = t.x + 72, ay = t.py - 212;
+      if (lt >= t.go - 450) { const u = eio(tl(lt, t.go - 450, t.go - 30)); px = lerp(from ? from.x + 72 : 1100, ax, u); py = lerp(from ? from.py - 212 : 1100, ay, u); }
+      if (lt >= t.go - 30 && lt < t.go + 170) press = Math.sin(tl(lt, t.go - 30, t.go + 170) * Math.PI);
+    }
+    vis(ptr, lt > 0 && lt < 2600);
+    ptr.style.opacity = String(1 - tl(lt, 2300, 2600));
+    ptr.style.transform = `translate(${px}px, ${py}px) scale(${1 - 0.15 * press})`;
+  };
+});
+
+// 9. Charm, in four quick cuts.
+scene(28000, 31800, (root, at) => {
+  const inner = el("div", "cam", root);
+  const tag = el("div", "tag", inner, "<span></span>");
+  const tagS = tag.firstChild;
+  const comp = el("div", "composer", inner, `Ask anything…<span class="stopb"><i></i></span>`);
+  const svg = svgEl(inner, "rod");
+  svg.setAttribute("viewBox", "0 0 1080 1080");
+  svg.innerHTML = `<path id="rodp" d="M592 770 L846 600" stroke="#1f1e25" stroke-width="8" stroke-linecap="round"/><path id="linep" d="" stroke="#1f1e25" stroke-width="2.5" fill="none"/><circle id="bob" r="14" fill="oklch(62% 0.22 20)" stroke="#fff" stroke-width="4"/>`;
+  const stopb = comp.querySelector(".stopb");
+  const wm = mkW(inner, "W", { h: 170, logo: true });
+  const stars = [0, 1, 2].map(() => el("div", "star", inner));
+  const cf = confetti(inner, 80, 11);
+  const tr = troupe(inner);
+  const W2 = tr.add("W", 880, { h: 170, logo: true });
+  W2.at(2850, -150).run(400, 360, { dust: true, stride: 130, jump: 18 }).skid(560, 420).until(9000);
+  const flash = el("div", "flash", root);
+  [0, 950, 1900, 2850].forEach(ms => at(ms, "whip", 0.3));
+  at(120, "cast", 0.8, 700); at(600, "bite", 1, 846); at(620, "hop", 0.4, 470);
+  at(950 + 60, "hop", 0.5, 540); at(950 + 250, "chime", 0.9, 540); at(950 + 250, "confetti", 1, 540); at(950 + 250, "hop", 1, 540); at(950 + 780, "land", 0.8, 540);
+  at(1900, "bonk", 1, 540); at(1900 + 140, "stars", 0.8, 540);
+  at(2850, "click", 0.9, 880);
+  const V = [["Rate limited · back in 4 min", ""], ["✗ 2 tests failing", "bad"], ["Build failed · 1 error", "bad"], ["You pressed stop", ""]];
+  const line = svg.querySelector("#linep"), bob = svg.querySelector("#bob"), rod = svg.querySelector("#rodp");
+  return lt => {
+    const v = Math.min(3, Math.floor(lt / 950)), l = lt - v * 950;
+    const cut = lt < 3800 ? tl(l, 0, 140) : 1;
+    flash.style.opacity = v > 0 && l < 140 ? String(0.8 * (1 - cut)) : "0";
+    inner.style.transform = `translate(540px, 600px) scale(${1 + 0.06 * (1 - eo3(tl(l, 0, 260)))}) translate(-540px, -600px)`;
+    let label = V[v][0], kind = V[v][1];
+    if (v === 1 && l >= 250) { label = "✓ 214 tests passing"; kind = "good"; }
+    tagS.textContent = label; tagS.className = kind;
+    const tk = v === 1 && l >= 250 ? l - 250 : l;
+    tag.style.transform = `scale(${popBub(tk)})`;
+    const fishing = v === 0;
+    rod.style.display = line.style.display = bob.style.display = fishing ? "" : "none";
+    let p = null;
+    if (v === 0) {
+      const bite = eo3(tl(l, 600, 700)), lean = eo3(tl(l, 600, 780));
+      const by = 930 + 6 * Math.sin(l / 110) + 24 * bite;
+      bob.setAttribute("cx", "846"); bob.setAttribute("cy", String(by));
+      rod.setAttribute("d", `M592 770 L${846 - 30 * lean} ${600 - 20 * lean}`);
+      line.setAttribute("d", `M${846 - 30 * lean} ${600 - 20 * lean} Q ${846 - 10} ${760 + 60 * (1 - lean)}, 846 ${by - 12}`);
+      p = { y: 0, sx: 1.03 - 0.06 * lean, sy: 0.97 + 0.1 * lean, rot: -3 - 13 * lean };
+      put(wm, 470, 880, p);
+    } else if (v === 1) {
+      const u = tl(l, 250, 780);
+      if (l < 250) p = { y: 0, sx: 1.055 + 0.2 * tl(l, 80, 250), sy: 0.945 - 0.2 * tl(l, 80, 250) };
+      else if (u < 1) p = { y: -210 * Math.sin(Math.PI * u), sx: 0.88, sy: 1.16, rot: 360 * eio(u) };
+      else { const k = tl(l, 780, 950), e = Math.exp(-5 * k) * Math.cos(k * 14); p = { y: 0, sx: 1.055 + 0.3 * e, sy: 0.945 - 0.28 * e }; }
+      put(wm, 540, 880, p);
+      cf(540, 700, l - 250);
+    } else if (v === 2) {
+      const hit = tl(l, 0, 160), w = Math.sin(l / 70);
+      p = hit < 1 ? { y: 0, sx: lerp(1.5, 1.2, hit), sy: lerp(0.5, 0.8, hit) } : { y: 0, sx: 1.12 + 0.05 * w, sy: 0.86 - 0.05 * w, rot: 11 * Math.sin(l / 120) };
+      put(wm, 540, 880, p);
+    } else put(wm, 0, 0, null);
+    if (v !== 1) cf(0, 0, -1);
+    stars.forEach((s, i) => {
+      if (v !== 2 || l < 120) { s.style.display = "none"; return; }
+      const a = l / 170 + (i * Math.PI * 2) / 3, depth = 0.75 + 0.25 * Math.sin(a);
+      s.style.display = "block";
+      s.style.transform = `translate(${540 + 130 * Math.cos(a) - 20}px, ${690 + 26 * Math.sin(a) - 20}px) scale(${depth}) rotate(${l / 4}deg)`;
+    });
+    const sp = v === 3 && l < 220 ? Math.sin(tl(l, 0, 220) * Math.PI) : 0;
+    stopb.style.transform = `scale(${1 - 0.2 * sp})`;
+    stopb.style.boxShadow = v === 3 ? `0 0 0 ${10 * sp}px color-mix(in oklab, var(--ink) 20%, transparent)` : "none";
+    tr.draw(lt);
+  };
+});
+
+// 10. The name.
+scene(31800, END, (root, at) => {
+  const tr = troupe(root);
+  const r = rng(3);
+  "ACDFGHKMNOPRSTZ".split("").forEach((ch, i) => {
+    const gy = 600 + r() * 70, a = tr.add(ch, gy, { h: 128, slot: i + 2 });
+    a.at(i * 85, -200).run(1300, 1500 / 1.1, { dust: true, stride: 160, jump: 34 }).gone();
+  });
+  const H = 170, GAP = 14, WORD = "WIBBLE";
+  let x = (1080 - ([...WORD].reduce((s, c) => s + H * ASPECT[c], 0) + GAP * 5)) / 2;
+  const slots = [...WORD].map(c => { const w = H * ASPECT[c], cx = x + w / 2; x += w + GAP; return cx; });
+  const word = [];
+  [5, 4, 3, 2, 1].forEach((i, order) => {
+    const a = tr.add(WORD[i], 650, { h: H, slot: [0, 1, 3, 5, 6, 7][i] });
+    a.at(300 + order * 150, -200).run(slots[i] - 70, (slots[i] + 130) / 2.1, { dust: true, stride: 170, jump: 30 }).skid(slots[i], 320);
+    word[i] = a;
+  });
+  const W = tr.add("W", 650, { h: H, logo: true });
+  W.at(1150, -200).run(40, 420, { dust: true, stride: 150 }).arc(slots[0], 0, 760, { peak: 320, spin: 360 }).plop(560, { big: true });
+  word[0] = W;
+  word.forEach((a, i) => a.until(2750 + i * 80).hop(520, { H: 56 }).until(9000));
+  tr.sortZ();
+  [0, 1, 2, 3, 4, 5].forEach(i => at(2750 + i * 80 + 62, "note:" + ["c4", "e4", "g4", "c5", "d5", "e5"][i], 0.8, slots[i]));
+  at(2800, "bubble", 0.6); at(3100, "pin", 0.5); at(3450, "type", 0.4);
+  const tag = el("div", "tagline", root, "Your coding agents,<br><em>on a canvas.</em>");
+  const engs = el("div", "engs", root, "<span>Claude Code</span><span>Codex</span><span>OpenCode</span>");
+  const free = el("div", "free", root, "<em>Free</em> and source available");
+  const url = el("div", "url", root, "github.com/idayley/wibble");
+  return lt => {
+    popIn(tag, tl(lt, 2500, 2950), 0, 40);
+    popIn(engs, tl(lt, 2800, 3200), 0, 20);
+    popIn(free, tl(lt, 3100, 3500), 0, 20);
+    popIn(url, tl(lt, 3450, 3850), 0, 20);
+    tr.draw(lt);
+  };
+});
+
+const CAPS = [
+  [0, 3300, "You already love *your coding agent.*"],
+  [4900, 7300, "Keep *all of it.*"],
+  [7600, 10720, "Now everything lives *on a canvas.*"],
+  [11000, 14120, "Claude chats. Codex ships. *One window.*"],
+  [14350, 15950, "Plans you can *actually read.*"],
+  [16000, 17720, "Agents you can *watch work.*"],
+  [17950, 21120, "Point at it. *No tab-hopping.*"],
+  [21350, 24520, "Smooth everywhere. *Even your phone.*"],
+  [24750, 27920, "A shelf full of *agents, pins and toys.*"],
+  [28150, 31720, "And a lot of *little smiles.*"],
+];
+captions(CAPS);
+
+const BEATS = [
+  [0, "Cold open", "You already love your coding agent.", "A plain terminal at work. Familiar ground."],
+  [3380, "Break out", "Keep all of it.", "It shakes, the W bursts out, the letters pour after it. The terminal shrinks to a card and keeps running."],
+  [7400, "The canvas", "Now everything lives on a canvas.", "Zoom out: a chart, a live page, a checklist, a diff and a photo land around it."],
+  [10800, "Many models", "Claude chats. Codex ships. One window.", "Claude answers up top while Codex deploys below. Nobody switches apps."],
+  [14200, "Plans", "Plans you can actually read.", "Plain-language steps draw in; an agent jumps onto each one and lights it up."],
+  [16000, "Agents", "Agents you can watch work.", "Steps finish in a chase along the wires. The last one waits for you."],
+  [17800, "Visual answers", "Point at it. No tab-hopping.", "The W asks with three pictures. One tap, the others fly off."],
+  [21200, "Everywhere", "Smooth everywhere. Even your phone.", "The desk squeezes into a phone; a thumb approves the deploy."],
+  [24600, "The shelf", "A shelf full of agents, pins and toys.", "Tap Add and a wibblet carries the item off the shelf."],
+  [28000, "Charm", "And a lot of little smiles.", "Four real moments from the app: fishing through a rate limit, confetti on green, dazed on an error, a skid on stop."],
+  [31800, "The name", "Your coding agents, on a canvas.", "The stampede spells WIBBLE and the W lands last, over the three engines it drives. Free and source available."],
+];
+beats(BEATS.map(b => [b[0], b[1], b[3]]));
+
+// The groove drops with the W's burst out of the terminal and resolves as it lands in WIBBLE.
+groove({ from: 3380, to: 33900, resolve: 34130 });
+</script>
