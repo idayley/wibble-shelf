@@ -22,6 +22,28 @@
           "note": "First version."
         }
       ]
+    },
+    {
+      "kind": "agent",
+      "id": "director",
+      "name": "Director",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "f624188ef4122124efeabb7e6b7322086a6d2a65",
+      "path": "items/director/director.md",
+      "version": "1.0.0",
+      "description": "Makes short motion videos with wibblets, captions and sound, pins each one to the canvas as a playable film, and renders it to MP4.",
+      "art": {
+        "body": "items/director/art/body.png",
+        "face": "items/director/art/face.png",
+        "aspect": 0.9034
+      },
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "23 Sep",
+          "note": "First version."
+        }
+      ]
     }
   ]
 }
