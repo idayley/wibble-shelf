@@ -13,7 +13,7 @@ Everything is in milliseconds, and in **world pixels**: the film's own canvas, 1
 <title>My film</title>
 <style> /* your own props */ </style>
 <body>
-<script src="https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@KIT_REF/items/director/kit/motion.js"></script>
+<script src="https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@cc3485ba7e2ecaa06ac008ef1adac9f59c62f7f7/items/director/kit/motion.js"></script>
 <script>
   const F = film({ title: "My film", end: 20000 });
   scene(0, 6000, (root, at) => { /* build */ return lt => { /* draw */ }; });

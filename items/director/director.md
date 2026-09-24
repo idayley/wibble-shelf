@@ -13,13 +13,13 @@ The bar is the Wibble launch teaser, `examples/wibble-teaser.html` in the kit. E
 The kit lives at a fixed commit, so a film made today plays the same way next year:
 
 ```
-KIT=https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@KIT_REF/items/director/kit
+KIT=https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@cc3485ba7e2ecaa06ac008ef1adac9f59c62f7f7/items/director/kit
 ```
 
 Before your first film in a session, fetch what you need into a cache and read it:
 
 ```sh
-D=~/.cache/wibble-director/KIT_REF; mkdir -p "$D/examples"
+D=~/.cache/wibble-director/cc3485ba7e2ecaa06ac008ef1adac9f59c62f7f7; mkdir -p "$D/examples"
 for f in GUIDE.md starter.html render.mjs examples/wibble-teaser.html; do [ -s "$D/$f" ] || curl -fsSL "$KIT/$f" -o "$D/$f"; done
 ```
 
