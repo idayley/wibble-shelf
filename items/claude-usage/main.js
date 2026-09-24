@@ -1,6 +1,6 @@
 // claude-usage/main.js
 //
-// Claude's usage limits as two bars under the chat: the same numbers
+// Claude's usage limits as two pills over the canvas: the same numbers
 // Claude Code's own status line shows. How much of the five-hour window
 // and of the week is used, and when each one resets.
 //
@@ -40,14 +40,12 @@ export async function activate(wibble) {
 
   function draw() {
     const bars = last
-      ? [bar("five", "5 hours", last.fiveHour, time), bar("week", "7 days", last.sevenDay, day)].filter(Boolean)
+      ? [bar("five", "5h", last.fiveHour, time), bar("week", "7d", last.sevenDay, day)].filter(Boolean)
       : [];
     return wibble.panel.set("Claude usage", {
       kind: "stack",
-      gap: 12,
-      children: bars.length
-        ? bars
-        : [{ kind: "text", key: "empty", content: "Shows up after Claude's next turn.", tone: "faint" }],
+      gap: 8,
+      children: bars.length ? bars : [{ kind: "text", key: "empty", content: "Claude usage", tone: "faint" }],
     });
   }
 

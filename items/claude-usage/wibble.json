@@ -2,10 +2,10 @@
   "id": "claude-usage",
   "name": "Claude usage",
   "description": "How much of Claude's five-hour and weekly limits you've used, and when each one resets.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "idayley",
   "main": "main.js",
   "api": 1,
-  "slot": "rail",
+  "slot": "top",
   "capabilities": ["stream.read", "panel.render", "storage"]
 }
