@@ -1,0 +1,24 @@
+{
+  "items": [
+    { "kind": "agent", "id": "discovery-scout" },
+    { "kind": "agent", "id": "discovery-asker" },
+    { "kind": "agent", "id": "discovery-debrief" }
+  ],
+  "zones": [
+    { "key": "discovery", "name": "Discovery", "type": "plain", "dx": 0, "dy": 0, "w": 480, "h": 1100 },
+    { "key": "plan", "name": "Plan", "type": "plan", "dx": 520, "dy": 0, "w": 440, "h": 320 },
+    {
+      "key": "debrief", "name": "Debrief", "type": "plain", "dx": 520, "dy": 360, "w": 440, "h": 320,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-debrief" }, "into": "calls" }
+    },
+    {
+      "key": "calls", "name": "Calls", "type": "plain", "dx": 1000, "dy": 0, "w": 440, "h": 680,
+      "rule": { "when": { "kind": "data", "field": "followUp", "op": "=", "value": "yes" }, "run": { "agent": "discovery-asker" }, "into": "followups" }
+    },
+    { "key": "followups", "name": "Follow-ups", "type": "plain", "dx": 1480, "dy": 0, "w": 440, "h": 680 },
+    { "key": "clutter", "name": "Clutter", "type": "clutter", "dx": 520, "dy": 720, "w": 1400, "h": 380 }
+  ],
+  "pages": [
+    { "zone": "discovery", "title": "Discovery board", "file": "board.html", "dx": 16, "dy": 48, "width": "wide" }
+  ]
+}

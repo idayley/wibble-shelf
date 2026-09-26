@@ -1,0 +1,704 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Discovery board</title>
+<!--
+  THE DISCOVERY BOARD. One page per canvas, placed by the discovery kit in
+  its Discovery zone. Everything it knows lives in the pin's own store
+  (window.wibble), one key per record, so the founder and the agents never
+  overwrite each other:
+
+    market:<id>          the founder, on this page
+    person:<id>          Scout adds; the founder and Debrief change status
+    call:<id>            Debrief
+    wave:<market>:<n>    Scout's wave note
+    settings             the founder, on this page
+
+  The verdict and the nudge are computed HERE, from those records, and
+  never stored -- an agent cannot write a verdict. The rules are in the
+  first script block, which has no DOM in it so board.test.mjs can run it
+  under node.
+
+  COUNTS, NEVER PERCENTAGES. "3 of 10" says how much evidence there is;
+  "30%" hides it.
+
+  This page's own classes all start with b- on purpose: the frame drops any
+  kit rule whose class a page's stylesheet also names.
+-->
+<style>
+.b-wrap{display:grid;gap:12px}
+.b-bar{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.b-bar .b-grow{flex:1}
+.b-btn{padding:6px 10px;border:0;border-radius:3px;background:var(--edge);cursor:pointer;font:500 10px/1.2 var(--mono);letter-spacing:.1em;text-transform:uppercase;color:var(--text)}
+.b-btn:hover{background:color-mix(in oklab,var(--text) 16%,transparent)}
+.b-btn:disabled{cursor:default;color:var(--faint);background:transparent;box-shadow:inset 0 0 0 1px var(--edge)}
+.b-btn.b-quiet{background:transparent;color:var(--muted);box-shadow:inset 0 0 0 1px var(--edge)}
+.b-btn:focus-visible,.b-in:focus-visible{outline:2px solid var(--hue-1,var(--text));outline-offset:2px}
+.b-in{width:100%;padding:6px 8px;border:0;border-radius:3px;background:var(--win);box-shadow:inset 0 0 0 1px var(--edge);font-size:12.5px}
+.b-in:disabled{color:var(--muted);background:transparent}
+textarea.b-in{resize:vertical;min-height:52px;line-height:1.45}
+select.b-in{width:auto}
+.b-field{display:grid;gap:4px}
+.b-field+.b-field{margin-top:8px}
+.b-trio{display:grid;grid-template-columns:repeat(3,1fr);gap:8px}
+.b-trio>.b-field{margin-top:0}
+.b-note{margin:0;font-size:12.5px;color:var(--muted)}
+.b-note+.b-note{margin-top:4px}
+.b-body{font-size:12.5px}
+.b-verdict{display:flex;flex-wrap:wrap;align-items:baseline;gap:8px 16px}
+.b-big{font-size:24px;font-weight:600;line-height:1.1;letter-spacing:-.02em}
+.b-by{font-size:12.5px;color:var(--muted)}
+.b-struck{text-decoration:line-through;color:var(--faint)}
+.b-quote{margin:0;padding-left:12px;border-left:1px solid var(--hair);font-size:12.5px;color:var(--text)}
+.b-people{display:grid;gap:0}
+.b-person{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:8px;padding:8px 0;border-top:1px solid var(--hair)}
+.b-person:first-child{border-top:0;padding-top:0}
+.b-who{min-width:0;font-size:12.5px}
+.b-who small{display:block;color:var(--muted);font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.b-level{min-width:48px;text-align:right;font:500 10px/1.2 var(--mono);letter-spacing:.06em;color:var(--muted);font-variant-numeric:tabular-nums}
+.b-level.b-hot{color:var(--hue-1,var(--text));font-weight:600}
+.b-flag{color:var(--faint)}
+.b-gap{height:4px}
+.b-inline{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:8px}
+body.b-still *{animation:none!important}
+</style>
+</head>
+<body>
+<div id="board" class="b-wrap"></div>
+
+<script id="logic">
+/* THE RULES (spec §4.3, §4.4). Pure functions, no DOM, no window: the
+   test file pulls this block out of the page and runs it under node. */
+
+var DAY = 24 * 60 * 60 * 1000;
+var LAPSE_DAYS = 14;
+var EXTENDED_CALLS = 15;
+var STORE_LIMIT = 256 * 1024;
+var DEFAULT_LINE = { calls: 10, hits: 3, commitments: 1 };
+var VERDICTS = ["Persevere", "Pivot", "Keep talking"];
+var BUYERS = ["budget holder", "decision maker"];
+
+function toMs(t) {
+  if (t == null || t === "") return NaN;
+  if (typeof t === "number") return t;
+  if (t instanceof Date) return t.getTime();
+  return Date.parse(t);
+}
+
+/* People arrive as a map (id -> person) or a list; either works. */
+function peopleIndex(people) {
+  if (!people) return {};
+  if (Array.isArray(people)) {
+    var out = {};
+    for (var i = 0; i < people.length; i++) if (people[i] && people[i].id) out[people[i].id] = people[i];
+    return out;
+  }
+  return people;
+}
+
+/* The pass line, with the kit's default filling anything left out. */
+function lineOf(market) {
+  var p = (market && market.passLine) || {};
+  function n(v, d) { v = Number(v); return isFinite(v) && v >= 0 ? Math.floor(v) : d; }
+  return {
+    calls: n(p.calls, DEFAULT_LINE.calls) || DEFAULT_LINE.calls,
+    hits: n(p.hits, DEFAULT_LINE.hits),
+    commitments: n(p.commitments, DEFAULT_LINE.commitments),
+  };
+}
+
+function targetOf(market) {
+  var line = lineOf(market);
+  return market && market.extended ? Math.max(EXTENDED_CALLS, line.calls) : line.calls;
+}
+
+function speakerAmbiguous(call) {
+  return call.speakerAmbiguous === true || call.speaker === "ambiguous";
+}
+
+/* A call that could count, before each person is taken once: in the
+   segment, not tainted by a pitch, not a friend or family member, and not
+   a low-confidence call where we can't tell who said what. A call with no
+   person on the board can't be checked, so it doesn't count. */
+function eligible(call, byId) {
+  if (!call || !call.person) return false;
+  var person = byId[call.person];
+  if (call.inSegment === false) return false;
+  if (call.tainted) return false;
+  if (person && person.relationship === "friend-family") return false;
+  if (call.confidence === "low" && speakerAmbiguous(call)) return false;
+  return true;
+}
+
+function callTime(call) {
+  var t = toMs(call.date);
+  if (isNaN(t)) t = toMs(call.at);
+  return isNaN(t) ? 0 : t;
+}
+
+/* The calls that count toward the pass line: eligible, and each person
+   once -- their latest call (spec §4.3). */
+function counted(calls, people) {
+  var byId = peopleIndex(people);
+  var latest = {};
+  var order = [];
+  for (var i = 0; i < (calls || []).length; i++) {
+    var c = calls[i];
+    if (!eligible(c, byId)) continue;
+    var prev = latest[c.person];
+    if (!prev) { order.push(c.person); latest[c.person] = c; }
+    else if (callTime(c) >= callTime(prev)) latest[c.person] = c;
+  }
+  return order.map(function (p) { return latest[p]; });
+}
+
+/* A commitment is live when it was offered or kept and hasn't lapsed. An
+   unkept one lapses 14 days after its due date. */
+function commitmentLapsed(commitment, now) {
+  if (!commitment) return true;
+  var s = commitment.status;
+  if (s === "fulfilled" || s === "kept") return false;
+  if (s === "lapsed" || s === "declined" || s === "withdrawn") return true;
+  var due = toMs(commitment.due);
+  if (isNaN(due)) return false;
+  return due + LAPSE_DAYS * DAY < toMs(now);
+}
+
+function orgKey(call, person) {
+  var o = (call.org || (person && person.org) || "").trim().toLowerCase();
+  return o || null;
+}
+
+function marketCalls(market, calls) {
+  var id = market && market.id;
+  return (calls || []).filter(function (c) { return c && c.market === id; });
+}
+
+/* Everything the verdict needs, for one market. Commitments come from any
+   eligible call (a follow-up call without one doesn't erase an earlier
+   one), one per person. Organisations are counted among the hits only; a
+   hit with no organisation recorded doesn't add one. */
+function tally(market, calls, people, now) {
+  var byId = peopleIndex(people);
+  var mine = marketCalls(market, calls);
+  var cs = counted(mine, byId);
+  var line = lineOf(market);
+  var ladder = [0, 0, 0, 0, 0, 0];
+  var hits = 0, orgs = {}, buyers = 0;
+  for (var i = 0; i < cs.length; i++) {
+    var c = cs[i], lv = Math.max(0, Math.min(5, Math.round(Number(c.level) || 0)));
+    ladder[lv]++;
+    if (lv >= 4) {
+      hits++;
+      var p = byId[c.person];
+      var k = orgKey(c, p);
+      if (k) orgs[k] = true;
+      if (p && BUYERS.indexOf(p.buyingRole) >= 0) buyers++;
+    }
+  }
+  var live = {}, commitments = [];
+  for (var j = 0; j < mine.length; j++) {
+    var cc = mine[j];
+    if (!cc.commitment || !eligible(cc, byId)) continue;
+    var lapsed = commitmentLapsed(cc.commitment, now);
+    commitments.push({ call: cc.id, person: cc.person, what: cc.commitment.what, currency: cc.commitment.currency, due: cc.commitment.due, status: cc.commitment.status, lapsed: lapsed });
+    if (!lapsed) live[cc.person] = true;
+  }
+  return {
+    n: cs.length,
+    hits: hits,
+    commits: Object.keys(live).length,
+    orgs: Object.keys(orgs).length,
+    buyers: buyers,
+    target: targetOf(market),
+    line: line,
+    ladder: ladder,
+    commitments: commitments,
+    notCounted: mine.length - cs.length,
+  };
+}
+
+/* The pass line may be edited only until the first call is counted. */
+function lineLocked(market, calls, people) {
+  return counted(marketCalls(market, calls), people).length > 0;
+}
+
+/* Spec §4.3. The founder's override wins, and is shown beside the
+   automatic verdict, never instead of it. */
+function verdict(market, t) {
+  var line = t.line || lineOf(market);
+  var persevere = t.hits >= line.hits && t.commits >= line.commitments && t.orgs >= 2 && t.buyers >= 1;
+  var cantMeet = t.hits + (t.target - t.n) < line.hits;
+  var auto = persevere ? "Persevere" : (t.n >= t.target || cantMeet) ? "Pivot" : "Keep talking";
+  var closeMiss = auto === "Pivot" && t.hits === line.hits - 1 && t.commits >= 1 && !(market && market.extended);
+  var override = market && market.override && VERDICTS.indexOf(market.override.verdict) >= 0 ? market.override : null;
+  var out = { auto: auto, closeMiss: closeMiss, shown: override ? override.verdict : auto };
+  if (override) out.override = override;
+  return out;
+}
+
+function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+
+function marketName(m) { return (m && m.name) || "Unnamed market"; }
+
+/* Spec §4.4: one line, with the number. In order: a close miss; the
+   Keep-talking market with the most hits; a Keep-talking market with no
+   calls in the last 7 days; the Keep-talking market with the fewest calls.
+   A market the founder has overridden is decided and left alone. */
+function nudge(markets, calls, now, people) {
+  var list = (markets || []).slice().sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+  if (!list.length) return "Add a market to start: a name, the bet, who it's for, and a pass line.";
+  var nowMs = toMs(now);
+  var rows = list.map(function (m) {
+    var t = tally(m, calls, people, now);
+    var v = verdict(m, t);
+    var mine = marketCalls(m, calls);
+    var recent = mine.some(function (c) { var d = callTime(c); return d && d > nowMs - 7 * DAY && d <= nowMs + DAY; });
+    return { m: m, t: t, v: v, recent: recent, open: !v.override && v.auto === "Keep talking" };
+  });
+
+  var miss = rows.filter(function (r) { return r.v.closeMiss && !r.v.override; })[0];
+  if (miss) {
+    return marketName(miss.m) + ": close miss, " + miss.t.hits + " of " + miss.t.line.hits +
+      " hair-on-fire with a commitment after " + plural(miss.t.n, "call") + ". Extend to 15 before deciding?";
+  }
+
+  var open = rows.filter(function (r) { return r.open; });
+  if (!open.length) {
+    return "Every market has a verdict. Add another market, or talk the verdicts through in chat.";
+  }
+
+  var hot = open.filter(function (r) { return r.t.hits > 0; })
+    .sort(function (a, b) { return b.t.hits - a.t.hits || a.t.n - b.t.n; })[0];
+  if (hot) {
+    var more = hot.t.target - hot.t.n;
+    return marketName(hot.m) + ": " + plural(hot.t.n, "call") + ", " + hot.t.hits + " hair-on-fire. " +
+      more + " more before the pass line can be judged.";
+  }
+
+  var quiet = open.filter(function (r) { return !r.recent; })
+    .sort(function (a, b) { return a.t.n - b.t.n; })[0];
+  if (quiet) {
+    return marketName(quiet.m) + ": no calls in the last 7 days, " + quiet.t.n + " of " + quiet.t.target + " so far.";
+  }
+
+  var few = open.slice().sort(function (a, b) { return a.t.n - b.t.n; })[0];
+  return marketName(few.m) + ": fewest calls, " + few.t.n + " of " + few.t.target + ".";
+}
+
+/* True past 80% of the pin's 256 KB store. */
+function storageWarning(bytes) {
+  return bytes > STORE_LIMIT * 0.8;
+}
+
+/* Records out of the store, by kind. */
+function records(data) {
+  var out = { markets: [], people: {}, calls: [], waves: [], settings: (data && data.settings) || {} };
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("market:") === 0) out.markets.push(Object.assign({ id: k.slice(7) }, v));
+    else if (k.indexOf("person:") === 0) out.people[v.id || k.slice(7)] = Object.assign({ id: k.slice(7) }, v);
+    else if (k.indexOf("call:") === 0) out.calls.push(Object.assign({ id: k.slice(5) }, v));
+    else if (k.indexOf("wave:") === 0) out.waves.push(Object.assign({ key: k }, v));
+  }
+  out.markets.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+  return out;
+}
+</script>
+
+<script>
+/* THE PAGE. Draws from the store and writes back one record at a time. */
+(function () {
+  var store = window.wibble || (function () {
+    // Outside wibble (a plain browser), a store that forgets on reload.
+    var d = {}, fs = [];
+    function c(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+    return {
+      get: function (k) { return c(d[k]); },
+      all: function () { return c(d); },
+      set: function (k, v) { var p = {}; if (k && typeof k === "object") p = c(k); else p[k] = v === undefined ? null : c(v);
+        for (var x in p) { if (p[x] === null) delete d[x]; else d[x] = p[x]; } fs.forEach(function (f) { f(c(d)); }); },
+      subscribe: function (f) { fs.push(f); f(c(d)); return function () {}; },
+    };
+  })();
+
+  var root = document.getElementById("board");
+  var LEVELS = ["No evidence", "Has the problem", "Knows they have it", "Looking, with a timetable", "Workaround that hurts", "Has or can get budget"];
+  var STATUSES = ["to ask", "asked", "booked", "talked", "declined", "do not contact"];
+  var ui = { view: "market", market: null, overriding: false, extending: false };
+  var data = {};
+  var pending = false;
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+  function bytesOf(d) {
+    var s = JSON.stringify(d);
+    try { return new TextEncoder().encode(s).length; } catch (_) { return s.length; }
+  }
+  function newId(name) {
+    var base = String(name || "market").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 24) || "market";
+    return base + "-" + Math.random().toString(36).slice(2, 6);
+  }
+  function segs(filled, total, cls) {
+    var out = "";
+    for (var i = 0; i < total; i++) out += "<i" + (i < filled ? ' class="' + (cls || "on") + '"' : "") + "></i>";
+    return '<div class="segs">' + out + "</div>";
+  }
+  function kv(name, value) {
+    return '<div class="kv"><span>' + esc(name) + '</span><span class="lead"></span><span>' + value + "</span></div>";
+  }
+  function mod(idx, cap, inner, extra) {
+    return '<div class="mod' + (extra ? " " + extra : "") + '"><div class="head"><span class="cap">' + esc(cap) +
+      '</span><span class="idx">' + idx + "</span></div>" + inner + "</div>";
+  }
+  function field(label, html) {
+    return '<label class="b-field"><span class="cap">' + esc(label) + "</span>" + html + "</label>";
+  }
+
+  // --- views -------------------------------------------------------------
+
+  function marketForm(prefix) {
+    return field("Market name", '<input class="b-in" id="' + prefix + 'name" placeholder="Who, in a few words">') +
+      field("The bet", '<textarea class="b-in" id="' + prefix + 'bet" placeholder="Who has what pain, shown by what behaviour, found where"></textarea>') +
+      field("Segment", '<input class="b-in" id="' + prefix + 'segment" placeholder="Who counts as in the segment">') +
+      '<div class="b-gap"></div>' +
+      '<div class="b-trio">' +
+      field("Calls", '<input class="b-in" type="number" min="1" max="50" id="' + prefix + 'calls" value="10">') +
+      field("Hair on fire (4–5)", '<input class="b-in" type="number" min="0" max="50" id="' + prefix + 'hits" value="3">') +
+      field("Commitments", '<input class="b-in" type="number" min="0" max="50" id="' + prefix + 'commitments" value="1">') +
+      "</div>" +
+      '<div class="b-inline"><button class="b-btn" data-act="create">Add market</button>' +
+      (prefix === "new-" ? '<button class="b-btn b-quiet" data-act="cancel">Cancel</button>' : "") + "</div>";
+  }
+
+  function emptyView() {
+    return '<div class="hl"><span>Discovery board</span></div>' +
+      '<div class="deck">' +
+      mod("01", "How to start",
+        '<p class="b-note">Add 2 to 4 markets you might go after. For each, write the bet as <span class="lit">who has what pain, shown by what behaviour, found where</span>, and the pass line before any calls: by default 3 people at level 4–5 in 10 calls, and 1 commitment.</p>' +
+        '<p class="b-note">Then ask Scout in chat to find people for a market, Asker to draft the asks, and drop each call\'s recording or transcript into Debrief. This board counts the calls and gives each market a verdict.</p>') +
+      mod("02", "Add a market", marketForm("first-")) +
+      "</div>";
+  }
+
+  function addView() {
+    return '<div class="deck">' + mod("+", "Add a market", marketForm("new-")) + "</div>";
+  }
+
+  function settingsView(r) {
+    var s = r.settings || {};
+    return '<div class="deck">' + mod("··", "Settings",
+      '<p class="b-note">Asker uses these when it drafts. Nothing is ever sent from here.</p><div class="b-gap"></div>' +
+      field("Sender", '<input class="b-in" id="set-sender" value="' + esc(s.sender) + '" placeholder="Your name">') +
+      field("Who you are, in one line", '<input class="b-in" id="set-line" value="' + esc(s.senderLine) + '" placeholder="Cofounder of an early startup, learning, not selling">') +
+      field("Channels, in order, comma separated", '<input class="b-in" id="set-channels" value="' + esc((s.channels || []).join(", ")) + '" placeholder="warm intro, email, LinkedIn message">') +
+      '<div class="b-inline"><button class="b-btn" data-act="save-settings">Save</button><button class="b-btn b-quiet" data-act="cancel">Done</button></div>') +
+      "</div>";
+  }
+
+  function verdictMod(m, t, v) {
+    var line = t.line;
+    var inner = '<div class="b-verdict"><span class="b-big lit">' + esc(v.shown) + "</span>";
+    if (v.override) {
+      inner += '<span class="b-by">yours · the board says <span class="lit">' + esc(v.auto) + "</span></span>";
+    } else {
+      inner += '<span class="b-by">from ' + plural(t.n, "counted call") + "</span>";
+    }
+    inner += "</div>";
+    if (v.override && v.override.note) inner += '<div class="b-gap"></div><p class="b-quote">' + esc(v.override.note) + "</p>";
+    if (m.extended) {
+      inner += '<div class="b-gap"></div><p class="b-note">Extended to ' + t.target + " calls" +
+        (m.extended.note ? ": " + esc(m.extended.note) : "") + "</p>";
+    }
+    if (v.closeMiss && !v.override) {
+      inner += '<div class="b-gap"></div><p class="b-note"><span class="lit">Close miss:</span> ' + t.hits + " of " + line.hits +
+        " hair-on-fire with a commitment. Extend to 15 before deciding? Write down why first; the line is set before more calls.</p>";
+      if (ui.extending) {
+        inner += '<div class="b-gap"></div>' + field("Why extend", '<input class="b-in" id="extend-note" placeholder="The reason, written before the next call">') +
+          '<div class="b-inline"><button class="b-btn" data-act="extend">Extend to 15</button><button class="b-btn b-quiet" data-act="extend-cancel">Cancel</button></div>';
+      } else {
+        inner += '<div class="b-inline"><button class="b-btn" data-act="extend-open">Extend to 15</button></div>';
+      }
+    }
+    if (ui.overriding) {
+      var cur = (v.override && v.override.verdict) || v.auto;
+      inner += '<div class="b-gap"></div><div class="b-inline"><select class="b-in" id="ov-verdict">' +
+        VERDICTS.map(function (x) { return "<option" + (x === cur ? " selected" : "") + ">" + x + "</option>"; }).join("") +
+        '</select></div>' + field("Note", '<textarea class="b-in" id="ov-note" placeholder="Why you are overriding the board">' + esc(v.override ? v.override.note : "") + "</textarea>") +
+        '<div class="b-inline"><button class="b-btn" data-act="override-save">Save override</button>' +
+        (v.override ? '<button class="b-btn b-quiet" data-act="override-clear">Clear override</button>' : "") +
+        '<button class="b-btn b-quiet" data-act="override-cancel">Cancel</button></div>';
+    } else {
+      inner += '<div class="b-inline"><button class="b-btn b-quiet" data-act="override-open">' + (v.override ? "Change override" : "Override") + "</button></div>";
+    }
+    return mod("01", "Verdict", inner);
+  }
+
+  function lineMod(m, t, locked) {
+    var line = t.line;
+    var inner =
+      '<div class="meter"><div class="row"><span class="cap">Counted calls</span><span class="val">' + t.n + " of " + t.target + "</span></div>" + segs(Math.min(t.n, t.target), t.target) + "</div>" +
+      '<div class="meter"><div class="row"><span class="cap">Hair on fire, level 4–5</span><span class="val">' + t.hits + " of " + line.hits + "</span></div>" + segs(Math.min(t.hits, Math.max(line.hits, 1)), Math.max(line.hits, 1), "c1") + "</div>" +
+      '<div class="meter"><div class="row"><span class="cap">Commitments</span><span class="val">' + t.commits + " of " + line.commitments + "</span></div>" + segs(Math.min(t.commits, Math.max(line.commitments, 1)), Math.max(line.commitments, 1), "c2") + "</div>" +
+      '<div class="b-gap"></div><div class="b-gap"></div>' +
+      kv("Organisations among the hits", t.orgs + " of 2 needed") +
+      kv("Budget holders or decision makers among the hits", t.buyers + " of 1 needed") +
+      (t.notCounted ? kv("Calls not counted (out of segment, friend or family, pitched, unclear speaker, repeat)", String(t.notCounted)) : "") +
+      '<div class="b-gap"></div><div class="b-gap"></div>';
+    if (locked) {
+      inner += '<p class="b-note">Pass line: ' + line.hits + " at level 4–5 in " + line.calls + " calls, and " + plural(line.commitments, "commitment") +
+        ". Locked once the first call was counted, so it can't move to fit the results.</p>";
+    } else {
+      inner += '<div class="b-trio">' +
+        field("Calls", '<input class="b-in" type="number" min="1" max="50" data-line="calls" value="' + line.calls + '">') +
+        field("Hair on fire (4–5)", '<input class="b-in" type="number" min="0" max="50" data-line="hits" value="' + line.hits + '">') +
+        field("Commitments", '<input class="b-in" type="number" min="0" max="50" data-line="commitments" value="' + line.commitments + '">') +
+        '</div><p class="b-note" style="margin-top:8px">Set this before any calls. It locks when the first call is counted.</p>';
+    }
+    return mod("02", "Pass line", inner);
+  }
+
+  function ladderMod(t) {
+    var max = Math.max(1, Math.max.apply(null, t.ladder));
+    var inner = "";
+    for (var lv = 5; lv >= 0; lv--) {
+      var hot = lv >= 4;
+      inner += '<div class="meter"><div class="row"><span class="' + (hot ? "lit" : "") + '">' + lv + " · " + LEVELS[lv] + (hot ? ' <span class="cap ink c1">hair on fire</span>' : "") +
+        '</span><span class="val">' + t.ladder[lv] + '</span></div><div class="track"><div class="fill' + (hot ? " c1" : " dim") + '" style="--v:' + (t.ladder[lv] / max).toFixed(3) + '"></div></div></div>';
+    }
+    return mod("03", "Ladder, counted calls", inner);
+  }
+
+  function funnelMod(people) {
+    var counts = {};
+    STATUSES.forEach(function (s) { counts[s] = 0; });
+    people.forEach(function (p) { if (counts[p.status] != null) counts[p.status]++; else counts["to ask"]++; });
+    var inner = ["to ask", "asked", "booked", "talked"].map(function (s) { return kv(s, String(counts[s])); }).join("");
+    if (counts.declined || counts["do not contact"]) inner += '<div class="b-gap"></div>' + kv("declined", String(counts.declined)) + kv("do not contact", String(counts["do not contact"]));
+    return mod("04", "Funnel", inner);
+  }
+
+  function commitmentsMod(t, byId) {
+    if (!t.commitments.length) return mod("05", "Commitments", '<p class="b-note">None yet. A good call ends with one: time, an intro, or money.</p>');
+    var inner = t.commitments.map(function (c) {
+      var who = byId[c.person] ? byId[c.person].name : c.person;
+      var text = esc(who) + ": " + esc(c.what || c.currency || "commitment") + (c.due ? " · due " + esc(c.due) : "") + (c.status ? " · " + esc(c.status) : "");
+      return '<p class="b-note' + (c.lapsed ? " b-struck" : "") + '">' + text + (c.lapsed ? " (lapsed)" : "") + "</p>";
+    }).join("");
+    return mod("05", "Commitments", inner);
+  }
+
+  function quoteMod(m, calls, byId) {
+    var cs = counted(calls, byId).filter(function (c) { return c.quote && c.consent !== "unknown"; })
+      .sort(function (a, b) { return (b.level || 0) - (a.level || 0); });
+    if (!cs.length) return "";
+    var c = cs[0], p = byId[c.person];
+    return mod("06", "Best quote", '<p class="b-quote">“' + esc(c.quote) + '”</p><p class="b-note" style="margin-top:8px">' +
+      esc(p ? p.name : c.person) + (p && p.role ? ", " + esc(p.role) : "") + " · level " + (c.level || 0) + "</p>");
+  }
+
+  function peopleMod(m, people, calls) {
+    if (!people.length) return mod("07", "People", '<p class="b-note">No one yet. In chat: "Scout, find people for ' + esc(marketName(m)) + '."</p>');
+    var last = {};
+    calls.forEach(function (c) { if (!last[c.person] || callTime(c) >= callTime(last[c.person])) last[c.person] = c; });
+    var rank = { "booked": 0, "asked": 1, "to ask": 2, "talked": 3, "declined": 4, "do not contact": 5 };
+    var sorted = people.slice().sort(function (a, b) { return (rank[a.status] || 0) - (rank[b.status] || 0) || String(a.name).localeCompare(String(b.name)); });
+    var rows = sorted.map(function (p) {
+      var c = last[p.id];
+      var lv = c ? "L" + (c.level || 0) : "—";
+      var flags = [];
+      if (p.relationship && p.relationship !== "none") flags.push(p.relationship);
+      if (c && c.inSegment === false) flags.push("out of segment");
+      var sub = [p.role, p.org, p.buyingRole].filter(Boolean).join(" · ") + (flags.length ? ' <span class="b-flag">· ' + esc(flags.join(", ")) + " (not counted)</span>" : "");
+      return '<div class="b-person"><div class="b-who">' + esc(p.name || p.id) + "<small>" + sub + "</small></div>" +
+        '<select class="b-in" data-person="' + esc(p.id) + '" aria-label="Status of ' + esc(p.name || p.id) + '">' +
+        STATUSES.map(function (s) { return "<option" + (s === (p.status || "to ask") ? " selected" : "") + ">" + s + "</option>"; }).join("") +
+        '</select><span class="b-level' + (c && c.level >= 4 ? " b-hot" : "") + '">' + lv + "</span></div>";
+    }).join("");
+    return mod("07", "People · " + people.length, '<div class="b-people">' + rows + "</div>");
+  }
+
+  function betMod(m, idx) {
+    return mod(idx, "Bet and segment",
+      field("Market name", '<input class="b-in" data-market="name" value="' + esc(m.name) + '">') +
+      field("The bet", '<textarea class="b-in" data-market="bet">' + esc(m.bet) + "</textarea>") +
+      field("Segment", '<input class="b-in" data-market="segment" value="' + esc(m.segment) + '">') +
+      '<div class="b-inline"><button class="b-btn b-quiet" data-act="' + (ui.removing ? "remove" : "remove-ask") + '">' +
+      (ui.removing ? "Click again to remove this market" : "Remove market") + "</button></div>");
+  }
+
+  function wavesMod(m, waves) {
+    var mine = waves.filter(function (w) { return w.key.indexOf("wave:" + m.id + ":") === 0; })
+      .sort(function (a, b) { return Number(b.key.split(":").pop()) - Number(a.key.split(":").pop()); });
+    if (!mine.length) return "";
+    var w = mine[0];
+    return mod("08", "Latest wave note · wave " + esc(w.key.split(":").pop()),
+      ["thought", "found", "next"].filter(function (k) { return w[k]; }).map(function (k) {
+        return '<div class="b-field"><span class="cap">' + k + '</span><p class="b-note">' + esc(w[k]) + "</p></div>";
+      }).join('<div class="b-gap"></div>'));
+  }
+
+  function render() {
+    var active = document.activeElement;
+    if (active && active !== document.body && root.contains(active) && /^(INPUT|TEXTAREA)$/.test(active.tagName)) {
+      pending = true; // don't wipe what the founder is typing; draw on blur
+      return;
+    }
+    pending = false;
+    var r = records(data);
+    var now = Date.now();
+    var bytes = bytesOf(data);
+    var head = "";
+
+    if (!r.markets.length && ui.view !== "settings") {
+      root.innerHTML = emptyView();
+      return;
+    }
+    if (!ui.market || !r.markets.some(function (m) { return m.id === ui.market; })) ui.market = r.markets[0] && r.markets[0].id;
+
+    var status = storageWarning(bytes)
+      ? '<span class="status"><span class="dot on"></span>Board storage ' + Math.round((bytes / STORE_LIMIT) * 100) + "% full</span>"
+      : "";
+    head += '<div class="hl"><span>Discovery board</span>' + status + "</div>";
+    head += '<div class="screen b-body">' + esc(nudge(r.markets, r.calls, now, r.people)) + "</div>";
+    head += '<div class="b-bar"><div class="seg" role="group" aria-label="Market">' +
+      r.markets.map(function (m) {
+        return '<button data-pick="' + esc(m.id) + '" aria-pressed="' + (ui.view === "market" && m.id === ui.market) + '">' + esc(marketName(m)) + "</button>";
+      }).join("") + '</div><span class="b-grow"></span>' +
+      '<button class="b-btn b-quiet" data-act="add"' + (r.markets.length >= 6 ? " disabled" : "") + ">Add market</button>" +
+      '<button class="b-btn b-quiet" data-act="settings">Settings</button></div>';
+
+    if (ui.view === "settings") { root.innerHTML = head + settingsView(r); return; }
+    if (ui.view === "add") { root.innerHTML = head + addView(); return; }
+
+    var m = r.markets.filter(function (x) { return x.id === ui.market; })[0];
+    var calls = marketCalls(m, r.calls);
+    var people = Object.keys(r.people).map(function (k) { return r.people[k]; }).filter(function (p) { return p.market === m.id; });
+    var t = tally(m, r.calls, r.people, now);
+    var v = verdict(m, t);
+    var locked = lineLocked(m, r.calls, r.people);
+
+    root.innerHTML = head +
+      '<div class="deck">' +
+      verdictMod(m, t, v) +
+      lineMod(m, t, locked) +
+      ladderMod(t) +
+      funnelMod(people) +
+      commitmentsMod(t, r.people) +
+      quoteMod(m, calls, r.people) +
+      peopleMod(m, people, calls) +
+      wavesMod(m, r.waves) +
+      betMod(m, "09") +
+      "</div>";
+  }
+
+  // --- writes ------------------------------------------------------------
+
+  function current() { return data["market:" + ui.market] ? Object.assign({ id: ui.market }, data["market:" + ui.market]) : null; }
+  function saveMarket(m) { store.set("market:" + m.id, m); }
+  function val(id) { var el = document.getElementById(id); return el ? el.value.trim() : ""; }
+
+  function createMarket() {
+    var prefix = document.getElementById("first-name") ? "first-" : "new-";
+    var name = val(prefix + "name");
+    if (!name) { var el = document.getElementById(prefix + "name"); if (el) el.focus(); return; }
+    var id = newId(name);
+    var line = lineOf({ passLine: { calls: val(prefix + "calls"), hits: val(prefix + "hits"), commitments: val(prefix + "commitments") } });
+    var order = records(data).markets.reduce(function (n, m) { return Math.max(n, (m.order || 0) + 1); }, 0);
+    ui.view = "market"; ui.market = id;
+    if (document.activeElement) document.activeElement.blur();
+    store.set("market:" + id, { id: id, name: name, bet: val(prefix + "bet"), segment: val(prefix + "segment"), passLine: line, order: order });
+  }
+
+  root.addEventListener("click", function (e) {
+    var b = e.target.closest("button");
+    if (!b || !root.contains(b)) return;
+    var pick = b.getAttribute("data-pick");
+    if (pick) { ui.view = "market"; ui.market = pick; ui.overriding = ui.extending = ui.removing = false; render(); return; }
+    var act = b.getAttribute("data-act");
+    var m = current();
+    switch (act) {
+      case "add": ui.view = "add"; render(); break;
+      case "settings": ui.view = "settings"; render(); break;
+      case "cancel": ui.view = "market"; render(); break;
+      case "create": createMarket(); break;
+      case "save-settings":
+        store.set("settings", {
+          sender: val("set-sender"), senderLine: val("set-line"),
+          channels: val("set-channels").split(",").map(function (s) { return s.trim(); }).filter(Boolean),
+        });
+        ui.view = "market"; if (document.activeElement) document.activeElement.blur(); render();
+        break;
+      case "override-open": ui.overriding = true; render(); break;
+      case "override-cancel": ui.overriding = false; render(); break;
+      case "override-save":
+        if (!m) break;
+        m.override = { verdict: val("ov-verdict") || "Keep talking", note: val("ov-note"), at: new Date().toISOString() };
+        ui.overriding = false; if (document.activeElement) document.activeElement.blur(); saveMarket(m);
+        break;
+      case "override-clear":
+        if (!m) break;
+        delete m.override; ui.overriding = false; saveMarket(m);
+        break;
+      case "extend-open": ui.extending = true; render(); break;
+      case "extend-cancel": ui.extending = false; render(); break;
+      case "extend":
+        if (!m) break;
+        var note = val("extend-note");
+        if (!note) { var el = document.getElementById("extend-note"); if (el) el.focus(); break; }
+        m.extended = { note: note, at: new Date().toISOString() };
+        ui.extending = false; if (document.activeElement) document.activeElement.blur(); saveMarket(m);
+        break;
+      case "remove-ask": ui.removing = true; render(); break;
+      case "remove":
+        if (!m) break;
+        ui.removing = false; ui.market = null; store.set("market:" + m.id, null);
+        break;
+    }
+  });
+
+  root.addEventListener("change", function (e) {
+    var el = e.target, m = current();
+    if (el.hasAttribute("data-person")) {
+      var key = "person:" + el.getAttribute("data-person");
+      var p = data[key];
+      if (p) { p = Object.assign({}, p, { status: el.value }); store.set(key, p); }
+      return;
+    }
+    if (!m) return;
+    if (el.hasAttribute("data-market")) {
+      m[el.getAttribute("data-market")] = el.value.trim();
+      saveMarket(m);
+    } else if (el.hasAttribute("data-line")) {
+      var r = records(data);
+      if (lineLocked(m, r.calls, r.people)) return;
+      var line = lineOf(m);
+      line[el.getAttribute("data-line")] = el.value;
+      m.passLine = lineOf({ passLine: line });
+      saveMarket(m);
+    }
+  });
+
+  root.addEventListener("focusout", function () {
+    setTimeout(function () { if (pending) render(); }, 0);
+  });
+  root.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && e.target.tagName === "INPUT") e.target.blur();
+  });
+
+  var first = true;
+  store.subscribe(function (d) {
+    data = d || {};
+    render();
+    // The kit's rise plays once, on first paint -- not on every redraw.
+    if (first) { first = false; setTimeout(function () { document.body.classList.add("b-still"); }, 400); }
+  });
+})();
+</script>
+</body>
+</html>
