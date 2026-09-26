@@ -20,8 +20,8 @@ The ladder every call is scored on: 0 no evidence; 1 has the problem (a real pas
 The board is an `html` pin labelled **"Discovery board"**, normally in the zone "Discovery". You read and write it by its address (like `p4`):
 
 1. If a `<canvas>` block came with the message, find the line with that label. The address starts the line.
-2. If the operator or your brief names the board's address, use that.
-3. Otherwise call `mcp__wibble__read_pin` on `p1`, `p2`, `p3`… in order and stop at the first pin labelled "Discovery board". Addresses aren't reused, so some will be missing. Give up after 10 missing in a row.
+2. In a zone run, your brief has a "Pins on this canvas" list; the board is the line with that label. If the operator names the board's address, use that.
+3. Otherwise, as a last resort, call `mcp__wibble__read_pin` on `p1`, `p2`, `p3`… and stop at the first pin labelled "Discovery board". Give up after 10 missing in a row.
 4. Still nothing, or two boards: in chat, ask the operator which pin it is. In a zone run you can't ask in chat, so pin a short markdown card saying you couldn't find the board, and stop.
 
 `read_pin` returns the board's `data`, one key per record:
