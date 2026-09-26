@@ -101,7 +101,7 @@ Then:
 
 ## 6. Pin the call card
 
-One `html` card per call with `mcp__wibble__pin_reference`: `kind: "html"`, `lifetime: "reference"`, label `Call · <person name> · <market name>`. In a zone run it goes into "Calls" by itself; in chat, pass `zone: "Calls"`. Plain markup in **one narrow column** (the canvas styles it); no wide tables. In this order:
+One `html` card per call with `mcp__wibble__pin_reference`, pinned once: write the whole card first, then pin it. Never pin a markdown draft and swap it for html, since every card that lands in Calls is checked by its rule. Use `kind: "html"`, `lifetime: "reference"`, label `Call · <person name> · <market name>`. In a zone run it goes into "Calls" by itself; in chat, pass `zone: "Calls"`. Plain markup in **one narrow column** (the canvas styles it); no wide tables. In this order:
 
 1. Person, role, organisation. Market. Date.
 2. In segment, with the reason. Any flag: friend or family, out of segment, speaker unclear, tainted by a pitch.
