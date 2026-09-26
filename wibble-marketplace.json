@@ -84,11 +84,16 @@
       "id": "discovery-debrief",
       "name": "Debrief",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "ref": "e0e0adb63fc36e1533dca870e5912e19b8bcac37",
       "path": "items/discovery-debrief/discovery-debrief.md",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Scores a customer-discovery call on the earlyvangelist ladder, quoting the person's own words as evidence.",
       "history": [
+        {
+          "version": "1.0.1",
+          "date": "26 Sep",
+          "note": "Pins each call card once, as html, instead of a draft first."
+        },
         {
           "version": "1.0.0",
           "date": "26 Sep",

@@ -12337,6 +12337,18 @@ function describeLayoutZones(zones) {
   return rules ? `${n2(zones.length, "zone")} with ${n2(rules, "rule")}` : n2(zones.length, "zone");
 }
 const PIN_WIDTHS = ["card", "wide", "page"];
+const DEFAULT_PIN_SITES = [
+  "cdnjs.cloudflare.com",
+  "cdn.jsdelivr.net",
+  "fonts.googleapis.com",
+  "fonts.gstatic.com"
+];
+function frameCsp(sites) {
+  const hosts = sites.filter((h) => /^[a-z0-9.:-]+$/.test(h)).map((h) => ` https://${h}`).join("");
+  return `default-src 'none'; base-uri 'none'; form-action 'none'; style-src 'unsafe-inline'${hosts}; script-src 'unsafe-inline'${hosts}; img-src data: blob:${hosts}; font-src data:${hosts}; media-src data: blob:${hosts}`;
+}
+frameCsp(DEFAULT_PIN_SITES);
+const PIN_WIDTH_PX = { card: 560 };
 const ITEM_KINDS = ["extension", "pin", "agent", "toy"];
 const PAGE_DEFAULT = { dx: 16, dy: 48 };
 function parsePages(value, zones) {
@@ -12357,6 +12369,18 @@ function parsePages(value, zones) {
       dy: num2(p.dy, PAGE_DEFAULT.dy),
       width: PIN_WIDTHS.includes(p.width) ? p.width : "card"
     });
+  }
+  return out;
+}
+function pageOverflows(spec) {
+  const card = PIN_WIDTH_PX.card;
+  const out = [];
+  for (const page of spec.pages) {
+    const zone = spec.zones.find((z) => z.key === page.zone);
+    if (!zone || page.dx + card <= zone.w) continue;
+    out.push(
+      `Its page ${page.title} is ${card}px wide from ${page.dx}px in, so it spills out of ${zone.name} (${zone.w}px wide). Make ${zone.name} at least ${page.dx + card}px wide.`
+    );
   }
   return out;
 }
@@ -12923,6 +12947,7 @@ function checkFiles(item, files, art, shelfItems = []) {
     if (checked.bundle.zones.length) disclosure.push(`Zones: ${describeLayoutZones(checked.bundle.zones)}.`);
     for (const line of kitPageLines(checked.bundle, {})) disclosure.push(`${line}.`);
     for (const e3 of files.bundlePageErrors ?? []) problems.push(`Its page can't be used: ${e3}`);
+    problems.push(...pageOverflows(checked.bundle));
   }
   if (item.kind === "agent" && item.art) {
     for (const [which, bytes] of [["body", art?.body ?? null], ["face", art?.face ?? null]]) {
