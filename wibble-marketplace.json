@@ -101,11 +101,16 @@
       "id": "discovery-kit",
       "name": "Discovery kit",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "ref": "ea1809bf55397e0a0ee21e880e441134c8f6c278",
       "path": "items/discovery-kit/kit.json",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Customer discovery for founders: find people, ask for calls, score each call on a hair-on-fire ladder, and see when a market has earned a yes.",
       "history": [
+        {
+          "version": "1.0.1",
+          "date": "26 Sep",
+          "note": "The Discovery zone fits its board."
+        },
         {
           "version": "1.0.0",
           "date": "26 Sep",
