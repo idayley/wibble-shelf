@@ -12960,6 +12960,7 @@ ${c2.broken}
   return { ok: ok2, markdown: lines.join("\n") };
 }
 const MAX_PAGE_BYTES = 200 * 1024;
+const MAX_PAGES = 20;
 function kitPageFiles(json) {
   let raw;
   try {
@@ -13021,7 +13022,11 @@ function readKitPage(root, dir, file) {
 function readKitPages(root, dir, json) {
   const bundlePages = [];
   const bundlePageErrors = [];
-  for (const file of kitPageFiles(json)) {
+  for (const [n2, file] of kitPageFiles(json).entries()) {
+    if (n2 >= MAX_PAGES) {
+      bundlePageErrors.push(`${file} is past the ${MAX_PAGES}-page limit for a kit`);
+      continue;
+    }
     const r = readKitPage(root, dir, file);
     if (r.ok) bundlePages.push({ file, html: r.html });
     else bundlePageErrors.push(r.why);
