@@ -12,11 +12,11 @@
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-debrief" }, "into": "calls" }
     },
     {
-      "key": "calls", "name": "Calls", "type": "plain", "dx": 1120, "dy": 0, "w": 440, "h": 680,
+      "key": "calls", "name": "Calls", "type": "plain", "dx": 1120, "dy": 0, "w": 600, "h": 680,
       "rule": { "when": { "kind": "data", "field": "followUp", "op": "=", "value": "yes" }, "run": { "agent": "discovery-asker" }, "into": "followups" }
     },
-    { "key": "followups", "name": "Follow-ups", "type": "plain", "dx": 1600, "dy": 0, "w": 440, "h": 680 },
-    { "key": "clutter", "name": "Clutter", "type": "clutter", "dx": 640, "dy": 720, "w": 1400, "h": 380 }
+    { "key": "followups", "name": "Follow-ups", "type": "plain", "dx": 1760, "dy": 0, "w": 440, "h": 680 },
+    { "key": "clutter", "name": "Clutter", "type": "clutter", "dx": 640, "dy": 720, "w": 1560, "h": 380 }
   ],
   "pages": [
     { "zone": "discovery", "title": "Discovery board", "file": "board.html", "dx": 16, "dy": 48, "width": "wide" }
