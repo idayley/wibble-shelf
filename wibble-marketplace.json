@@ -44,6 +44,74 @@
           "note": "First version."
         }
       ]
+    },
+    {
+      "kind": "agent",
+      "id": "discovery-scout",
+      "name": "Scout",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "path": "items/discovery-scout/discovery-scout.md",
+      "version": "1.0.0",
+      "description": "Finds real people worth talking to about one market and adds them to your Discovery board, without ever contacting anyone.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "26 Sep",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "agent",
+      "id": "discovery-asker",
+      "name": "Asker",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "path": "items/discovery-asker/discovery-asker.md",
+      "version": "1.0.0",
+      "description": "Drafts short call requests, a one-page call sheet and follow-ups for customer-discovery calls; you send every message.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "26 Sep",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "agent",
+      "id": "discovery-debrief",
+      "name": "Debrief",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "path": "items/discovery-debrief/discovery-debrief.md",
+      "version": "1.0.0",
+      "description": "Scores a customer-discovery call on the earlyvangelist ladder, quoting the person's own words as evidence.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "26 Sep",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "bundle",
+      "id": "discovery-kit",
+      "name": "Discovery kit",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "path": "items/discovery-kit/kit.json",
+      "version": "1.0.0",
+      "description": "Customer discovery for founders: find people, ask for calls, score each call on a hair-on-fire ladder, and see when a market has earned a yes.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "26 Sep",
+          "note": "First version."
+        }
+      ]
     }
   ]
 }

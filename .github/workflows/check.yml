@@ -1,12 +1,16 @@
-# Runs Wibble's own install rules on every entry a pull request adds or
-# changes. The check fetches each entry at its pinned commit and reads its
-# files; it never runs them. Built from the Wibble repo by
-# scripts/build-shelf-check.mjs.
+# Runs Wibble's own install rules on every entry a pull request (or a push
+# to main) adds or changes. The check fetches each entry at its pinned
+# commit and reads its files; it never runs them. Built from the Wibble
+# repo by scripts/build-shelf-check.mjs. Items that ship their own tests
+# (items/<id>/*.test.mjs) have them run too.
 name: Check the shelf
 
 on:
   pull_request:
-    paths: [wibble-marketplace.json]
+    paths: [wibble-marketplace.json, "items/**", ".github/**"]
+  push:
+    branches: [main]
+    paths: [wibble-marketplace.json, "items/**", ".github/**"]
 
 permissions:
   contents: read
@@ -22,6 +26,13 @@ jobs:
         with:
           node-version: 20
       - name: Read the index before this change
-        run: git show "origin/${{ github.base_ref }}:wibble-marketplace.json" > base.json 2>/dev/null || rm -f base.json
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}
+        run: git show "$BASE:wibble-marketplace.json" > base.json 2>/dev/null || rm -f base.json
       - name: Check what changed
         run: node .github/check/shelf-check.mjs --base base.json --head wibble-marketplace.json
+      - name: Run the items' own tests
+        run: |
+          shopt -s nullglob
+          tests=(items/*/*.test.mjs)
+          if [ ${#tests[@]} -gt 0 ]; then node --test "${tests[@]}"; fi
