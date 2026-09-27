@@ -384,13 +384,34 @@ test("parseEndpoints: a missing input_cache_write/input_cache_write_1h/input_cac
   assert.deepStrictEqual(priced, { input: 1.25e-6, cacheRead: 1.25e-6, write5m: 1.25e-6, write1h: 1.25e-6, output: 1e-5, context: 400000 });
 });
 
-test("parseEndpoints: malformed JSON, no data.endpoints, and a non-numeric price all give null", () => {
+test("parseEndpoints: a known maker whose provider_name matches nothing in the body still falls back to the cheapest of all", () => {
+  // "Anthropic" IS in MAKERS (unlike the "mystery" case above), but no
+  // endpoint here is provider_name "Anthropic" -- both listed are OpenAI
+  // and Google. A known-but-absent maker must fall back the same way an
+  // unknown one does.
+  const body = JSON.stringify({
+    data: {
+      endpoints: [
+        { provider_name: "OpenAI", context_length: 400000, pricing: { prompt: "0.000005", completion: "0.00002", input_cache_read: "0.0000005" } },
+        { provider_name: "Google", context_length: 500000, pricing: { prompt: "0.000003", completion: "0.000009", input_cache_read: "0.0000003" } },
+      ],
+    },
+  });
+  const priced = parseEndpoints(body, "anthropic/claude-opus-5.5");
+  assert.deepStrictEqual(priced, { input: 3e-6, cacheRead: 3e-7, write5m: 3e-6, write1h: 3e-6, output: 9e-6, context: 500000 });
+});
+
+test("parseEndpoints: malformed JSON, no data.endpoints, a non-numeric price and a negative price all give null", () => {
   assert.strictEqual(parseEndpoints("{not json", "anthropic/claude-opus-5.5"), null, "malformed JSON");
   assert.strictEqual(parseEndpoints(JSON.stringify({ data: { id: "x" } }), "anthropic/claude-opus-5.5"), null, "no data.endpoints");
   const badPrice = JSON.stringify({
     data: { endpoints: [{ provider_name: "Anthropic", pricing: { prompt: "not-a-number", completion: "0.00002" } }] },
   });
   assert.strictEqual(parseEndpoints(badPrice, "anthropic/claude-opus-5.5"), null, "a non-numeric price leaves no usable endpoint");
+  const negativePrice = JSON.stringify({
+    data: { endpoints: [{ provider_name: "Anthropic", pricing: { prompt: "-0.000001", completion: "0.00002" } }] },
+  });
+  assert.strictEqual(parseEndpoints(negativePrice, "anthropic/claude-opus-5.5"), null, "a negative price is rejected, same as non-numeric");
 });
 
 // --- priceFor() -----------------------------------------------------------

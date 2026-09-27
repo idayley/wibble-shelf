@@ -243,7 +243,7 @@ export const BUILTIN_PRICES = {
   "anthropic/claude-sonnet-5": { input: 2e-6, cacheRead: 2e-7, write5m: 2.5e-6, write1h: 4e-6, output: 1e-5, context: 1000000 },
   "anthropic/claude-haiku-4.5": { input: 1e-6, cacheRead: 1e-7, write5m: 1.25e-6, write1h: 2e-6, output: 5e-6, context: 200000 },
   "openai/gpt-5.5": { input: 5e-6, cacheRead: 5e-7, write5m: 5e-6, write1h: 5e-6, output: 3e-5, context: 1050000 },
-  "openai/gpt-5-codex": { input: 1.25e-6, cacheRead: 1.25e-7, write5m: 1.25e-6, write1h: 1.25e-6, output: 1e-5, context: 400000 },
+  "openai/gpt-5.3-codex": { input: 1.75e-6, cacheRead: 1.75e-7, write5m: 1.75e-6, write1h: 1.75e-6, output: 1.4e-5, context: 400000 },
 };
 
 /** OpenRouter author -> the provider_name of the model's own maker. */
@@ -303,7 +303,7 @@ export function parseEndpoints(body, slug) {
   let data;
   try {
     data = JSON.parse(body);
-  } catch (e) {
+  } catch {
     return null;
   }
   const endpoints = data && data.data && data.data.endpoints;
