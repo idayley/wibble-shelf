@@ -229,6 +229,114 @@ export function dollars(units, model) {
   return (units * PRICE_PER_M[family]) / 1e6;
 }
 
+// ---------------------------------------------------------------------------
+// Real per-token prices (docs/specs/2026-09-27-trim-payback-design.md §2.1).
+// PRICE_PER_M/dollars() above are v1's crude family fallback; they stay as
+// activate() still calls dollars() for its per-request dollar figure, and a
+// later task moves that call over to priceFor().
+// ---------------------------------------------------------------------------
+
+// Dollars per token, from OpenRouter's endpoint lists on 2026-09-27.
+export const BUILTIN_PRICES = {
+  "anthropic/claude-opus-5.5": { input: 4e-6, cacheRead: 2e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1000000 },
+  "anthropic/claude-opus-5": { input: 5e-6, cacheRead: 5e-7, write5m: 6.25e-6, write1h: 1e-5, output: 2.5e-5, context: 1000000 },
+  "anthropic/claude-sonnet-5": { input: 2e-6, cacheRead: 2e-7, write5m: 2.5e-6, write1h: 4e-6, output: 1e-5, context: 1000000 },
+  "anthropic/claude-haiku-4.5": { input: 1e-6, cacheRead: 1e-7, write5m: 1.25e-6, write1h: 2e-6, output: 5e-6, context: 200000 },
+  "openai/gpt-5.5": { input: 5e-6, cacheRead: 5e-7, write5m: 5e-6, write1h: 5e-6, output: 3e-5, context: 1050000 },
+  "openai/gpt-5-codex": { input: 1.25e-6, cacheRead: 1.25e-7, write5m: 1.25e-6, write1h: 1.25e-6, output: 1e-5, context: 400000 },
+};
+
+/** OpenRouter author -> the provider_name of the model's own maker. */
+export const MAKERS = { anthropic: "Anthropic", openai: "OpenAI", deepseek: "DeepSeek" };
+
+export function slugOf(model) {
+  if (!model) return null;
+  let m = String(model).toLowerCase().replace(/\[.*\]$/, "").replace(/-\d{8}$/, "").replace(/^openrouter\//, "");
+  if (m.includes("/")) return m;
+  if (m.startsWith("claude-")) m = "anthropic/" + m;
+  else if (/^(gpt-|o\d)/.test(m)) m = "openai/" + m;
+  else return null;
+  return m.replace(/(\d)-(?=\d)/g, "$1.");
+}
+
+/** `Number(v)`, or null when it isn't a finite, non-negative price. */
+function toPrice(v) {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? n : null;
+}
+
+/**
+ * One endpoint's prices, or null when `prompt`/`completion`, or a present
+ * but unparseable `input_cache_read`, don't hold a real price. A missing
+ * `input_cache_read`/`input_cache_write`/`input_cache_write_1h` costs the
+ * same as `prompt` -- the spec's rule for providers (OpenAI, most
+ * OpenAI-compatible) that charge no premium to write the cache.
+ */
+function priceEndpoint(endpoint) {
+  const pricing = endpoint && endpoint.pricing;
+  if (!pricing) return null;
+  const input = toPrice(pricing.prompt);
+  const output = toPrice(pricing.completion);
+  if (input == null || output == null) return null;
+  const cacheRead = pricing.input_cache_read == null ? input : toPrice(pricing.input_cache_read);
+  const write5m = pricing.input_cache_write == null ? input : toPrice(pricing.input_cache_write);
+  const write1h = pricing.input_cache_write_1h == null ? input : toPrice(pricing.input_cache_write_1h);
+  if (cacheRead == null || write5m == null || write1h == null) return null;
+  return {
+    input,
+    cacheRead,
+    write5m,
+    write1h,
+    output,
+    context: typeof endpoint.context_length === "number" ? endpoint.context_length : null,
+  };
+}
+
+/**
+ * Parse an OpenRouter `.../endpoints` response body into one price entry:
+ * the endpoints whose `provider_name` is the model's own maker
+ * (`MAKERS[slug's author]`), or all of them when none match, priced at the
+ * lowest `input`. Anything that doesn't hold a real body -- malformed JSON,
+ * no `data.endpoints`, or no endpoint left with a usable price -- is null.
+ */
+export function parseEndpoints(body, slug) {
+  let data;
+  try {
+    data = JSON.parse(body);
+  } catch (e) {
+    return null;
+  }
+  const endpoints = data && data.data && data.data.endpoints;
+  if (!Array.isArray(endpoints)) return null;
+
+  const maker = slug ? MAKERS[String(slug).split("/")[0]] : undefined;
+  const matched = maker ? endpoints.filter((e) => e && e.provider_name === maker) : [];
+  const pool = matched.length ? matched : endpoints;
+
+  let best = null;
+  for (const endpoint of pool) {
+    const priced = priceEndpoint(endpoint);
+    if (priced && (!best || priced.input < best.input)) best = priced;
+  }
+  return best;
+}
+
+/**
+ * The prices to charge `model` at: a fetch already on file for its slug
+ * (`fetched[slug]`, kept by the caller as `{prices, at}`) wins; otherwise
+ * the built-in table; otherwise null -- an unknown model, or one `slugOf`
+ * can't place.
+ */
+export function priceFor(model, fetched) {
+  const slug = slugOf(model);
+  if (!slug) return null;
+  const hit = fetched && fetched[slug];
+  if (hit && hit.prices) return { slug, prices: hit.prices, source: "fetched" };
+  const builtin = BUILTIN_PRICES[slug];
+  if (builtin) return { slug, prices: builtin, source: "built-in" };
+  return null;
+}
+
 /**
  * Percentage saved of what the work would otherwise have cost. 0 (not
  * NaN) when nothing has been spent or saved yet -- a fresh install's

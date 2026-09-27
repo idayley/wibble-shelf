@@ -11,7 +11,26 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { track, release, evictIdle, rereads, cost, saving, dollars, percent, PRICE_PER_M, AGE, BATCH, IDLE_MS, cutLine } from "./main.js";
+import {
+  track,
+  release,
+  evictIdle,
+  rereads,
+  cost,
+  saving,
+  dollars,
+  percent,
+  PRICE_PER_M,
+  AGE,
+  BATCH,
+  IDLE_MS,
+  cutLine,
+  slugOf,
+  parseEndpoints,
+  priceFor,
+  BUILTIN_PRICES,
+  MAKERS,
+} from "./main.js";
 
 function closeTo(actual, expected, msg) {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${msg}: got ${actual}, expected ${expected}`);
@@ -288,4 +307,109 @@ test("percent: saved / (actual + saved), and 0 (not NaN) when both are 0", () =>
   // actual: 0}. saved/(actual+saved) is 0/0 there, which is NaN, not a
   // percentage -- percent() special-cases the empty denominator to 0.
   assert.strictEqual(percent({ saved: 0, actual: 0 }), 0, "percent of nothing spent or saved is 0, not NaN");
+});
+
+// --- slugOf() -----------------------------------------------------------
+
+test("slugOf: model id -> OpenRouter author/slug, per the brief's worked cases", () => {
+  assert.strictEqual(slugOf("claude-opus-5-5"), "anthropic/claude-opus-5.5");
+  assert.strictEqual(slugOf("claude-opus-5-5[1m]"), "anthropic/claude-opus-5.5", "a [1m] suffix is stripped");
+  assert.strictEqual(slugOf("claude-haiku-4-5-20251001"), "anthropic/claude-haiku-4.5", "a trailing date is stripped before the digit join");
+  assert.strictEqual(slugOf("gpt-5.5"), "openai/gpt-5.5");
+  assert.strictEqual(slugOf("gpt-5-codex"), "openai/gpt-5-codex", "no digit follows the dash, so it's left alone");
+  assert.strictEqual(slugOf("openrouter/deepseek/deepseek-v4-pro"), "deepseek/deepseek-v4-pro", "a router prefix is stripped, then it's already author/slug");
+  assert.strictEqual(slugOf("deepseek/deepseek-v4-pro"), "deepseek/deepseek-v4-pro", "already author/slug -- unchanged");
+  assert.strictEqual(slugOf("mystery"), null, "no known author prefix and no slash");
+  assert.strictEqual(slugOf(null), null);
+});
+
+// --- parseEndpoints() -----------------------------------------------------------
+
+// A body shaped like a real `.../endpoints` response: two Anthropic
+// endpoints and one Google, prices as dollar-per-token strings.
+const ENDPOINTS_BODY = JSON.stringify({
+  data: {
+    id: "anthropic/claude-opus-5.5",
+    endpoints: [
+      {
+        provider_name: "Anthropic",
+        context_length: 1000000,
+        pricing: { prompt: "0.000004", completion: "0.00002", input_cache_read: "0.0000002", input_cache_write: "0.000005", input_cache_write_1h: "0.000008" },
+      },
+      {
+        provider_name: "Anthropic",
+        context_length: 200000,
+        pricing: { prompt: "0.000008", completion: "0.00004", input_cache_read: "0.0000004", input_cache_write: "0.00001", input_cache_write_1h: "0.000016" },
+      },
+      {
+        provider_name: "Google",
+        context_length: 1000000,
+        pricing: { prompt: "0.0000044", completion: "0.000022", input_cache_read: "0.00000044" },
+      },
+    ],
+  },
+});
+
+test("parseEndpoints: picks the cheapest endpoint from the model's own maker", () => {
+  const priced = parseEndpoints(ENDPOINTS_BODY, "anthropic/claude-opus-5.5");
+  assert.deepStrictEqual(priced, { input: 4e-6, cacheRead: 2e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1000000 });
+});
+
+test("parseEndpoints: no maker match falls back to the cheapest of every endpoint listed", () => {
+  // Anthropic's own cheapest endpoint (0.000004) is NOT the cheapest one
+  // here -- Google's (0.000003) is. "mystery" has no entry in MAKERS, so
+  // nothing narrows the pool to a maker at all, and the cheapest of every
+  // endpoint listed wins, proving this isn't just coincidentally the same
+  // pick as the maker-matched test above.
+  assert.strictEqual(MAKERS.mystery, undefined);
+  const body = JSON.stringify({
+    data: {
+      endpoints: [
+        { provider_name: "Anthropic", context_length: 1000000, pricing: { prompt: "0.000004", completion: "0.00002", input_cache_read: "0.0000002" } },
+        { provider_name: "Google", context_length: 500000, pricing: { prompt: "0.000003", completion: "0.000009", input_cache_read: "0.0000003" } },
+      ],
+    },
+  });
+  const priced = parseEndpoints(body, "mystery/model");
+  assert.deepStrictEqual(priced, { input: 3e-6, cacheRead: 3e-7, write5m: 3e-6, write1h: 3e-6, output: 9e-6, context: 500000 });
+});
+
+test("parseEndpoints: a missing input_cache_write/input_cache_write_1h/input_cache_read costs the same as input", () => {
+  const body = JSON.stringify({
+    data: {
+      endpoints: [{ provider_name: "OpenAI", context_length: 400000, pricing: { prompt: "0.00000125", completion: "0.00001" } }],
+    },
+  });
+  const priced = parseEndpoints(body, "openai/gpt-5-codex");
+  assert.deepStrictEqual(priced, { input: 1.25e-6, cacheRead: 1.25e-6, write5m: 1.25e-6, write1h: 1.25e-6, output: 1e-5, context: 400000 });
+});
+
+test("parseEndpoints: malformed JSON, no data.endpoints, and a non-numeric price all give null", () => {
+  assert.strictEqual(parseEndpoints("{not json", "anthropic/claude-opus-5.5"), null, "malformed JSON");
+  assert.strictEqual(parseEndpoints(JSON.stringify({ data: { id: "x" } }), "anthropic/claude-opus-5.5"), null, "no data.endpoints");
+  const badPrice = JSON.stringify({
+    data: { endpoints: [{ provider_name: "Anthropic", pricing: { prompt: "not-a-number", completion: "0.00002" } }] },
+  });
+  assert.strictEqual(parseEndpoints(badPrice, "anthropic/claude-opus-5.5"), null, "a non-numeric price leaves no usable endpoint");
+});
+
+// --- priceFor() -----------------------------------------------------------
+
+test("priceFor: a fetched entry wins over the built-in table", () => {
+  const fetched = { "anthropic/claude-opus-5.5": { prices: { input: 3e-6, cacheRead: 1e-7, write5m: 4e-6, write1h: 6e-6, output: 1.5e-5, context: 1000000 }, at: 12345 } };
+  const out = priceFor("claude-opus-5-5", fetched);
+  assert.deepStrictEqual(out, { slug: "anthropic/claude-opus-5.5", prices: fetched["anthropic/claude-opus-5.5"].prices, source: "fetched" });
+});
+
+test("priceFor: the built-in table is used when nothing has been fetched for that slug", () => {
+  const out = priceFor("claude-opus-5-5", {});
+  assert.deepStrictEqual(out, { slug: "anthropic/claude-opus-5.5", prices: BUILTIN_PRICES["anthropic/claude-opus-5.5"], source: "built-in" });
+
+  // No `fetched` argument at all behaves the same way.
+  assert.deepStrictEqual(priceFor("claude-opus-5-5", undefined), out);
+});
+
+test("priceFor: an unknown model is null, fetched or not", () => {
+  assert.strictEqual(priceFor("mystery-model-9000", {}), null);
+  assert.strictEqual(priceFor(null, {}), null);
 });
