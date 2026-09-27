@@ -199,9 +199,21 @@ def make_handler(judge):
             else:
                 self._send_error_json(404, "not found")
 
+        def _from_elsewhere(self):
+            """True for a request a web page could have sent: browsers always
+            set Origin on a cross-site POST, and a DNS-rebound page carries its
+            own name in Host. Trim (via Wibble) sends neither."""
+            port = self.server.server_address[1]
+            host = self.headers.get("Host", "")
+            return self.headers.get("Origin") is not None or host not in (f"127.0.0.1:{port}", f"localhost:{port}")
+
         def do_POST(self):
             if self.path != "/v1/systemone":
                 self._send_error_json(404, "not found")
+                return
+            if self._from_elsewhere():
+                self.close_connection = True
+                self._send_error_json(403, "local callers only", close=True)
                 return
 
             length_header = self.headers.get("Content-Length")
@@ -252,7 +264,13 @@ def make_handler(judge):
                     return
                 todo.append((name, instructions))
 
-            answers = {name: {"noul": judge.score_noul(state, text)} for name, text in todo}
+            try:
+                answers = {name: {"noul": judge.score_noul(state, text)} for name, text in todo}
+            except Exception as e:  # noqa: BLE001 -- any model/tokenizer failure
+                # Log the kind of failure only: its message could quote the input.
+                sys.stderr.write(f"[openjev-serve] scoring failed: {type(e).__name__}\n")
+                self._send_error_json(500, "scoring failed")
+                return
             self._send_json(200, {"answers": answers})
 
         def log_message(self, fmt, *args):
