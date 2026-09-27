@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""calibrate.py -- pick Trim's NOT_NEEDED_P from labeled past work.
+"""calibrate.py -- pick Trim's cutLine(calls) thresholds from labeled past work.
 
 What it measures: for past tasks where we know which files the agent
 actually needed, ask the real judge (openjev-serve.py) the exact question

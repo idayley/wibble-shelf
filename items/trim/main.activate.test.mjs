@@ -464,6 +464,58 @@ test("activate: the judge queue is capped at 200 (drop oldest) and drains newest
   for (let i = 191; i < 200; i++) assert.ok(!askedFromA.has("A" + i), "A" + i + " should have been capped out (dropped oldest)");
 });
 
+// --- past 25 calls, the judge is never asked; the age rule still cuts ---
+
+test("activate: a thread past 25 calls never asks the judge (only /health is fetched), and the aged item is still dropped by the age rule", async () => {
+  const seenHandlers = [];
+  const dropCalls = [];
+  let judgeAsks = 0;
+
+  const wibble = {
+    trim: {
+      onSeen(fn) {
+        seenHandlers.push(fn);
+        return () => {};
+      },
+      onResult: () => () => {},
+      async drop(sessionId, ids) {
+        dropCalls.push({ sessionId, ids });
+      },
+    },
+    net: {
+      async fetch(url) {
+        if (url.endsWith("/health")) return { status: 200, headers: {}, body: JSON.stringify({ ok: true, model: "test" }) };
+        if (url.endsWith("/v1/systemone")) {
+          judgeAsks++;
+          // If this were ever reached, answer "needed" so a wiring bug
+          // (the judge asked, and its verdict trusted) wouldn't also
+          // happen to produce the same drop as the age rule below.
+          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 0.99 } } }) };
+        }
+        throw new Error("unexpected fetch: " + url);
+      },
+    },
+    storage: { get: async () => undefined, set: async () => {}, keys: async () => [], onChange: () => () => {} },
+    panel: { async set() {} },
+  };
+  await activate(wibble);
+
+  // A single onSeen report at calls=26 (past the cutLine(26) === null line)
+  // with one item already old enough (age 6 > AGE) to have been a judge
+  // candidate at any earlier length. track() must not enqueue it, so
+  // pump() never calls ask() -- no /v1/systemone fetch at all.
+  seenHandlers.forEach((fn) =>
+    fn(seenEvent({ calls: 26, items: [{ id: "item1", tool: "Read", target: "f.txt", chars: 500, age: 6, head: "hello" }] })),
+  );
+  await wait(20);
+
+  assert.strictEqual(judgeAsks, 0, "the judge is never asked once the thread is past 25 calls");
+  // release() still fires (calls - lastRelease = 26 >= BATCH) and cuts the
+  // aged item by the fallback rule, since cutLine(26) is null.
+  assert.strictEqual(dropCalls.length, 1, "the age rule alone still drops the aged item");
+  assert.deepStrictEqual(dropCalls[0], { sessionId: "s1", ids: ["item1"] });
+});
+
 // --- health probe cooldown is anchored to the failure, not a schedule ---
 
 test("activate: a judge failure re-arms a fresh 60s health-probe window from the failure itself", async (t) => {
