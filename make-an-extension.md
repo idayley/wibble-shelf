@@ -36,7 +36,7 @@ main.js       the code, plain JavaScript, no build step
 | `command.run` | run a command the operator has already approved |
 | `foley.play` | play one of Wibble's own sounds |
 | `protocols.list` | see the names of your skills, agents and rules |
-| `context.trim` | remove old tool output from what your agents send; it can't add or change anything. At most one enabled extension can hold it |
+| `context.trim` | remove old tool output from what your agents send. It sees each result's tool and file or command, the start of new results, your latest message and recent replies; it can't add or change anything. At most one enabled extension can hold it |
 | `net.fetch` | reach the hosts your manifest's `hosts` list names, and nowhere else |
 
 Without `net.fetch` it can't reach the internet at all, and it can't open your files either way. Ask for only what you use.
