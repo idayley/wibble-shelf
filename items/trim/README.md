@@ -1,19 +1,20 @@
 # Trim
 
-Trim quietly drops old tool output — file reads, command results, search hits — that your agent doesn't need anymore, before your next request goes out. There's nothing to configure and nothing to look at: it works from the moment it's on, and its own pill in the top slot shows what it's actually saved. If something it dropped turns out to still matter, the agent just reads it again — that re-read is charged back against the savings, so the number you see is never a bluff.
+Trim quietly drops old tool output — file reads, command results, search hits — that your agent doesn't need anymore, before your next request goes out. There's nothing to configure and nothing to look at: it works from the moment it's on, and its own pill in the top slot shows what it's actually saved. If something it dropped turns out to still matter, the agent just reads it again — that re-read, and the extra request it takes, are charged back against the savings, so the number you see is never a bluff.
 
 ## The 25% number
 
-Replaying Wibble's own past sessions — dropping any tool output more than 5 calls old, in batches every 20 calls, with every re-read charged back — cost about **$950 instead of $3,870** over that replay: roughly a **25% cut**, on real past work, not a synthetic benchmark.
+Replaying Wibble's own past sessions — dropping any tool output more than 5 calls old, in batches every 20 calls, with every re-read charged back — saved about **$950 of $3,870** over that replay: roughly **25%**, on real past work, not a synthetic benchmark.
 
 ## How it decides what to cut
 
-A tool output becomes a candidate once it's more than 5 calls old. Every 20 calls, Trim looks at that thread's candidates:
+A tool output becomes a candidate once it's more than 5 calls old. Every 20 calls, Trim looks at that thread's candidates.
 
-- **Long threads (more than 25 calls):** skip the judge entirely and cut on age alone — at that length, asking isn't worth what asking costs.
-- **Shorter threads:** ask a small model running on your own machine (see below) how likely it is the agent still needs that specific output for what the operator just asked. Only a confident "still needed" keeps it. Anything else — a confident "not needed," a weak answer, or no answer at all because the judge is off or hasn't reached it yet — gets cut. The judge can only ever *save* an item; it never adds a cut the age rule wasn't already going to make.
+A small model running on your own machine (see below) — the judge — is asked how likely it is the agent still needs each candidate for what the operator just asked. Only a confident "not needed", or no answer at all (the judge is off, or hasn't reached it yet), gets the item cut. Anything short of that keeps it until the next batch, 20 calls later, when it's looked at again. The judge can only ever *save* an item; it never adds a cut the age rule wasn't already going to make.
 
-Honestly: the judge isn't great. On 337 real tool outputs from 42 past tasks, each hand-labeled as actually needed or not, it told needed apart from not-needed correctly about 76% of the time (50% would be a coin flip, 100% would be never wrong). That's worth asking, not worth trusting blindly — which is exactly why an item with a shaky or missing verdict still falls back to the age rule instead of being kept indefinitely.
+"Confident" is stricter for a thread's first batch (at 20 calls) than for later ones: the longer a thread runs, the more an unneeded item costs by riding along on every call, so later batches cut a little more readily.
+
+Honestly: the judge isn't great. On 337 real tool outputs from 42 past tasks, each hand-labeled as actually needed or not, it told needed apart from not-needed correctly about 76% of the time (50% would be a coin flip, 100% would be never wrong). That's worth asking, not worth trusting blindly — so it only gets to keep things, and anything it hasn't answered on is cut by age as if it weren't there.
 
 ## Turning on the judge
 

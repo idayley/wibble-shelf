@@ -56,9 +56,11 @@ Most capabilities are self-explanatory from the table above — see `wibble.d.ts
 
 ```ts
 wibble.trim.onSeen(fn): () => void   // fn gets a per-call report: { sessionId, thread, calls, items: [...] }; call the return value to unsubscribe
-wibble.trim.onResult(fn): () => void // fn gets a per-request report after usage is known: { sessionId, thread, usage, removedChars, totalChars, ... }
-wibble.trim.drop(sessionId, ids): Promise<void> // leaves these tool-output ids out of every later request in that thread
+wibble.trim.onResult(fn): () => void // fn gets a per-request report after usage is known: { sessionId, thread, usage, removedChars, totalChars, sentChars?, ... }
+wibble.trim.drop(sessionId, ids): Promise<void> // leaves these tool-output ids out of every later request in that session
 ```
+
+`totalChars` is the messages (or `input`) array alone, as sent. `sentChars`, on Wibbles that report it, is the whole request body as sent, system prompt and tool definitions included: divide the usage's prompt tokens by `sentChars`, not `totalChars`, for tokens per char.
 
 **`net.fetch`** — `wibble.net.fetch`:
 
