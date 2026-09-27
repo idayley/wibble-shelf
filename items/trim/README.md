@@ -39,7 +39,7 @@ It listens on `127.0.0.1:8791` only, and holds the model loaded in memory so eac
 
 ## The pill
 
-The chip in the top slot is Trim's own status, nothing more: a percent saved this week, and next to it a dollar figure (or, if the model isn't one we know the price of, a token count). It's on by default and has no settings of its own — you turn Trim on or off from Wibble's own Settings, the same as any other extension.
+The chip in the top slot is Trim's own status, nothing more: one chip with this week's percent saved and a dollar figure, like `−24% · $41 saved` (or a token count, if the model isn't one we know the price of). It's on by default and has no settings of its own — you turn Trim on or off from Wibble's own Settings, the same as any other extension.
 
 ## What it can't do
 

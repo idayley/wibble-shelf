@@ -300,9 +300,9 @@ function formatSavingsLabel(week) {
     // than rounding to "$0 saved" (Math.round(-0.1) is -0).
     const d = week.dollars;
     const amount = Math.abs(d) < 10 ? Math.abs(d).toFixed(2) : String(Math.round(Math.abs(d)));
-    return d < 0 && amount !== "0.00" ? "$" + amount + " spent this week" : "$" + amount + " saved this week";
+    return d < 0 && amount !== "0.00" ? "$" + amount + " spent" : "$" + amount + " saved";
   }
-  return formatCompactNumber(week.removedTokens) + " tokens saved this week";
+  return formatCompactNumber(week.removedTokens) + " tokens saved";
 }
 
 export async function activate(wibble) {
@@ -521,15 +521,12 @@ export async function activate(wibble) {
     if (Object.keys(totals).length === 0) {
       return { kind: "chip", label: "Trim", tone: "faint" };
     }
+    // One chip, this week's figures: the top band is shared with every
+    // other extension's pill, and three pills (percent, dollars, a judge
+    // note) crowded it off the edge in the live check. Whether the judge
+    // is up is the README's business, not the pill's.
     const week = weekTotals();
-    const children = [
-      { kind: "chip", key: "pct", label: formatPercentLabel(week) },
-      { kind: "text", key: "saved", content: formatSavingsLabel(week) },
-    ];
-    if (!judgeUp) {
-      children.push({ kind: "text", key: "rule", content: "age rule" });
-    }
-    return { kind: "stack", children };
+    return { kind: "chip", key: "pill", label: formatPercentLabel(week) + " · " + formatSavingsLabel(week) };
   }
 
   async function drawNow() {

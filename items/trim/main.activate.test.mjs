@@ -263,8 +263,7 @@ test("activate: a rejected judge fetch marks the judge down, and the fallback st
   assert.strictEqual(h.dropCalls.length, 1, "the fallback drops the item even though the judge never answered");
   assert.deepStrictEqual(h.dropCalls[0], { sessionId: "s1", ids: ["item1"] });
 
-  // Observable proof the judge is marked down: once there are savings to
-  // show, the panel's pill carries the "age rule" note.
+  // The judge being down doesn't stop the pill: savings still show.
   h.fireResult({
     sessionId: "s1",
     thread: "t1",
@@ -278,9 +277,8 @@ test("activate: a rejected judge fetch marks the judge down, and the fallback st
   await wait(1100); // the panel redraw throttle's trailing edge (1/s)
 
   const last = h.panelCalls[h.panelCalls.length - 1].node;
-  assert.strictEqual(last.kind, "stack");
-  const ruleText = last.children.find((c) => c.kind === "text" && c.content === "age rule");
-  assert.ok(ruleText, "panel shows the age-rule note while the judge is down");
+  assert.strictEqual(last.kind, "chip");
+  assert.match(last.label, /^[−+]\d+% · /, "the pill shows a saving while the judge is down");
 });
 
 // --- panel label shows a percent after results --------------------------
@@ -308,12 +306,8 @@ test("activate: the panel shows a percent chip and a dollar label after an onRes
   await wait(1100); // panel redraw throttle's trailing edge (1/s)
 
   const last = h.panelCalls[h.panelCalls.length - 1].node;
-  assert.strictEqual(last.kind, "stack");
-  const chip = last.children.find((c) => c.kind === "chip");
-  const text = last.children.find((c) => c.kind === "text");
-  assert.strictEqual(chip.label, "−50%");
-  assert.strictEqual(text.content, "$45 saved this week");
-  assert.ok(!last.children.some((c) => c.content === "age rule"), "judge is up, so no age-rule note");
+  assert.strictEqual(last.kind, "chip");
+  assert.strictEqual(last.label, "−50% · $45 saved");
 });
 
 // --- persistence: totals actually survive a reload via storage ---------
@@ -353,11 +347,7 @@ test("activate: totals are written to storage, and a second activate() against t
   await wait(20); // let its fire-and-forget initial scheduleDraw() land
 
   const last = h.panelCalls[h.panelCalls.length - 1].node;
-  assert.strictEqual(last.kind, "stack", "the reloaded activate() painted a real pill, not the empty chip");
-  const chip = last.children.find((c) => c.kind === "chip");
-  const text = last.children.find((c) => c.kind === "text");
-  assert.strictEqual(chip.label, "−50%", "percent reloaded from storage, not recomputed from a fresh (empty) totals");
-  assert.strictEqual(text.content, "$45 saved this week");
+  assert.strictEqual(last.label, "−50% · $45 saved", "the reloaded activate() painted the stored week, not the empty chip");
 });
 
 // --- queue: cap 200 (drop oldest), newest-thread-first ordering ---------
