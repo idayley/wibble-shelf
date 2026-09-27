@@ -760,6 +760,10 @@ function formatCompactNumber(n) {
  */
 function formatPercentLabel(week) {
   const pct = Math.round(percent({ saved: week.saved, actual: week.actual }) * 100);
+  // Under half a percent either way rounds to 0 (or -0, which fails
+  // `< 0`): no sign then, or a small net cost reads "−0%" beside
+  // "$0.01 more" (found live).
+  if (pct === 0) return "0%";
   const sign = pct < 0 ? "+" : "−";
   return sign + Math.abs(pct) + "%";
 }

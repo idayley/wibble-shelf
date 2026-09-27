@@ -874,6 +874,17 @@ test("detailNode: the design doc's worked example, node for node", () => {
   for (const c of node.children) assert.ok(["heading", "row", "text"].includes(c.kind), c.kind);
 });
 
+test("detailNode: a percent that rounds to zero reads 0%, with no sign either way", () => {
+  for (const [saved, actual] of [[0.2, 100], [-0.2, 100], [0, 100]]) {
+    const view = baseView(Date.now());
+    view.week = { ...view.week, saved, actual };
+    view.chat = { ...view.chat, saved, actual };
+    const node = detailNode(view, Date.now());
+    assert.match(node.children[0].content, /^This week {2}0% · /, `week ${saved}/${actual}`);
+    assert.match(findRow(node.children, "This chat").value, /^0% · /, `chat ${saved}/${actual}`);
+  }
+});
+
 test("detailNode: a plan-billed chat's dollar line reads an API-price estimate, not a saving", () => {
   const view = baseView(Date.now());
   view.chat = { ...view.chat, billing: "plan" };
