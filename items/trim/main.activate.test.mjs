@@ -728,6 +728,20 @@ test("activate: stored prices are loaded on start, and fetched again once they a
   assert.strictEqual(h.priceFetches.length, 1, "a day old: fetched again");
 });
 
+test("activate: a corrupt stored price entry is dropped on load, so pricing falls back to the built-in table", async () => {
+  // input is NaN -- one of the six numbers a stored entry must have to be
+  // trusted (the other five prices and `at`). A corrupt entry must not
+  // feed NaN into totals; it's dropped on load, same as having none at all.
+  const corrupt = { prices: { input: NaN, cacheRead: 1e-7, write5m: 4e-6, write1h: 6e-6, output: 1.5e-5, context: 1000000 }, at: Date.now() };
+  const h = makeWibble({ health: "up" }, { store: { prices: { [OPUS_SLUG]: corrupt } } });
+  await activate(h.wibble);
+
+  // Built-in Opus 5.5 (cache read $0.20/M), not the corrupt stored $0.10/M.
+  h.fireResult(opusResult());
+  await wait(1100);
+  assert.strictEqual(h.panelCalls[h.panelCalls.length - 1].node.label, "−50% · $20 saved", "built-in pricing, not the corrupt stored entry");
+});
+
 // --- dollars in the day totals, and the chip -----------------------------
 
 test("activate: a priced result shows the week in dollars, and the day keeps dollars and v1 units", async () => {
@@ -861,4 +875,66 @@ test("activate: a rejected cold drop is offered again at the next batch", async 
       [["big"], { when: "cold" }],
     ],
   );
+
+  // Neither attempt was ever accepted by Wibble, so nothing was really
+  // skipped from its point of view: each optimistic count is undone by
+  // its own rejection, not left standing to add up with the next batch's.
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.strictEqual(day.skipped, 0, "both cold drops were refused -- no accepted skip to count");
+});
+
+test("activate: an accepted cold drop's skipped count survives; a later rejection doesn't erase it", async () => {
+  // First attempt succeeds (real makeWibble drop, host.cold: true), so its
+  // skipped count should stand even once a second, unrelated rejection
+  // happens on a different item -- proving the undo is per-attempt, not a
+  // blanket "zero it out on any failure".
+  const h = makeWibble({ health: "down" }, { cold: true });
+  await activate(h.wibble);
+
+  h.fireSeen(bigEarly(20)); // accepted: "big" parked cold
+  await wait(20);
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 1);
+
+  h.wibble.trim.drop = async (sessionId, ids, opts) => {
+    h.dropCalls.push({ sessionId, ids, opts });
+    throw new Error("session ended");
+  };
+  h.fireSeen(seenEvent({ sessionId: "s2", model: "claude-sonnet-5", totalChars: 1000000, calls: 20, items: [{ id: "other", tool: "Read", target: "other.txt", chars: 20000, at: 0, age: 6 }] }));
+  await wait(20);
+
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.strictEqual(day.skipped, 1, "the first, accepted skip still stands after an unrelated rejection");
+});
+
+test("activate: a cold drop Wibble applies becomes an ordinary sticky drop -- no more withdraw, and a re-read of it is charged", async () => {
+  // Same setup as the withdraw test above, but Wibble reports the cold
+  // drop as APPLIED before the judge's "keep" verdict would otherwise
+  // trigger a withdraw at 40 calls. Per spec §2.5, once applied it "is an
+  // ordinary sticky drop": no more withdrawing it, and reading its target
+  // again is charged as a re-read, same as any other dropped item.
+  const h = makeWibble({ health: "up", ask: "up", notNeeded: 0.01 }, { cold: true });
+  await activate(h.wibble);
+
+  h.fireSeen(bigEarly(20));
+  await wait(20); // parked cold; the judge's 0.01 verdict lands after planning
+  assert.deepStrictEqual(h.dropCalls, [{ sessionId: "s1", ids: ["big"], opts: { when: "cold" } }]);
+
+  h.fireResult(opusResult({ sessionId: "s1", model: "claude-sonnet-5", cold: true, coldApplied: ["big"], newlyRemoved: 1 }));
+  await wait(20);
+
+  // The next batch would have withdrawn "big" (the judge's verdict says
+  // keep, per the withdraw test) -- but it's no longer a live candidate at
+  // all, so nothing is withdrawn or re-parked.
+  h.fireSeen(bigEarly(40));
+  await wait(20);
+  assert.strictEqual(h.dropCalls.length, 1, "no second cold drop");
+  assert.strictEqual(h.withdrawCalls.length, 0, "no withdraw -- it's an ordinary drop now, not a candidate");
+
+  // A fresh read of the same target is a re-read, charged as one.
+  h.fireSeen(seenEvent({ sessionId: "s1", model: "claude-sonnet-5", calls: 41, items: [{ id: "big2", tool: "Read", target: "big.txt", chars: 20000, age: 0 }] }));
+  h.fireResult(opusResult({ sessionId: "s1", model: "claude-sonnet-5", removedChars: 0, newlyRemoved: 0 }));
+  await wait(20);
+
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.strictEqual(day.rereads, 1, "the re-read of the applied cold drop's target is counted");
 });

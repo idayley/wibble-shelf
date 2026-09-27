@@ -315,6 +315,26 @@ export function priceFor(model, fetched) {
 }
 
 /**
+ * True when a stored `{prices, at}` entry (activate()'s `fetchedPrices`,
+ * read back from `wibble.storage` on start) is trustworthy enough to feed
+ * into dollar totals: its six numbers -- `prices.input`, `cacheRead`,
+ * `write5m`, `write1h`, `output`, and the fetch's own `at` -- must all be
+ * finite. `context` isn't one of the six: `parseEndpoints()` can legitimately
+ * leave it `null` when a model's context length wasn't reported, and `left()`
+ * already treats a falsy `context` as "no cap", so it needs no check here.
+ * A storage entry can be corrupted by anything (a bad write, a manual edit,
+ * a future format change) that never touches `priceEndpoint()`'s own
+ * validation, so this is the load-time backstop that keeps a bad number
+ * from ever reaching `saved`/`actual` and poisoning every total after it.
+ */
+function validPriceEntry(entry) {
+  if (!entry || typeof entry.prices !== "object" || entry.prices === null) return false;
+  if (!Number.isFinite(entry.at)) return false;
+  const p = entry.prices;
+  return ["input", "cacheRead", "write5m", "write1h", "output"].every((k) => Number.isFinite(p[k]));
+}
+
+/**
  * What a request saved, in dollars at `prices` (priceFor()'s), by having
  * removed old tool output -- saving()'s arithmetic with the model's real
  * prices in place of v1's fixed 0.1 / 1.25 / 2 (payback spec §2.6).
@@ -359,19 +379,38 @@ export const CHATS_KEEP = 50;
 
 /**
  * Fold one onSeen/onResult's figures into `chats[sessionId]`:
- *   { saved, actual, calls, model, billing, lastAt, usd, units }
+ *   { saved, actual, calls, model, billing, lastAt, usd, units,
+ *     cuts, freeCuts, skipped, rereads, rereadCost }
  * A result passes `units` (saving()'s {saved, actual}, always known) and
  * `usd` (savingUsd()'s dollars, or null when the model had no prices).
  * `saved`/`actual` are the dollars, and `usd` stays true only while every
  * result so far had them; `units` always adds up. `calls` keeps the highest
  * seen (a session's subagent threads are shorter than its main one);
- * `model`/`billing` keep the latest given. Past CHATS_KEEP chats, the
- * oldest `lastAt` is forgotten.
+ * `model`/`billing` keep the latest given. `cuts`, `freeCuts`, `skipped`,
+ * `rereads` and `rereadCost` are this chat's own share of the same day
+ * totals addSaving() keeps (payback spec §2.6, "per week and per chat");
+ * each adds up only when the call actually names it, so a call that only
+ * updates `calls`/`model`/`billing` (onSeen, most of the time) leaves them
+ * untouched. Past CHATS_KEEP chats, the oldest `lastAt` is forgotten.
  */
 export function noteChat(chats, sessionId, fields, now = Date.now()) {
   let chat = chats[sessionId];
   if (!chat) {
-    chat = { saved: 0, actual: 0, calls: 0, model: null, billing: null, lastAt: now, usd: true, units: { saved: 0, actual: 0 } };
+    chat = {
+      saved: 0,
+      actual: 0,
+      calls: 0,
+      model: null,
+      billing: null,
+      lastAt: now,
+      usd: true,
+      units: { saved: 0, actual: 0 },
+      cuts: 0,
+      freeCuts: 0,
+      skipped: 0,
+      rereads: 0,
+      rereadCost: 0,
+    };
     chats[sessionId] = chat;
   }
   if (typeof fields.calls === "number") chat.calls = Math.max(chat.calls, fields.calls);
@@ -387,6 +426,11 @@ export function noteChat(chats, sessionId, fields, now = Date.now()) {
       chat.usd = false;
     }
   }
+  if (typeof fields.cuts === "number") chat.cuts += fields.cuts;
+  if (typeof fields.freeCuts === "number") chat.freeCuts += fields.freeCuts;
+  if (typeof fields.skipped === "number") chat.skipped += fields.skipped;
+  if (typeof fields.rereads === "number") chat.rereads += fields.rereads;
+  if (typeof fields.rereadCost === "number") chat.rereadCost += fields.rereadCost;
   chat.lastAt = now;
 
   const ids = Object.keys(chats);
@@ -762,11 +806,17 @@ export async function activate(wibble) {
   pruneOldDays();
 
   // slug -> {prices, at}: the last good fetch per model, kept across
-  // restarts. A read that fails, or holds something else, starts empty.
+  // restarts. A read that fails, or holds something else, starts empty;
+  // any entry that fails validPriceEntry() (a corrupt number, however it
+  // got that way) is dropped rather than kept and fed into totals as NaN.
   let fetchedPrices = {};
   try {
     const stored = await wibble.storage.get(PRICES_KEY);
-    if (stored && typeof stored === "object") fetchedPrices = stored;
+    if (stored && typeof stored === "object") {
+      for (const [slug, entry] of Object.entries(stored)) {
+        if (validPriceEntry(entry)) fetchedPrices[slug] = entry;
+      }
+    }
   } catch {
     // start with the built-in table
   }
@@ -1031,6 +1081,11 @@ export async function activate(wibble) {
     // is up is the README's business, not the pill's.
     // Dollars at real prices when every day this week has them; otherwise
     // v1's units, so a week of mixed days never adds dollars to units.
+    // Even that v1 fallback's own `dollars` isn't one clean unit underneath
+    // (review round 1, minor 4): addSaving() lands each result's usd.saved
+    // (this model's real price) or dollars()'s cruder family guess in the
+    // very same running total, so an unpriced week's figure on the chip can
+    // already be a blend of exact and estimated amounts, not one or other.
     const week = weekTotals();
     const shown = week.usdKnown ? { ...week, saved: week.usd.saved, actual: week.usd.actual, dollars: week.usd.saved, dollarsKnown: true } : week;
     return { kind: "chip", key: "pill", label: formatPercentLabel(shown) + " · " + formatSavingsLabel(shown) };
@@ -1113,15 +1168,23 @@ export async function activate(wibble) {
     }
     if (cold.length) {
       todaysDay().skipped += cold.length;
+      noteChat(chats, sid, { skipped: cold.length }, now);
       schedulePersist();
       // On an older Wibble they stay parked here, and each batch weighs
       // them again: cut when they pay back, withdrawn when they stop being
       // candidates (only in this thread's own bookkeeping).
       if (knowsCold) {
-        // Refused: un-park them, so the next batch offers them again.
+        // Refused: un-park them, so the next batch offers them again -- and
+        // undo the skipped count charged above, since Wibble never actually
+        // parked anything. Without this, coldPending losing these ids let a
+        // later batch park the very same still-pending candidates again,
+        // double-counting one ongoing skip as two (review round 1, minor 3).
         Promise.resolve(wibble.trim.drop(sid, cold, { when: "cold" })).catch(() => {
           const t = state.threads[key];
           if (t) for (const id of cold) t.coldPending.delete(id);
+          todaysDay().skipped -= cold.length;
+          noteChat(chats, sid, { skipped: -cold.length }, Date.now());
+          schedulePersist();
         });
       }
     }
@@ -1149,15 +1212,22 @@ export async function activate(wibble) {
       thread.write1h = usage.cacheWrite1h > usage.cacheWrite5m;
     }
 
+    // Cold drops Wibble applied on this request cost nothing to make; any
+    // other id it newly removed is an ordinary cut. No `cold` flag (an
+    // older Wibble): every one is ordinary. Per the payback spec §2.5, once
+    // applied a cold drop "is an ordinary sticky drop" -- markDropped() it
+    // here, the same as release() does for a `now` cut, so it stops being a
+    // live candidate (plan() won't park or withdraw it again) and a later
+    // read of its target is charged as a re-read, same as any other drop.
+    const coldAppliedIds = result.cold && Array.isArray(result.coldApplied) ? result.coldApplied : [];
+    if (thread && coldAppliedIds.length) markDropped(thread, coldAppliedIds.filter((id) => thread.items.has(id)));
+    const coldApplied = coldAppliedIds.length;
+    const newlyRemoved = typeof result.newlyRemoved === "number" ? result.newlyRemoved : 0;
+    const cuts = Math.max(0, newlyRemoved - coldApplied);
+
     const units = saving(result, pending.chars, thread ? thread.format : null);
     const priced = priceFor(result.model, fetchedPrices);
     const usd = priced ? savingUsd(result, pending.chars, priced.prices) : null;
-
-    // Cold drops Wibble applied on this request cost nothing to make; any
-    // other id it newly removed is an ordinary cut. No `cold` flag (an
-    // older Wibble): every one is ordinary.
-    const coldApplied = result.cold && Array.isArray(result.coldApplied) ? result.coldApplied.length : 0;
-    const newlyRemoved = typeof result.newlyRemoved === "number" ? result.newlyRemoved : 0;
     const chat = chats[result.sessionId];
 
     addSaving({
@@ -1165,11 +1235,19 @@ export async function activate(wibble) {
       usd,
       dollarsSaved: usd ? usd.saved : dollars(units.saved, result.model),
       plan: !!chat && chat.billing === "plan",
-      cuts: Math.max(0, newlyRemoved - coldApplied),
+      cuts,
       freeCuts: coldApplied,
       rereadCount: pending.count,
     });
-    noteChat(chats, result.sessionId, { model: result.model, units, usd }, Date.now());
+    noteChat(chats, result.sessionId, {
+      model: result.model,
+      units,
+      usd,
+      cuts,
+      freeCuts: coldApplied,
+      rereads: pending.count,
+      rereadCost: usd ? usd.rereadCost : undefined,
+    }, Date.now());
 
     schedulePersist();
     scheduleDraw();

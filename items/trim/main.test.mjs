@@ -545,7 +545,27 @@ test("noteChat: creates a chat, keeps the highest calls, and adds dollars and un
     lastAt: 4000,
     usd: true,
     units: { saved: 150, actual: 600 },
+    cuts: 0,
+    freeCuts: 0,
+    skipped: 0,
+    rereads: 0,
+    rereadCost: 0,
   });
+});
+
+test("noteChat: counts cuts, free cuts, skipped candidates, re-reads and their cost, per chat", () => {
+  const chats = {};
+  noteChat(chats, "s1", { cuts: 3, freeCuts: 1, skipped: 2 }, 1000);
+  noteChat(chats, "s1", { cuts: 1, skipped: 1, rereads: 1, rereadCost: 0.5 }, 2000);
+  assert.strictEqual(chats.s1.cuts, 4, "3 + 1");
+  assert.strictEqual(chats.s1.freeCuts, 1);
+  assert.strictEqual(chats.s1.skipped, 3, "2 + 1");
+  assert.strictEqual(chats.s1.rereads, 1);
+  closeTo(chats.s1.rereadCost, 0.5, "rereadCost");
+
+  // A field left out of a call doesn't touch what's already there.
+  noteChat(chats, "s1", { model: "claude-opus-5-5" }, 3000);
+  assert.strictEqual(chats.s1.cuts, 4, "unaffected by a call that names no cuts");
 });
 
 test("noteChat: one result without dollars marks the chat's dollars incomplete; units still add up", () => {
@@ -600,6 +620,7 @@ test("slugOf: model id -> OpenRouter author/slug, per the brief's worked cases",
   assert.strictEqual(slugOf("deepseek/deepseek-v4-pro"), "deepseek/deepseek-v4-pro", "already author/slug -- unchanged");
   assert.strictEqual(slugOf("mystery"), null, "no known author prefix and no slash");
   assert.strictEqual(slugOf(null), null);
+  assert.strictEqual(slugOf(undefined), null, "an older Wibble that sends no model at all");
 });
 
 // --- parseEndpoints() -----------------------------------------------------------
