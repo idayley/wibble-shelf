@@ -13,6 +13,12 @@
 // the first (activate()'s own initial paint). That test waits out the
 // throttle window for real, rather than faking timers, because the thing
 // being tested is that the throttle's trailing edge actually fires.
+//
+// The health-probe-cooldown test is the opposite case: it uses Node's
+// built-in `t.mock.timers` (an injectable clock, not a real 60s wait) to
+// prove the cooldown is anchored to the moment of the failure, not to a
+// fixed schedule -- see that test's own comments for why setImmediate,
+// specifically, is left real rather than mocked.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -260,9 +266,9 @@ test("activate: the panel shows a percent chip and a dollar label after an onRes
   assert.ok(!last.children.some((c) => c.content === "age rule"), "judge is up, so no age-rule note");
 });
 
-// --- persistence: totals survive a reload via storage -------------------
+// --- persistence: totals actually survive a reload via storage ---------
 
-test("activate: totals persist to storage and are read back on the next activate()", async () => {
+test("activate: totals are written to storage, and a second activate() against the same storage reads them back", async () => {
   const h = makeWibble({ health: "up" });
   await activate(h.wibble);
 
@@ -282,8 +288,207 @@ test("activate: totals persist to storage and are read back on the next activate
   await wait(20);
 
   const stored = await h.wibble.storage.get("totals");
-  assert.ok(stored && Object.keys(stored).length === 1, "one day's totals were persisted");
+  assert.ok(stored && Object.keys(stored).length === 1, "one day's totals were written to storage");
   const day = Object.values(stored)[0];
   assert.strictEqual(day.saved, 15000000);
   assert.strictEqual(day.actual, 15000000);
+
+  // The actual reload: a fresh activate() call, simulating a relaunch,
+  // against the SAME wibble (so the same storage.get("totals") the first
+  // activate() wrote to). Its own initial paint (unthrottled, since this
+  // second call's own lastDrawAt starts at 0) proves the totals it read
+  // back are the ones the first activate() persisted -- not just that
+  // storage.set() was called with the right value.
+  await activate(h.wibble);
+  await wait(20); // let its fire-and-forget initial scheduleDraw() land
+
+  const last = h.panelCalls[h.panelCalls.length - 1].node;
+  assert.strictEqual(last.kind, "stack", "the reloaded activate() painted a real pill, not the empty chip");
+  const chip = last.children.find((c) => c.kind === "chip");
+  const text = last.children.find((c) => c.kind === "text");
+  assert.strictEqual(chip.label, "−50%", "percent reloaded from storage, not recomputed from a fresh (empty) totals");
+  assert.strictEqual(text.content, "$45 saved this week");
+});
+
+// --- queue: cap 200 (drop oldest), newest-thread-first ordering ---------
+
+test("activate: the judge queue is capped at 200 (drop oldest) and drains newest-thread-first", async () => {
+  // A dedicated fake, not makeWibble(): this test needs to see the ORDER
+  // and COUNT of judge asks, not just their outcome, so net.fetch records
+  // each /v1/systemone request's target (which encodes the item id) as it
+  // is made.
+  const seenHandlers = [];
+  const askOrder = [];
+
+  const wibble = {
+    trim: {
+      onSeen(fn) {
+        seenHandlers.push(fn);
+        return () => {};
+      },
+      onResult() {
+        return () => {};
+      },
+      async drop() {},
+    },
+    net: {
+      async fetch(url, opts) {
+        if (url.endsWith("/health")) {
+          return { status: 200, headers: {}, body: JSON.stringify({ ok: true, model: "test" }) };
+        }
+        if (url.endsWith("/v1/systemone")) {
+          // The item's target is "item-<id>" -- pull the id back out of
+          // the state text's "Tool output under question:\n<tool> <target>"
+          // line rather than threading extra plumbing through ask().
+          const { state } = JSON.parse(opts.body);
+          const match = state.match(/Tool output under question:\nRead item-(\S+)\n/);
+          askOrder.push(match[1]);
+          // Answer "needed" (kept, not dropped) for everything asked, so
+          // the only ids release() would drop are ones that were CAPPED
+          // out of the queue and never asked at all.
+          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 0.2 } } }) };
+        }
+        throw new Error("unexpected fetch: " + url);
+      },
+    },
+    storage: { get: async () => undefined, set: async () => {}, keys: async () => [], onChange: () => () => {} },
+    panel: { async set() {} },
+  };
+
+  await activate(wibble);
+
+  // Thread A: 200 items in ONE onSeen report -- exactly fills the queue's
+  // cap, so none of these would be dropped by the cap on their own.
+  const itemsA = [];
+  for (let i = 0; i < 200; i++) {
+    itemsA.push({ id: "A" + i, tool: "Read", target: "item-A" + i, chars: 10, age: 10, head: "h" });
+  }
+  seenHandlers.forEach((fn) => fn(seenEvent({ sessionId: "s1", thread: "tA", calls: 1, items: itemsA })));
+
+  // pump() is idle when A's batch lands, so its very first loop iteration
+  // -- shift A0, call ask(A0) -- runs SYNCHRONOUSLY as part of this same
+  // onSeen() call: only the *await* inside ask() (on net.fetch's already-
+  // resolved promise) actually yields to a microtask, and that happens
+  // one shift too late to stop A0 leaving the queue first. So by the time
+  // this line returns, A0 is already in flight (removed from `queue`,
+  // not subject to the cap below) and A1..A199 (199 items) remain queued.
+
+  // Thread B: 10 more items, from a DIFFERENT (newer) thread, still in
+  // the same synchronous turn -- nothing YIELDS between A's enqueue and
+  // this one, so B's unshift and the cap's pop() below both still see
+  // the queue exactly as A left it (A1..A199), not whatever pump() will
+  // eventually do with them.
+  const itemsB = [];
+  for (let i = 0; i < 10; i++) {
+    itemsB.push({ id: "B" + i, tool: "Read", target: "item-B" + i, chars: 10, age: 10, head: "h" });
+  }
+  seenHandlers.forEach((fn) => fn(seenEvent({ sessionId: "s2", thread: "tB", calls: 1, items: itemsB })));
+  // Queue is now [B0..B9, A1..A199] = 209 -- over the 200 cap by 9, so
+  // enqueueForJudge's pop() drops the 9 at the tail: A191..A199.
+
+  // Let pump() drain the rest for real.
+  await wait(100);
+
+  // 201 asked in total: A0 (already in flight before B ever arrived) +
+  // the 200 that survived the cap (B0..B9, A1..A190). 9 were capped out
+  // (210 offered - 201 asked = 9), and per the trace above they must be
+  // A191..A199, the tail-most items of A's batch once B's landed in front.
+  assert.strictEqual(askOrder.length, 201, "210 were offered; 9 capped out, 201 actually asked");
+  assert.strictEqual(askOrder[0], "A0", "A0 was already in flight, synchronously, before B's batch was even enqueued");
+
+  // Newest-thread-first: once A0 (already in flight) is set aside, thread
+  // B's whole batch -- enqueued after A's -- is asked before any of the
+  // rest of A's.
+  assert.deepStrictEqual(
+    askOrder.slice(1, 11),
+    itemsB.map((it) => it.id), // ["B0", ..., "B9"], in the order they were reported
+    "thread B's items are asked next, in their own relative order, ahead of the rest of thread A's",
+  );
+
+  // Drop oldest: A1..A190 (190 items) were asked; A191..A199 (9 items)
+  // were capped out and never asked at all -- the ones furthest from the
+  // front once B's batch was unshifted ahead of them.
+  const askedFromA = new Set(askOrder.filter((id) => id.startsWith("A")));
+  assert.strictEqual(askedFromA.size, 191, "A0 plus A1..A190");
+  for (let i = 0; i < 191; i++) assert.ok(askedFromA.has("A" + i), "A" + i + " should have been asked");
+  for (let i = 191; i < 200; i++) assert.ok(!askedFromA.has("A" + i), "A" + i + " should have been capped out (dropped oldest)");
+});
+
+// --- health probe cooldown is anchored to the failure, not a schedule ---
+
+test("activate: a judge failure re-arms a fresh 60s health-probe window from the failure itself", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  // setImmediate is NOT in the mocked apis list, so it still runs on the
+  // real event loop -- used here purely to flush pending microtasks
+  // (the rejected ask() promise, markDown(), etc.) after each tick().
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+  const seenHandlers = [];
+  let healthCalls = 0;
+  let askCalls = 0;
+
+  const wibble = {
+    trim: {
+      onSeen(fn) {
+        seenHandlers.push(fn);
+        return () => {};
+      },
+      onResult() {
+        return () => {};
+      },
+      async drop() {},
+    },
+    net: {
+      async fetch(url) {
+        if (url.endsWith("/health")) {
+          healthCalls++;
+          return { status: 200, headers: {}, body: JSON.stringify({ ok: true, model: "test" }) };
+        }
+        if (url.endsWith("/v1/systemone")) {
+          askCalls++;
+          throw new Error("connection refused"); // always fails, to keep the judge down
+        }
+        throw new Error("unexpected fetch: " + url);
+      },
+    },
+    storage: { get: async () => undefined, set: async () => {}, keys: async () => [], onChange: () => () => {} },
+    panel: { async set() {} },
+  };
+
+  await activate(wibble); // the on-start probe succeeds: judge starts up
+  assert.strictEqual(healthCalls, 1);
+
+  // 40s pass with nothing having failed yet. Under the old free-running
+  // setInterval this alone was irrelevant either way (it only probed
+  // while judgeUp was false) -- but it establishes a non-zero clock
+  // baseline before the failure, so the assertions below are actually
+  // checking "60s from the failure" and not "60s from t=0".
+  await t.mock.timers.tick(40000);
+  await flush();
+  assert.strictEqual(healthCalls, 1, "no probe fires before anything has failed");
+
+  // The judge fails now, at t=40s.
+  seenHandlers.forEach((fn) =>
+    fn(
+      seenEvent({
+        sessionId: "s1",
+        thread: "t1",
+        calls: 6,
+        items: [{ id: "item1", tool: "Read", target: "f.txt", chars: 10, age: 6, head: "h" }],
+      }),
+    ),
+  );
+  await flush(); // let the rejected ask() land and call markDown()
+  assert.strictEqual(askCalls, 1, "the ask actually happened and failed");
+
+  // 59s after the failure (t=99s): the fresh window anchored to the
+  // failure has not yet elapsed, so still no probe.
+  await t.mock.timers.tick(59000);
+  await flush();
+  assert.strictEqual(healthCalls, 1, "still no probe -- only 59s of the 60s anchored to the failure has passed");
+
+  // 1s more (t=100s, exactly 60s after the failure): the probe fires.
+  await t.mock.timers.tick(1000);
+  await flush();
+  assert.strictEqual(healthCalls, 2, "the probe fires 60s after the failure itself, not on a stale fixed schedule");
 });

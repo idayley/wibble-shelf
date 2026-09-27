@@ -189,7 +189,7 @@ export function percent(totals) {
 const JUDGE_ORIGIN = "http://127.0.0.1:8791";
 const JUDGE_URL = JUDGE_ORIGIN + "/v1/systemone";
 const HEALTH_URL = JUDGE_ORIGIN + "/health";
-const HEALTH_PROBE_INTERVAL_MS = 60000; // "every 60 s while down"
+const HEALTH_PROBE_INTERVAL_MS = 60000; // 60 s from the failure, not from a fixed schedule -- see scheduleHealthProbe()
 const QUEUE_CAP = 200;
 const CAP_LAST_USER = 1500;
 const CAP_RECENT_ASSISTANT = 1500;
@@ -247,9 +247,21 @@ function formatCompactNumber(n) {
   return Math.round(n).toString();
 }
 
+/**
+ * The brief's literal example is only the saving case ("−24%"), but
+ * Task 1's saving() can legitimately be negative for a week (a "cut"
+ * request costs before later requests pay it back -- see logic.js's own
+ * three-request-sequence test) -- a week can be net cost, not net saving.
+ * Sign convention, undocumented in the brief, chosen here: a non-negative
+ * percent is a saving and gets the real minus sign the brief shows
+ * ("−24%"); a negative percent is a net cost for the week and gets
+ * "+NN%" instead, so the sign always reads as "this many percent more
+ * (or less) than doing nothing would have cost" rather than a saving
+ * label with a confusing negative number in it.
+ */
 function formatPercentLabel(week) {
   const pct = Math.round(percent({ saved: week.saved, actual: week.actual }) * 100);
-  const sign = pct < 0 ? "+" : "−"; // real minus sign, per the brief's "−24%"
+  const sign = pct < 0 ? "+" : "−";
   return sign + Math.abs(pct) + "%";
 }
 
@@ -279,11 +291,30 @@ export async function activate(wibble) {
   const queue = []; // {key, id, item, seen}, newest thread at the front
   let busy = false;
 
+  // FIX (review round 1, Important): a free-running setInterval ticking
+  // on a fixed 60s cadence from activate()'s own start time does not
+  // give a failure a full 60s cooldown -- a failure landing just before
+  // a scheduled tick got probed again almost immediately. `healthTimer`
+  // is a ONE-SHOT timer, always cleared and re-armed from `markDown()`
+  // itself, so "60s of no query and no probe" is always anchored to the
+  // moment of the failure that caused it, never to a stale schedule.
+  let healthTimer = null;
+
+  function scheduleHealthProbe() {
+    if (healthTimer) clearTimeout(healthTimer);
+    healthTimer = unref(
+      setTimeout(() => {
+        healthTimer = null;
+        probeHealth();
+      }, HEALTH_PROBE_INTERVAL_MS),
+    );
+  }
+
   function markDown() {
-    if (judgeUp) {
-      judgeUp = false;
-      scheduleDraw();
-    }
+    const wasUp = judgeUp;
+    judgeUp = false;
+    if (wasUp) scheduleDraw();
+    scheduleHealthProbe(); // fresh 60s window, anchored to THIS failure
   }
 
   async function probeHealth() {
@@ -301,7 +332,9 @@ export async function activate(wibble) {
     } catch (e) {
       // fall through: still down
     }
-    judgeUp = false;
+    // Still down (or down for the first time, from a failed on-start
+    // probe): markDown() arms the next probe 60s from now.
+    markDown();
   }
 
   async function ask(item, seen) {
@@ -512,12 +545,7 @@ export async function activate(wibble) {
   wibble.trim.onSeen(onSeen);
   wibble.trim.onResult(onResult);
 
-  await probeHealth(); // "on start"
-  unref(
-    setInterval(() => {
-      if (!judgeUp) probeHealth();
-    }, HEALTH_PROBE_INTERVAL_MS),
-  );
+  await probeHealth(); // "on start" -- if this fails, it arms its own re-probe via markDown()
 
   scheduleDraw(); // initial paint: the empty chip, or whatever storage had
 }
