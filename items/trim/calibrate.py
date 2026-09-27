@@ -29,14 +29,20 @@ rule), so the judge's only real job is deciding what to KEEP. Per unit of
 item size:
   keep an item that isn't needed  ~ 0.1 * N  (a cache read on each of the
                                               N later calls it rides along)
-  cut an item that is needed      ~ 1.25     (it gets re-read and re-cached)
+  cut an item that is needed      ~ 1.25 + 0.1 * P
+                                  (the re-read is written to cache, and the
+                                   extra request that fetches it reads the
+                                   whole prompt, P items' worth, from cache;
+                                   --prefix-items, default 30: an ~80K-token
+                                   prompt over a ~2.7K-token tool output)
   keep a needed / cut an unneeded   0
-For N in {10, 20, 40} it reports the threshold T (cut when notNeeded >= T)
+main.js charges a live re-read the same way (saving()).
+For N in {20, 40} it reports the threshold T (cut when notNeeded >= T)
 with the lowest total cost over the scored items, next to the cost of the
 age rule alone (cut everything). main.js's cutLine(calls) steps on these,
-using calls so far as the estimate of N: <= 10 calls -> the N=10 best,
-11-25 -> the N=20 best, past 25 -> no judge (pure age rule), because at
-N=40 no threshold beat the age rule on the neutral-prompt run.
+using calls so far as the estimate of N. Only two lines ever run: a
+thread's first batch is released at 20-25 calls (the N=20 best), and every
+later batch past 25 calls (the N=40 best).
 
 Also reported, for context: AUC (probability a random not-needed item
 scores higher "not needed" than a random needed one), and for each
@@ -68,8 +74,9 @@ CAP_RECENT_ASSISTANT = 1500
 CAP_HEAD = 1200
 THRESHOLDS = [round(0.5 + 0.05 * i, 2) for i in range(9)]
 KEEP_UNNEEDED_PER_CALL = 0.1  # x N later calls
-CUT_NEEDED = 1.25
-CALLS = (10, 20, 40)
+REREAD_WRITE = 1.25  # the re-read text, written to cache
+PREFIX_ITEMS = 30  # the extra request's prompt, in item-sized units, read at 0.1
+CALLS = (20, 40)
 
 
 def judge_question():
@@ -155,29 +162,33 @@ def table(rows):
     return lines, len(needed), len(spare)
 
 
-def cost(rows, t, n):
+def cut_needed(prefix_items):
+    return REREAD_WRITE + 0.1 * prefix_items
+
+
+def cost(rows, t, n, prefix_items=PREFIX_ITEMS):
     total = 0.0
     for r in rows:
         cut = r["notNeeded"] >= t
         if cut and r["label"]:
-            total += CUT_NEEDED
+            total += cut_needed(prefix_items)
         elif not cut and not r["label"]:
             total += KEEP_UNNEEDED_PER_CALL * n
     return total
 
 
-def best_thresholds(rows):
+def best_thresholds(rows, prefix_items=PREFIX_ITEMS):
     """{N: (best T, its cost, age-rule-alone cost)} over T = 0.00..1.00 step 0.01.
     Ties go to the lower T (cut more)."""
     grid = [i / 100 for i in range(101)]
     out = {}
     for n in CALLS:
-        t = min(grid, key=lambda g: (cost(rows, g, n), g))
-        out[n] = (t, cost(rows, t, n), cost(rows, 0.0, n))
+        t = min(grid, key=lambda g: (cost(rows, g, n, prefix_items), g))
+        out[n] = (t, cost(rows, t, n, prefix_items), cost(rows, 0.0, n, prefix_items))
     return out
 
 
-def report(rows):
+def report(rows, prefix_items=PREFIX_ITEMS):
     lines, n_needed, n_spare = table(rows)
     print(f"items: {len(rows)} ({n_needed} needed, {n_spare} not needed), "
           f"tasks: {len({(r['split'], r['commit']) for r in rows})}")
@@ -185,11 +196,11 @@ def report(rows):
     print("threshold | wrong cuts (needed cut) | savings (not-needed cut)")
     for t, w, s in lines:
         print(f"  {t:.2f}    | {w:6.1%}                  | {s:6.1%}")
-    print(f"cost model: keep unneeded = {KEEP_UNNEEDED_PER_CALL} x N, cut needed = {CUT_NEEDED}")
-    for n, (t, c, age) in best_thresholds(rows).items():
+    print(f"cost model: keep unneeded = {KEEP_UNNEEDED_PER_CALL} x N, "
+          f"cut needed = {REREAD_WRITE} + 0.1 x {prefix_items} = {cut_needed(prefix_items):.2f}")
+    for n, (t, c, age) in best_thresholds(rows, prefix_items).items():
         print(f"  N={n:<3} best T = {t:.2f}  cost {c:.1f}  (age rule alone {age:.1f}, {1 - c / age:.0%} cheaper)")
-    print("main.js cutLine(calls) rule (calls so far estimate N): <=10 calls -> N=10 best, "
-          "11-25 -> N=20 best, >25 -> no judge (age rule), when N=40's best doesn't beat the age rule")
+    print("main.js cutLine(calls): <= 25 calls (a thread's first batch) -> N=20 best, > 25 -> N=40 best")
 
 
 def main():
@@ -202,10 +213,12 @@ def main():
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--out", help="write one JSON line per scored item")
     ap.add_argument("--from", dest="from_", help="re-tabulate a previous --out file")
+    ap.add_argument("--prefix-items", type=float, default=PREFIX_ITEMS,
+                    help="the extra request a wrong cut forces, in item-sized units (default %(default)s)")
     args = ap.parse_args()
 
     if args.from_:
-        report([json.loads(l) for l in open(args.from_) if l.strip()])
+        report([json.loads(l) for l in open(args.from_) if l.strip()], args.prefix_items)
         return
     if not args.labels:
         ap.error("--labels is required unless --from is given")
@@ -230,7 +243,7 @@ def main():
             out.flush()
         if (i + 1) % 25 == 0:
             print(f"{i + 1}/{len(items)}", file=sys.stderr)
-    report(rows)
+    report(rows, args.prefix_items)
 
 
 if __name__ == "__main__":

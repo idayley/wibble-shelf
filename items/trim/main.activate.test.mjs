@@ -454,56 +454,67 @@ test("activate: the judge queue is capped at 200 (drop oldest) and drains newest
   for (let i = 191; i < 200; i++) assert.ok(!askedFromA.has("A" + i), "A" + i + " should have been capped out (dropped oldest)");
 });
 
-// --- past 25 calls, the judge is never asked; the age rule still cuts ---
+// --- threads idle past 2 h are forgotten ---------------------------------
 
-test("activate: a thread past 25 calls never asks the judge (only /health is fetched), and the aged item is still dropped by the age rule", async () => {
-  const seenHandlers = [];
-  const dropCalls = [];
-  let judgeAsks = 0;
+test("activate: a thread idle over 2 h is forgotten (it starts over), a recently seen one is not", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  const flush = () => new Promise((resolve) => setImmediate(resolve)); // setImmediate stays real, as below
+  const HOUR = 60 * 60 * 1000;
 
-  const wibble = {
-    trim: {
-      onSeen(fn) {
-        seenHandlers.push(fn);
-        return () => {};
-      },
-      onResult: () => () => {},
-      async drop(sessionId, ids) {
-        dropCalls.push({ sessionId, ids });
-      },
-    },
-    net: {
-      async fetch(url) {
-        if (url.endsWith("/health")) return { status: 200, headers: {}, body: JSON.stringify({ ok: true, model: "test" }) };
-        if (url.endsWith("/v1/systemone")) {
-          judgeAsks++;
-          // If this were ever reached, answer "needed" so a wiring bug
-          // (the judge asked, and its verdict trusted) wouldn't also
-          // happen to produce the same drop as the age rule below.
-          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 0.99 } } }) };
-        }
-        throw new Error("unexpected fetch: " + url);
-      },
-    },
-    storage: { get: async () => undefined, set: async () => {}, keys: async () => [], onChange: () => () => {} },
-    panel: { async set() {} },
+  const h = makeWibble();
+  await activate(h.wibble);
+  const aged = (thread, calls) =>
+    seenEvent({ thread, calls, items: [{ id: thread + "-x", tool: "Read", target: thread + ".txt", chars: 500, age: 6 }] });
+
+  // t=0: both threads reach their first batch and drop their aged item.
+  h.fireSeen(aged("A", 20));
+  h.fireSeen(aged("C", 20));
+  await flush();
+  assert.strictEqual(h.dropCalls.length, 2);
+
+  // t=1h: only C is seen again.
+  t.mock.timers.tick(HOUR);
+  h.fireSeen(aged("C", 21));
+  // t=2h02m: another thread's report runs the idle sweep. A has been idle
+  // 2h02m (gone); C 1h02m (kept).
+  t.mock.timers.tick(HOUR + 2 * 60 * 1000);
+  h.fireSeen(seenEvent({ thread: "B", calls: 1, items: [] }));
+  await flush();
+
+  // A comes back at 26 calls: forgotten, so it's a new thread whose first
+  // batch is due at once, and its item is dropped again. C at 26 calls is
+  // only 6 past its last batch, so nothing happens.
+  h.fireSeen(aged("A", 26));
+  h.fireSeen(aged("C", 26));
+  await flush();
+  assert.strictEqual(h.dropCalls.length, 3);
+  assert.deepStrictEqual(h.dropCalls[2].ids, ["A-x"]);
+});
+
+// --- a failed drop is offered again at the next batch -------------------
+
+test("activate: a drop that fails is released again at the next batch", async () => {
+  const h = makeWibble({ health: "down" });
+  let fail = true;
+  h.wibble.trim.drop = async (sessionId, ids) => {
+    h.dropCalls.push({ sessionId, ids });
+    if (fail) {
+      fail = false;
+      throw new Error("session ended");
+    }
   };
-  await activate(wibble);
+  await activate(h.wibble);
 
-  // A single onSeen report at calls=26 (past the cutLine(26) === null line)
-  // with one item already old enough (age 6 > AGE) to have been a judge
-  // candidate at any earlier length. track() must not enqueue it, so
-  // pump() never calls ask() -- no /v1/systemone fetch at all.
-  seenHandlers.forEach((fn) =>
-    fn(seenEvent({ calls: 26, items: [{ id: "item1", tool: "Read", target: "f.txt", chars: 500, age: 6, head: "hello" }] })),
+  const item = (age) => [{ id: "x", tool: "Read", target: "f.txt", chars: 500, age }];
+  h.fireSeen(seenEvent({ calls: 20, items: item(6) }));
+  await wait(10);
+  h.fireSeen(seenEvent({ calls: 40, items: item(26) }));
+  await wait(10);
+
+  assert.deepStrictEqual(
+    h.dropCalls.map((c) => c.ids),
+    [["x"], ["x"]],
   );
-  await wait(20);
-
-  assert.strictEqual(judgeAsks, 0, "the judge is never asked once the thread is past 25 calls");
-  // release() still fires (calls - lastRelease = 26 >= BATCH) and cuts the
-  // aged item by the fallback rule, since cutLine(26) is null.
-  assert.strictEqual(dropCalls.length, 1, "the age rule alone still drops the aged item");
-  assert.deepStrictEqual(dropCalls[0], { sessionId: "s1", ids: ["item1"] });
 });
 
 // --- health probe cooldown is anchored to the failure, not a schedule ---

@@ -20,27 +20,28 @@
 
 export const AGE = 5;
 export const BATCH = 20;
+/** A thread not seen for this long is forgotten (see evictIdle()). */
+export const IDLE_MS = 2 * 60 * 60 * 1000;
 /**
  * The keep line for a thread `calls` long: the judge's verdict cuts an aged
- * item when notNeeded >= cutLine(calls). null means the judge isn't worth
- * asking -- verdicts are ignored (pure age rule) and items aren't sent.
+ * item when notNeeded >= cutLine(calls).
  *
  * Chosen by cost, not by a wrong-cut cap. An aged item with no verdict is
  * cut anyway (the age rule), so the judge only decides what to KEEP. Per
  * unit of item size: keeping an unneeded item costs ~0.1 x N (a cache read
- * on each of N later calls); cutting a needed one costs ~1.25 (re-read +
- * re-cache). Calls so far stand in for N, the calls still to come.
+ * on each of N later calls); cutting a needed one costs 1.25 (the re-read
+ * written to cache) + 0.1 x 30 (the extra request it forces reads the
+ * whole prompt, taken as ~30 items' worth). Calls so far stand in for N.
+ * Only two lines ever run: the first release is at 20-25 calls (N=20), and
+ * every later one is past 25 (N=40).
  * calibrate.py (2026-09-27), qwen35-4b-q4, positive question, neutral
  * prompt, 150 labeled past files (AUC 0.761):
- *   N=10: best T 0.82, 33% cheaper than the age rule alone
- *   N=20: best T 0.78, 14% cheaper
- *   N=40: no threshold beats the age rule alone -> no judge past 25 calls
+ *   N=20: best T 0.87, 45% cheaper than the age rule alone
+ *   N=40: best T 0.82, 30% cheaper
  * Re-run calibrate.py after changing the model, question or prompt.
  */
 export function cutLine(calls) {
-  if (calls <= 10) return 0.82;
-  if (calls <= 25) return 0.78;
-  return null;
+  return calls <= 25 ? 0.87 : 0.82;
 }
 
 /**
@@ -48,22 +49,28 @@ export function cutLine(calls) {
  * are old enough to ask the judge about.
  *
  * `state.threads[sessionId + ":" + thread]` is:
- *   { calls, lastRelease, items: Map(id -> {
+ *   { calls, lastRelease, lastSeenAt, format, items: Map(id -> {
  *       tool, target, chars, age, head, verdict: null|{notNeeded}, asked
  *     }), dropped: Set(id), droppedTargets: Map(target -> chars) }
  *
+ * Two parallel subagents in one session whose first messages match share a
+ * `thread` name, so their calls interleave here. Rare, and it fails safe:
+ * batches just come irregularly, and the age rule still holds.
+ *
  * @returns {{ toJudge: Array<{id: string} & object> }}
  */
-export function track(state, seen) {
+export function track(state, seen, now = Date.now()) {
   if (!state.threads) state.threads = {};
   const key = seen.sessionId + ":" + seen.thread;
   let thread = state.threads[key];
   if (!thread) {
-    thread = { calls: 0, lastRelease: 0, items: new Map(), dropped: new Set(), droppedTargets: new Map() };
+    thread = { calls: 0, lastRelease: 0, lastSeenAt: now, format: null, items: new Map(), dropped: new Set(), droppedTargets: new Map() };
     state.threads[key] = thread;
   }
 
   thread.calls = seen.calls;
+  thread.lastSeenAt = now;
+  if (seen.format) thread.format = seen.format;
 
   for (const item of seen.items) {
     const existing = thread.items.get(item.id);
@@ -87,9 +94,6 @@ export function track(state, seen) {
   }
 
   const toJudge = [];
-  // Past the last cut line the judge's verdict would be ignored -- don't
-  // spend a judge call on it.
-  if (cutLine(thread.calls) === null) return { toJudge };
   for (const [id, entry] of thread.items) {
     if (entry.age > AGE && entry.verdict === null && !entry.asked && !thread.dropped.has(id)) {
       toJudge.push({ id, ...entry });
@@ -120,11 +124,10 @@ export function release(thread) {
     if (thread.dropped.has(id)) continue;
     if (entry.age <= AGE) continue;
 
-    // line === null: a long thread, pure age rule -- any verdict is ignored.
-    const verdict = line === null ? null : entry.verdict;
+    const verdict = entry.verdict;
     const verdictSaysDrop = verdict != null && verdict.notNeeded >= line;
     const verdictSaysNeeded = verdict != null && verdict.notNeeded < line;
-    const fallbackApplies = verdict == null; // judge down, not reached yet, or ignored
+    const fallbackApplies = verdict == null; // judge down, or not reached yet
 
     if (verdictSaysNeeded) continue;
     if (verdictSaysDrop || fallbackApplies) ids.push(id);
@@ -135,9 +138,30 @@ export function release(thread) {
     thread.dropped.add(id);
     const entry = thread.items.get(id);
     thread.droppedTargets.set(entry.target, entry.chars);
+    entry.head = null; // only the judge reads it, and it's done with this one
   }
 
   return ids;
+}
+
+/**
+ * Forget every thread not seen for `maxIdleMs` -- well past the provider's
+ * 1 h cache, so a thread that comes back is a cold rewrite anyway and loses
+ * nothing by starting over. Without this, `state.threads` (and each
+ * thread's items, with their heads) grows for as long as Wibble runs.
+ *
+ * @returns {string[]} the keys removed, so the caller can drop whatever
+ *   else it keeps per thread.
+ */
+export function evictIdle(state, now, maxIdleMs = IDLE_MS) {
+  const gone = [];
+  for (const [key, thread] of Object.entries(state.threads || {})) {
+    if (now - thread.lastSeenAt > maxIdleMs) {
+      delete state.threads[key];
+      gone.push(key);
+    }
+  }
+  return gone;
 }
 
 /**
@@ -165,20 +189,29 @@ export function cost(usage) {
 /**
  * What a request saved by having removed old tool output, in the same
  * input-token units as cost(). `result` is a `wibble.trim.onResult` report;
- * `rereadChars` is rereads() for this same request, charged back.
+ * `rereadChars` is rereads() for this same request, charged back; `format`
+ * is the thread's dialect from onSeen ("anthropic", "responses", "chat").
  */
-export function saving(result, rereadChars) {
-  const { usage, totalChars, removedChars, firstCutChars } = result;
+export function saving(result, rereadChars, format) {
+  const { usage, totalChars, removedChars, firstCutChars, sentChars } = result;
 
   const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite5m + usage.cacheWrite1h;
-  const r = promptTokens / Math.max(1, totalChars); // tokens per char, self-calibrating per request
+  // Tokens per char, self-calibrating per request. promptTokens covers the
+  // whole body (system prompt and tool schemas too), so divide by the whole
+  // body's chars; totalChars is the messages alone and makes r too big.
+  // Older Wibbles don't send sentChars, and get the overstated ratio.
+  const chars = typeof sentChars === "number" && sentChars > 0 ? sentChars : totalChars;
+  const r = promptTokens / Math.max(1, chars);
 
-  const writeW = usage.cacheWrite1h > usage.cacheWrite5m ? 2 : 1.25;
+  // OpenAI-style providers charge no premium to write the cache.
+  const writeW = format && format !== "anthropic" ? 1 : usage.cacheWrite1h > usage.cacheWrite5m ? 2 : 1.25;
   const unitPrice = usage.cacheRead > 0 ? 0.1 : writeW;
 
   const gross = removedChars * r * unitPrice;
   const cut = firstCutChars == null ? 0 : Math.max(0, totalChars - firstCutChars) * r * (writeW - 0.1);
-  const reread = rereadChars * r * writeW;
+  // A re-read is a request the agent wouldn't otherwise have made: charge
+  // its whole prompt at the cache-read price, plus the re-read text written.
+  const reread = rereadChars > 0 ? promptTokens * 0.1 + rereadChars * r * writeW : 0;
 
   return {
     saved: gross - cut - reread,
@@ -226,6 +259,7 @@ const CAP_HEAD = 1200;
 const TOTALS_KEY = "totals";
 const TOTALS_KEEP_DAYS = 14;
 const PERSIST_INTERVAL_MS = 5000; // "at most every 5 s"
+const EVICT_CHECK_MS = 60000; // idle threads are looked for at most once a minute
 const REDRAW_INTERVAL_MS = 1000; // "at most once a second"
 const WEEK_DAYS = 7;
 
@@ -408,15 +442,14 @@ export async function activate(wibble) {
       try {
         while (judgeUp && queue.length) {
           const next = queue.shift();
-          // The thread may have grown past the last cut line while this
-          // waited; its verdict would be ignored, so skip the judge call.
-          const waiting = state.threads[next.key];
-          if (!waiting || cutLine(waiting.calls) === null) continue;
+          if (!state.threads[next.key]) continue; // forgotten while it waited
           try {
             const verdict = await ask(next.item, next.seen);
             const thread = state.threads[next.key];
             if (thread && thread.items.has(next.id)) {
-              thread.items.get(next.id).verdict = verdict;
+              const entry = thread.items.get(next.id);
+              entry.verdict = verdict;
+              entry.head = null; // asked once; nothing reads it again
             }
           } catch (e) {
             // "A failure or non-200 marks the judge down for 60 s, and
@@ -500,7 +533,8 @@ export async function activate(wibble) {
   async function persistNow() {
     lastPersistAt = Date.now();
     persistPending = false;
-    await wibble.storage.set(TOTALS_KEY, totals);
+    // A failed write is retried by the next one; nothing to do here.
+    await wibble.storage.set(TOTALS_KEY, totals).catch(() => {});
   }
 
   function schedulePersist() {
@@ -533,7 +567,7 @@ export async function activate(wibble) {
   async function drawNow() {
     lastDrawAt = Date.now();
     drawPending = false;
-    await wibble.panel.set("Trim", buildPanelNode());
+    await wibble.panel.set("Trim", buildPanelNode()).catch(() => {});
   }
 
   function scheduleDraw() {
@@ -547,8 +581,21 @@ export async function activate(wibble) {
     unref(setTimeout(drawNow, REDRAW_INTERVAL_MS - elapsed));
   }
 
+  let lastEvictAt = Date.now();
+
+  function forgetIdle(now) {
+    if (now - lastEvictAt < EVICT_CHECK_MS) return;
+    lastEvictAt = now;
+    const gone = new Set(evictIdle(state, now));
+    if (!gone.size) return;
+    for (const key of gone) delete pendingRereads[key];
+    for (let i = queue.length - 1; i >= 0; i--) if (gone.has(queue[i].key)) queue.splice(i, 1);
+  }
+
   function onSeen(seen) {
     const key = seen.sessionId + ":" + seen.thread;
+    const now = Date.now();
+    forgetIdle(now);
 
     // rereads() reads the thread as it was BEFORE this report is merged
     // in (see its own doc above) -- so this runs before track().
@@ -558,7 +605,7 @@ export async function activate(wibble) {
       pendingRereads[key] = (pendingRereads[key] || 0) + rereadChars;
     }
 
-    const { toJudge } = track(state, seen);
+    const { toJudge } = track(state, seen, now);
     const thread = state.threads[key];
 
     if (toJudge.length) {
@@ -568,7 +615,18 @@ export async function activate(wibble) {
 
     const releasedIds = release(thread);
     if (releasedIds.length) {
-      wibble.trim.drop(seen.sessionId, releasedIds);
+      // If this fails (the session just ended, say), un-mark the ids so the
+      // next batch offers them again, and a later read of them isn't
+      // charged as a re-read of something that was never dropped.
+      Promise.resolve(wibble.trim.drop(seen.sessionId, releasedIds)).catch(() => {
+        const t = state.threads[key];
+        if (!t) return;
+        for (const id of releasedIds) {
+          t.dropped.delete(id);
+          const entry = t.items.get(id);
+          if (entry) t.droppedTargets.delete(entry.target);
+        }
+      });
     }
   }
 
@@ -577,7 +635,8 @@ export async function activate(wibble) {
     const rereadChars = pendingRereads[key] || 0;
     delete pendingRereads[key];
 
-    const { saved, actual, removedTokens } = saving(result, rereadChars);
+    const format = state.threads[key] ? state.threads[key].format : null;
+    const { saved, actual, removedTokens } = saving(result, rereadChars, format);
     const dollarsSaved = dollars(saved, result.model);
     addSaving(saved, actual, removedTokens, dollarsSaved);
 
