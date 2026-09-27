@@ -34,8 +34,14 @@ function wait(ms) {
  *   - `judge.health`: "up" (200) or "down" (500) for GET /health.
  *   - `judge.ask`: "up" (200 with `judge.notNeeded`), "down" (500), or
  *     "reject" (net.fetch throws, as a real connection failure would).
+ * `host` configures the rest:
+ *   - `host.openrouter(url, opts)`: the answer to an openrouter.ai fetch
+ *     (default a 404, so every model runs on the built-in table or none).
+ *   - `host.cold`: true gives `trim.withdraw`, i.e. a Wibble that knows
+ *     cold drops; `drop` records its third argument either way.
+ *   - `host.store`: storage's starting contents, as an object.
  */
-function makeWibble(judge = {}) {
+function makeWibble(judge = {}, host = {}) {
   const health = judge.health || "up";
   const askMode = judge.ask || "up";
   const notNeeded = judge.notNeeded ?? 0.99;
@@ -44,7 +50,9 @@ function makeWibble(judge = {}) {
   const resultHandlers = [];
   const dropCalls = [];
   const panelCalls = [];
-  const store = new Map();
+  const withdrawCalls = [];
+  const priceFetches = [];
+  const store = new Map(Object.entries(host.store || {}));
 
   const wibble = {
     trim: {
@@ -56,12 +64,16 @@ function makeWibble(judge = {}) {
         resultHandlers.push(fn);
         return () => {};
       },
-      async drop(sessionId, ids) {
-        dropCalls.push({ sessionId, ids });
+      async drop(sessionId, ids, opts) {
+        dropCalls.push(opts ? { sessionId, ids, opts } : { sessionId, ids });
       },
     },
     net: {
-      async fetch(url) {
+      async fetch(url, opts) {
+        if (url.startsWith("https://openrouter.ai/")) {
+          priceFetches.push({ url, opts });
+          return host.openrouter ? host.openrouter(url, opts) : { status: 404, headers: {}, body: "" };
+        }
         if (url.endsWith("/health")) {
           if (health === "up") return { status: 200, headers: {}, body: JSON.stringify({ ok: true, model: "test" }) };
           return { status: 500, headers: {}, body: "" };
@@ -92,12 +104,21 @@ function makeWibble(judge = {}) {
     },
   };
 
+  if (host.cold) {
+    wibble.trim.withdraw = async (sessionId, ids) => {
+      withdrawCalls.push({ sessionId, ids });
+    };
+  }
+
   return {
     wibble,
     fireSeen: (payload) => seenHandlers.forEach((fn) => fn(payload)),
     fireResult: (payload) => resultHandlers.forEach((fn) => fn(payload)),
     dropCalls,
+    withdrawCalls,
+    priceFetches,
     panelCalls,
+    store,
   };
 }
 
@@ -107,7 +128,10 @@ function seenEvent(overrides) {
     sessionId: "s1",
     format: "anthropic",
     thread: "t1",
-    model: "claude-sonnet-5",
+    // No built-in price (and the fake's openrouter.ai answers 404), so
+    // plan() runs v1's rule: the tests below that don't name a model are
+    // v1's wiring tests.
+    model: "claude-sonnet-4",
     totalChars: 100000,
     lastUser: "do the thing",
     recentAssistant: "working on it",
@@ -267,7 +291,7 @@ test("activate: a rejected judge fetch marks the judge down, and the fallback st
   h.fireResult({
     sessionId: "s1",
     thread: "t1",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-4",
     usage: { input: 0, cacheRead: 150000000, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 },
     totalChars: 150000000,
     removedChars: 150000000,
@@ -283,7 +307,7 @@ test("activate: a rejected judge fetch marks the judge down, and the fallback st
 
 // --- panel label shows a percent after results --------------------------
 
-test("activate: the panel shows a percent chip and a dollar label after an onResult", async () => {
+test("activate: with no prices for the model, the panel shows v1's percent and family dollars after an onResult", async () => {
   const h = makeWibble({ health: "up" });
   await activate(h.wibble);
 
@@ -292,11 +316,11 @@ test("activate: the panel shows a percent chip and a dollar label after an onRes
   //   unitPrice = 0.1 (cacheRead > 0); gross = removedChars * 1 * 0.1 = 15,000,000
   //   saved = 15,000,000; actual = cost(usage) = cacheRead * 0.1 = 15,000,000
   //   percent = 15,000,000 / 30,000,000 = 0.5 -> "−50%"
-  //   dollars(15,000,000, "claude-sonnet-5") = 15,000,000 * 3 / 1e6 = $45
+  //   dollars(15,000,000, "claude-sonnet-4") = 15,000,000 * 3 / 1e6 = $45
   h.fireResult({
     sessionId: "s1",
     thread: "t1",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-4",
     usage: { input: 0, cacheRead: 150000000, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 },
     totalChars: 150000000,
     removedChars: 150000000,
@@ -319,7 +343,7 @@ test("activate: totals are written to storage, and a second activate() against t
   h.fireResult({
     sessionId: "s1",
     thread: "t1",
-    model: "claude-sonnet-5",
+    model: "claude-sonnet-4",
     usage: { input: 0, cacheRead: 150000000, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 },
     totalChars: 150000000,
     removedChars: 150000000,
@@ -594,4 +618,247 @@ test("activate: a judge failure re-arms a fresh 60s health-probe window from the
   t.mock.timers.tick(1000);
   await flush();
   assert.strictEqual(healthCalls, 2, "the probe fires 60s after the failure itself, not on a stale fixed schedule");
+});
+
+// --- prices: fetched from openrouter.ai, kept in storage -----------------
+
+const OPUS_SLUG = "anthropic/claude-opus-5.5";
+const OPUS_URL = "https://openrouter.ai/api/v1/models/anthropic/claude-opus-5.5/endpoints";
+
+/** An OpenRouter endpoints body: Anthropic's endpoint at cache read $0.10/M. */
+function endpointsBody() {
+  return JSON.stringify({
+    data: {
+      endpoints: [
+        {
+          provider_name: "Anthropic",
+          context_length: 1000000,
+          pricing: { prompt: "0.000003", completion: "0.000015", input_cache_read: "0.0000001", input_cache_write: "0.000004", input_cache_write_1h: "0.000006" },
+        },
+      ],
+    },
+  });
+}
+
+/** A warm request that reads 100M tokens from cache and removed as many chars (r = 1). */
+function opusResult(overrides) {
+  return {
+    sessionId: "s1",
+    thread: "t1",
+    model: "claude-opus-5-5",
+    usage: { input: 0, cacheRead: 100000000, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 },
+    sentChars: 100000000,
+    totalChars: 100000000,
+    removedChars: 100000000,
+    firstCutChars: null,
+    newlyRemoved: 0,
+    ...overrides,
+  };
+}
+
+test("activate: a model's prices are fetched once (a GET with nothing but the slug), stored, and used to charge", async () => {
+  const h = makeWibble({ health: "up" }, { openrouter: () => ({ status: 200, headers: {}, body: endpointsBody() }) });
+  await activate(h.wibble);
+
+  // Two reports in one turn: the first fetch is still in flight for the second.
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 1, items: [] }));
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 2, items: [] }));
+  assert.deepStrictEqual(h.priceFetches, [{ url: OPUS_URL, opts: { method: "GET" } }]);
+  await wait(20);
+
+  const stored = h.store.get("prices");
+  assert.strictEqual(stored[OPUS_SLUG].prices.cacheRead, 1e-7);
+  assert.strictEqual(typeof stored[OPUS_SLUG].at, "number");
+
+  // Fresh now: no second fetch.
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 3, items: [] }));
+  await wait(20);
+  assert.strictEqual(h.priceFetches.length, 1);
+
+  // Charged at the fetched cache read ($0.10/M), not the built-in $0.20/M:
+  //   saved = 1e8 * 1 * 1e-7 = $10; actual = 1e8 * 1e-7 = $10 -> −50%
+  h.fireResult(opusResult());
+  await wait(1100);
+  assert.strictEqual(h.panelCalls[h.panelCalls.length - 1].node.label, "−50% · $10 saved");
+});
+
+test("activate: a failed price fetch stores nothing and is not retried for an hour", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const h = makeWibble({ health: "up" }); // openrouter.ai answers 404
+  await activate(h.wibble);
+
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 1, items: [] }));
+  await flush();
+  assert.strictEqual(h.priceFetches.length, 1);
+  assert.strictEqual(h.store.get("prices"), undefined);
+
+  t.mock.timers.tick(59 * 60 * 1000);
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 2, items: [] }));
+  await flush();
+  assert.strictEqual(h.priceFetches.length, 1, "59 minutes after the failure: not yet");
+
+  t.mock.timers.tick(60 * 1000);
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 3, items: [] }));
+  await flush();
+  assert.strictEqual(h.priceFetches.length, 2, "an hour after the failure: tried again");
+});
+
+test("activate: stored prices are loaded on start, and fetched again once they are a day old", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
+  const flush = () => new Promise((resolve) => setImmediate(resolve));
+  const prices = { input: 3e-6, cacheRead: 1e-7, write5m: 4e-6, write1h: 6e-6, output: 1.5e-5, context: 1000000 };
+  const h = makeWibble({ health: "up" }, { store: { prices: { [OPUS_SLUG]: { prices, at: Date.now() } } } });
+  await activate(h.wibble);
+
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 1, items: [] }));
+  await flush();
+  assert.strictEqual(h.priceFetches.length, 0, "the stored copy is fresh");
+
+  // Charged at the stored cache read: $10 saved of $10 (see the test above).
+  h.fireResult(opusResult());
+  t.mock.timers.tick(5000); // the mocked clock starts at 0, inside the 5 s persist throttle
+  await flush();
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.ok(Math.abs(day.usd.saved - 10) < 1e-9 && Math.abs(day.usd.actual - 10) < 1e-9, JSON.stringify(day.usd));
+
+  t.mock.timers.tick(24 * 60 * 60 * 1000 + 1);
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 2, items: [] }));
+  await flush();
+  assert.strictEqual(h.priceFetches.length, 1, "a day old: fetched again");
+});
+
+// --- dollars in the day totals, and the chip -----------------------------
+
+test("activate: a priced result shows the week in dollars, and the day keeps dollars and v1 units", async () => {
+  const h = makeWibble({ health: "up" });
+  await activate(h.wibble);
+
+  // Built-in Opus 5.5 (cache read $0.20/M): saved = 1e8 * 2e-7 = $20 of $20 actual.
+  h.fireResult(opusResult());
+  await wait(1100);
+  assert.strictEqual(h.panelCalls[h.panelCalls.length - 1].node.label, "−50% · $20 saved");
+
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.ok(Math.abs(day.usd.saved - 20) < 1e-9);
+  assert.ok(Math.abs(day.usd.actual - 20) < 1e-9);
+  // v1 units alongside: saved = 1e8 * 0.1 = 1e7, actual = 1e8 * 0.1 = 1e7
+  assert.strictEqual(day.saved, 1e7);
+  assert.strictEqual(day.actual, 1e7);
+});
+
+test("activate: an old stored day without dollars loads with zeroed counters, and the week falls back to v1 units", async () => {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  const yesterday = d.toISOString().slice(0, 10);
+  const h = makeWibble({ health: "up" }, { store: { totals: { [yesterday]: { saved: 0, actual: 2e7, removedTokens: 0, dollars: 0, dollarsKnown: true } } } });
+  await activate(h.wibble);
+
+  // Today: v1 saved 1e7 of actual 1e7, $20 saved. Yesterday: 0 of 2e7 units.
+  // v1 percent = 1e7 / (3e7 + 1e7) = 25% (dollars alone would read 50%).
+  h.fireResult(opusResult());
+  await wait(1100);
+  assert.strictEqual(h.panelCalls[h.panelCalls.length - 1].node.label, "−25% · $20 saved");
+
+  const old = h.store.get("totals")[yesterday];
+  for (const k of ["cuts", "freeCuts", "skipped", "rereads", "rereadCost", "planActual", "apiActual"]) assert.strictEqual(old[k], 0, k);
+  assert.deepStrictEqual(old.usd, { saved: 0, actual: 0 });
+});
+
+test("activate: cuts, free cuts on a cold request, and plan vs API billing are counted per day", async () => {
+  const h = makeWibble({ health: "up" });
+  await activate(h.wibble);
+
+  h.fireSeen(seenEvent({ sessionId: "s1", model: "claude-opus-5-5", billing: "plan", calls: 1, items: [] }));
+  h.fireResult(opusResult({ sessionId: "s1", cold: true, coldApplied: ["a", "b"], newlyRemoved: 3 }));
+  h.fireResult(opusResult({ sessionId: "s1", cold: false, coldApplied: [], newlyRemoved: 2 }));
+  h.fireResult(opusResult({ sessionId: "s2", newlyRemoved: 0 })); // never seen: billing unknown -> API
+  await wait(20);
+
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.strictEqual(day.freeCuts, 2, "the two cold drops applied");
+  assert.strictEqual(day.cuts, 3, "one ordinary cut on the cold request, two on the warm one");
+  // v1 units per request: 1e7 actual. Two on a plan, one on the API.
+  assert.strictEqual(day.planActual, 2e7);
+  assert.strictEqual(day.apiActual, 1e7);
+});
+
+test("activate: a re-read is counted, with its cost in dollars", async () => {
+  const h = makeWibble({ health: "down" });
+  await activate(h.wibble);
+
+  // v1's rule (no price for claude-sonnet-4) drops f.txt at 20 calls ...
+  h.fireSeen(seenEvent({ calls: 20, items: [{ id: "x", tool: "Read", target: "f.txt", chars: 500, age: 6 }] }));
+  // ... and the agent reads it again.
+  h.fireSeen(seenEvent({ calls: 21, items: [{ id: "y", tool: "Read", target: "f.txt", chars: 500, age: 0 }] }));
+  // r = 1, P = 1e6: reread = 1e6 * 2e-7 + 500 * 1 * 5e-6 = 0.2 + 0.0025 = $0.2025
+  h.fireResult(opusResult({ usage: { input: 0, cacheRead: 1000000, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 }, sentChars: 1000000, totalChars: 1000000, removedChars: 0 }));
+  await wait(20);
+
+  const day = Object.values(h.store.get("totals"))[0];
+  assert.strictEqual(day.rereads, 1);
+  assert.ok(Math.abs(day.rereadCost - 0.2025) < 1e-9, String(day.rereadCost));
+});
+
+// --- cold drops and withdrawals ------------------------------------------
+
+// Built-in Sonnet 5 (cache read $0.20/M, 5-minute write $2.50/M). One
+// 20,000-char item at the very start of a 1,000,000-char prompt; r = 0.3
+// (no result yet), P = 300,000 tokens.
+//   At 20 calls, no verdict (p = base rate 0.6467), L = 105:
+//     gain = 0.6467 x 20000 x 0.3 x 2e-7 x 105 = 0.0815
+//     risk = 0.3533 x (20000 x 0.3 x 2.5e-6 + 300000 x 2e-7) = 0.3533 x 0.075 = 0.0265
+//     a candidate, but rewriting 1e6 chars costs 1e6 x 0.3 x 2.3e-6 = 0.69 -> parked
+//   At 40 calls, the judge's 0.01 (p = 0.2667), L = 132:
+//     gain = 0.2667 x 0.1584 = 0.0422 < risk = 0.7333 x 0.075 = 0.055 -> withdrawn
+const bigEarly = (calls) =>
+  seenEvent({ model: "claude-sonnet-5", totalChars: 1000000, calls, items: [{ id: "big", tool: "Read", target: "big.txt", chars: 20000, at: 0, age: calls - 14 }] });
+
+test("activate: an item that only fails on the rewrite is dropped cold, and withdrawn once the judge says keep", async () => {
+  const h = makeWibble({ health: "up", ask: "up", notNeeded: 0.01 }, { cold: true });
+  await activate(h.wibble);
+
+  h.fireSeen(bigEarly(20));
+  await wait(20); // the verdict lands after this batch was planned
+  assert.deepStrictEqual(h.dropCalls, [{ sessionId: "s1", ids: ["big"], opts: { when: "cold" } }]);
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 1);
+
+  h.fireSeen(bigEarly(40));
+  await wait(20);
+  assert.deepStrictEqual(h.withdrawCalls, [{ sessionId: "s1", ids: ["big"] }]);
+  assert.strictEqual(h.dropCalls.length, 1);
+});
+
+test("activate: a Wibble without cold drops is never sent one", async () => {
+  const h = makeWibble({ health: "down" }); // no trim.withdraw
+  await activate(h.wibble);
+
+  h.fireSeen(bigEarly(20));
+  h.fireSeen(bigEarly(40));
+  await wait(20);
+  assert.deepStrictEqual(h.dropCalls, []);
+});
+
+test("activate: a rejected cold drop is offered again at the next batch", async () => {
+  const h = makeWibble({ health: "down" }, { cold: true });
+  h.wibble.trim.drop = async (sessionId, ids, opts) => {
+    h.dropCalls.push({ sessionId, ids, opts });
+    throw new Error("session ended");
+  };
+  await activate(h.wibble);
+
+  // No verdict either time (judge down), so it stays a candidate that only
+  // fails on the rewrite: parked at 20 calls, and -- the first attempt
+  // having been refused -- parked again at 40.
+  h.fireSeen(bigEarly(20));
+  await wait(20);
+  h.fireSeen(bigEarly(40));
+  await wait(20);
+  assert.deepStrictEqual(
+    h.dropCalls.map((c) => [c.ids, c.opts]),
+    [
+      [["big"], { when: "cold" }],
+      [["big"], { when: "cold" }],
+    ],
+  );
 });

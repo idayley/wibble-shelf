@@ -34,6 +34,9 @@ import {
   left,
   CALIBRATION,
   probNotNeeded,
+  savingUsd,
+  noteChat,
+  CHATS_KEEP,
 } from "./main.js";
 
 function closeTo(actual, expected, msg) {
@@ -134,6 +137,14 @@ test("plan (no prices): dropped ids are never returned twice, even in a later ba
   // "needed" (0.1) is still under the 40-call line, so it stays.
   assert.deepStrictEqual(ids, ["late"]);
   assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "late"]);
+});
+
+test("plan (no prices): cutting an id that was parked for a cold cache takes it out of the parked set", () => {
+  const thread = makeThread([["x", { tool: "read", target: "x.txt", chars: 20, age: AGE + 1, verdict: null, asked: true }]]);
+  thread.coldPending.add("x"); // parked while the model's prices were known
+  thread.calls = BATCH;
+  assert.deepStrictEqual(v1Release(thread), ["x"]);
+  assert.strictEqual(thread.coldPending.size, 0);
 });
 
 // --- v1Line() -----------------------------------------------------------
@@ -460,6 +471,99 @@ test("saving: a cold request on an OpenAI-style engine prices the write at 1x, n
   closeTo(saving(result, 0, "responses").saved, 10000, "responses");
   closeTo(saving(result, 0, "chat").saved, 10000, "chat");
   closeTo(saving(result, 0).saved, 12500, "unknown format keeps the Anthropic prices");
+});
+
+// --- savingUsd() -----------------------------------------------------------
+
+// Opus 5.5's built-in prices: cacheRead 2e-7, write5m 5e-6, write1h 8e-6.
+const OPUS = BUILTIN_PRICES["anthropic/claude-opus-5.5"];
+const WARM_USAGE = { input: 10, cacheRead: 90000, cacheWrite5m: 1000, cacheWrite1h: 0, output: 500 };
+
+test("savingUsd: a warm request with no cut saves the removed chars at the cache-read price", () => {
+  const result = { usage: WARM_USAGE, sentChars: 364040, totalChars: 364040, removedChars: 40000, firstCutChars: null };
+  // P = 10 + 90000 + 1000 = 91010; r = 91010 / 364040 = 0.25
+  // gross = 40000 * 0.25 * 2e-7 = $0.002
+  // actual = 10*4e-6 + 90000*2e-7 + 1000*5e-6 + 500*2e-5 = 0.00004 + 0.018 + 0.005 + 0.01 = $0.03304
+  const out = savingUsd(result, 0, OPUS);
+  closeTo(out.saved, 0.002, "saved");
+  closeTo(out.actual, 0.03304, "actual");
+  closeTo(out.removedTokens, 10000, "removedTokens (40000 * 0.25)");
+  closeTo(out.cutCost, 0, "cutCost");
+  closeTo(out.rereadCost, 0, "rereadCost");
+});
+
+test("savingUsd: a cut on a warm cache pays the rewrite from the first cut to the end", () => {
+  const result = { usage: WARM_USAGE, sentChars: 364040, totalChars: 364040, removedChars: 40000, firstCutChars: 300000 };
+  // cut = (364040 - 300000) * 0.25 * (5e-6 - 2e-7) = 64040 * 0.25 * 4.8e-6 = $0.076848
+  // saved = 0.002 - 0.076848 = -$0.074848
+  const out = savingUsd(result, 0, OPUS);
+  closeTo(out.cutCost, 0.076848, "cutCost");
+  closeTo(out.saved, 0.002 - 0.076848, "saved");
+});
+
+test("savingUsd: on a cold request the cut is free, and the removed chars save the write price", () => {
+  const result = { usage: WARM_USAGE, sentChars: 364040, totalChars: 364040, removedChars: 40000, firstCutChars: 300000, cold: true };
+  // cutCost = 0 (the whole prompt was rewritten anyway)
+  // gross = 40000 * 0.25 * 5e-6 = $0.05
+  const out = savingUsd(result, 0, OPUS);
+  closeTo(out.cutCost, 0, "cutCost");
+  closeTo(out.saved, 0.05, "saved");
+});
+
+test("savingUsd: nothing read from cache prices the gross at the write price, the 1-hour one when that was written", () => {
+  const usage = { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 60000, output: 0 };
+  const result = { usage, sentChars: 240000, totalChars: 240000, removedChars: 40000, firstCutChars: null };
+  // r = 60000 / 240000 = 0.25; write = write1h (8e-6), since cacheWrite1h > cacheWrite5m
+  // gross = 40000 * 0.25 * 8e-6 = $0.08
+  closeTo(savingUsd(result, 0, OPUS).saved, 0.08, "saved");
+});
+
+test("savingUsd: a re-read charges the whole prompt at the read price plus the re-read text written", () => {
+  const result = { usage: WARM_USAGE, sentChars: 364040, totalChars: 364040, removedChars: 40000, firstCutChars: null };
+  // reread = P * cacheRead + chars * r * write = 91010 * 2e-7 + 2000 * 0.25 * 5e-6
+  //        = 0.018202 + 0.0025 = $0.020702
+  // saved = 0.002 - 0.020702 = -$0.018702
+  const out = savingUsd(result, 2000, OPUS);
+  closeTo(out.rereadCost, 0.020702, "rereadCost");
+  closeTo(out.saved, 0.002 - 0.020702, "saved");
+});
+
+// --- noteChat() -----------------------------------------------------------
+
+test("noteChat: creates a chat, keeps the highest calls, and adds dollars and units", () => {
+  const chats = {};
+  noteChat(chats, "s1", { calls: 12, model: "claude-opus-5-5", billing: "plan" }, 1000);
+  noteChat(chats, "s1", { calls: 9 }, 2000); // a subagent's shorter thread in the same session
+  noteChat(chats, "s1", { usd: { saved: 0.5, actual: 2 }, units: { saved: 100, actual: 400 } }, 3000);
+  noteChat(chats, "s1", { usd: { saved: 0.25, actual: 1 }, units: { saved: 50, actual: 200 } }, 4000);
+  assert.deepStrictEqual(chats.s1, {
+    saved: 0.75,
+    actual: 3,
+    calls: 12,
+    model: "claude-opus-5-5",
+    billing: "plan",
+    lastAt: 4000,
+    usd: true,
+    units: { saved: 150, actual: 600 },
+  });
+});
+
+test("noteChat: one result without dollars marks the chat's dollars incomplete; units still add up", () => {
+  const chats = {};
+  noteChat(chats, "s1", { usd: { saved: 0.5, actual: 2 }, units: { saved: 100, actual: 400 } }, 1000);
+  noteChat(chats, "s1", { usd: null, units: { saved: 10, actual: 40 } }, 2000);
+  assert.strictEqual(chats.s1.usd, false);
+  assert.strictEqual(chats.s1.saved, 0.5);
+  assert.deepStrictEqual(chats.s1.units, { saved: 110, actual: 440 });
+});
+
+test("noteChat: keeps at most CHATS_KEEP chats, forgetting the one seen longest ago", () => {
+  const chats = {};
+  for (let i = 0; i < CHATS_KEEP; i++) noteChat(chats, "s" + i, { calls: 1 }, 1000 + i);
+  noteChat(chats, "s0", { calls: 2 }, 5000); // s0 is fresh again; s1 is now the oldest
+  noteChat(chats, "new", { calls: 1 }, 6000);
+  assert.strictEqual(Object.keys(chats).length, CHATS_KEEP);
+  assert.ok(chats.s0 && chats.new && !chats.s1);
 });
 
 // --- dollars() / percent() -----------------------------------------------------------

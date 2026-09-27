@@ -151,14 +151,12 @@ export function evictIdle(state, now, maxIdleMs = IDLE_MS) {
  * `seen` in, so an id is only ever new once, and so only ever charged once.
  */
 export function rereads(thread, seen) {
-  let chars = 0;
-  for (const item of seen.items) {
-    if (item.age !== 0) continue;
-    if (thread.items.has(item.id)) continue;
-    if (!thread.droppedTargets.has(item.target)) continue;
-    chars += item.chars;
-  }
-  return chars;
+  return rereadItems(thread, seen).reduce((sum, item) => sum + item.chars, 0);
+}
+
+/** The items rereads() charges for, so activate() can count them too. */
+function rereadItems(thread, seen) {
+  return seen.items.filter((item) => item.age === 0 && !thread.items.has(item.id) && thread.droppedTargets.has(item.target));
 }
 
 /** Cost of a request's usage, in input-token units. */
@@ -211,9 +209,8 @@ export function dollars(units, model) {
 
 // ---------------------------------------------------------------------------
 // Real per-token prices (docs/specs/2026-09-27-trim-payback-design.md §2.1).
-// PRICE_PER_M/dollars() above are v1's crude family fallback; they stay as
-// activate() still calls dollars() for its per-request dollar figure, and a
-// later task moves that call over to priceFor().
+// PRICE_PER_M/dollars() above are v1's crude family fallback: activate()
+// still uses them (with saving()) for a model priceFor() can't price.
 // ---------------------------------------------------------------------------
 
 // Dollars per token, from OpenRouter's endpoint lists on 2026-09-27.
@@ -318,6 +315,89 @@ export function priceFor(model, fetched) {
 }
 
 /**
+ * What a request saved, in dollars at `prices` (priceFor()'s), by having
+ * removed old tool output -- saving()'s arithmetic with the model's real
+ * prices in place of v1's fixed 0.1 / 1.25 / 2 (payback spec §2.6).
+ *
+ *   gross  = removedChars x r x (cacheRead, or the write price when the
+ *            request read nothing from cache or Wibble reports it `cold`)
+ *   cut    = (totalChars - firstCutChars) x r x (write - cacheRead), and
+ *            nothing on a `cold` request: the whole prompt was rewritten
+ *            anyway. An older Wibble never sends `cold`, so it pays v1's way.
+ *   reread = P x cacheRead + rereadChars x r x write, as saving() does
+ *
+ * with write = the 1-hour write price when the request wrote more 1-hour
+ * cache than 5-minute, else the 5-minute one.
+ *
+ * @returns {{ saved, actual, removedTokens, cutCost, rereadCost }} all
+ *   dollars except removedTokens
+ */
+export function savingUsd(result, rereadChars, prices) {
+  const { usage, totalChars, removedChars, firstCutChars, sentChars, cold } = result;
+  const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite5m + usage.cacheWrite1h;
+  const chars = typeof sentChars === "number" && sentChars > 0 ? sentChars : totalChars;
+  const r = promptTokens / Math.max(1, chars);
+
+  const write = usage.cacheWrite1h > usage.cacheWrite5m ? prices.write1h : prices.write5m;
+  const unitPrice = cold || usage.cacheRead === 0 ? write : prices.cacheRead;
+
+  const gross = removedChars * r * unitPrice;
+  const cutCost = cold || firstCutChars == null ? 0 : Math.max(0, totalChars - firstCutChars) * r * (write - prices.cacheRead);
+  const rereadCost = rereadChars > 0 ? promptTokens * prices.cacheRead + rereadChars * r * write : 0;
+  const actual =
+    usage.input * prices.input +
+    usage.cacheRead * prices.cacheRead +
+    usage.cacheWrite5m * prices.write5m +
+    usage.cacheWrite1h * prices.write1h +
+    usage.output * prices.output;
+
+  return { saved: gross - cutCost - rereadCost, actual, removedTokens: removedChars * r, cutCost, rereadCost };
+}
+
+/** Most chats noteChat() keeps; the one seen longest ago goes first. */
+export const CHATS_KEEP = 50;
+
+/**
+ * Fold one onSeen/onResult's figures into `chats[sessionId]`:
+ *   { saved, actual, calls, model, billing, lastAt, usd, units }
+ * A result passes `units` (saving()'s {saved, actual}, always known) and
+ * `usd` (savingUsd()'s dollars, or null when the model had no prices).
+ * `saved`/`actual` are the dollars, and `usd` stays true only while every
+ * result so far had them; `units` always adds up. `calls` keeps the highest
+ * seen (a session's subagent threads are shorter than its main one);
+ * `model`/`billing` keep the latest given. Past CHATS_KEEP chats, the
+ * oldest `lastAt` is forgotten.
+ */
+export function noteChat(chats, sessionId, fields, now = Date.now()) {
+  let chat = chats[sessionId];
+  if (!chat) {
+    chat = { saved: 0, actual: 0, calls: 0, model: null, billing: null, lastAt: now, usd: true, units: { saved: 0, actual: 0 } };
+    chats[sessionId] = chat;
+  }
+  if (typeof fields.calls === "number") chat.calls = Math.max(chat.calls, fields.calls);
+  if (fields.model) chat.model = fields.model;
+  if (fields.billing) chat.billing = fields.billing;
+  if (fields.units) {
+    chat.units.saved += fields.units.saved;
+    chat.units.actual += fields.units.actual;
+    if (fields.usd) {
+      chat.saved += fields.usd.saved;
+      chat.actual += fields.usd.actual;
+    } else {
+      chat.usd = false;
+    }
+  }
+  chat.lastAt = now;
+
+  const ids = Object.keys(chats);
+  if (ids.length > CHATS_KEEP) {
+    const oldest = ids.reduce((a, b) => (chats[b].lastAt < chats[a].lastAt ? b : a));
+    delete chats[oldest];
+  }
+  return chat;
+}
+
+/**
  * Percentage saved of what the work would otherwise have cost. 0 (not
  * NaN) when nothing has been spent or saved yet -- a fresh install's
  * totals are `{saved: 0, actual: 0}`, and 0/0 is not a percentage.
@@ -415,10 +495,14 @@ export function probNotNeeded(verdict, cal = CALIBRATION) {
 // and which to park until the cache has gone cold.
 // ---------------------------------------------------------------------------
 
-/** Mark `ids` dropped, as v1's release did: sticky, and charged if re-read. */
+/**
+ * Mark `ids` dropped, as v1's release did: sticky, and charged if re-read.
+ * An id parked for a cold cache is no longer waiting on one.
+ */
 function markDropped(thread, ids) {
   for (const id of ids) {
     thread.dropped.add(id);
+    thread.coldPending.delete(id);
     const entry = thread.items.get(id);
     thread.droppedTargets.set(entry.target, entry.chars);
     entry.head = null; // only the judge reads it, and it's done with this one
@@ -449,8 +533,10 @@ function markDropped(thread, ids) {
  * The best net_i, if above zero, is cut now (`now` = candidates i..). The
  * candidates left out failed only on the rewrite's cost, which a cold cache
  * waives, so they are parked (`cold`, and thread.coldPending) for Wibble to
- * drop on the first request after the cache expires. A parked item the
- * judge has since marked needed comes back out (`withdraw`).
+ * drop on the first request after the cache expires. A parked item comes
+ * back out (`withdraw`) whenever it stops being a candidate: the judge has
+ * since said keep, or fewer requests are left to pay it back (near
+ * compaction, say) -- not only on a changed verdict.
  *
  * `at` is missing on an older Wibble: those items sit at the smallest known
  * `at`, or 0 -- the most a cut could cost, so a guess never overspends.
@@ -522,8 +608,6 @@ export function plan(thread, seen, prices, cal = CALIBRATION) {
   const cold = candidates.slice(0, best < 0 ? candidates.length : best).map((c) => c.id).filter((id) => !thread.coldPending.has(id));
 
   markDropped(thread, now);
-  // A parked item cut now is no longer waiting on a cold cache.
-  for (const id of now) thread.coldPending.delete(id);
   for (const id of cold) thread.coldPending.add(id);
   for (const id of withdraw) thread.coldPending.delete(id);
   thread.stats.skipped += cold.length;
@@ -548,6 +632,11 @@ const CAP_LAST_USER = 1500;
 const CAP_RECENT_ASSISTANT = 1500;
 const CAP_HEAD = 1200;
 const TOTALS_KEY = "totals";
+const PRICES_KEY = "prices";
+const PRICES_URL = "https://openrouter.ai/api/v1/models/";
+const PRICE_FRESH_MS = 24 * 60 * 60 * 1000; // "fetched once per model per day"
+const PRICE_RETRY_MS = 60 * 60 * 1000; // a failed fetch waits an hour
+
 const TOTALS_KEEP_DAYS = 14;
 const PERSIST_INTERVAL_MS = 5000; // "at most every 5 s"
 const EVICT_CHECK_MS = 60000; // idle threads are looked for at most once a minute
@@ -619,6 +708,25 @@ function formatPercentLabel(week) {
   return sign + Math.abs(pct) + "%";
 }
 
+/**
+ * A day's totals, with every field a later version added set to 0 when a
+ * day stored by an older Trim lacks it. Such a day has no dollars at real
+ * prices, so it only counts as having them (`usdKnown`) if nothing was
+ * spent on it at all.
+ */
+function normalizeDay(day) {
+  for (const k of ["saved", "actual", "removedTokens", "dollars", "planActual", "apiActual", "cuts", "freeCuts", "skipped", "rereads", "rereadCost"]) {
+    if (typeof day[k] !== "number") day[k] = 0;
+  }
+  if (typeof day.dollarsKnown !== "boolean") day.dollarsKnown = true;
+  if (!day.usd || typeof day.usd.saved !== "number" || typeof day.usd.actual !== "number") {
+    day.usd = { saved: 0, actual: 0 };
+    if (typeof day.usdKnown !== "boolean") day.usdKnown = day.actual === 0;
+  }
+  if (typeof day.usdKnown !== "boolean") day.usdKnown = true;
+  return day;
+}
+
 function formatSavingsLabel(week) {
   if (week.dollarsKnown) {
     // Under $10 shows cents, so a small week reads "$0.10 spent" rather
@@ -647,9 +755,23 @@ export async function activate(wibble) {
   }
 
   const state = { threads: {} };
-  const pendingRereads = {}; // key (sessionId:thread) -> chars stashed for the next onResult
+  const pendingRereads = {}; // key (sessionId:thread) -> {chars, count} stashed for the next onResult
+  const chats = {}; // sessionId -> noteChat()'s figures, in memory only
   let totals = (await wibble.storage.get(TOTALS_KEY)) || {};
+  for (const day of Object.values(totals)) normalizeDay(day);
   pruneOldDays();
+
+  // slug -> {prices, at}: the last good fetch per model, kept across
+  // restarts. A read that fails, or holds something else, starts empty.
+  let fetchedPrices = {};
+  try {
+    const stored = await wibble.storage.get(PRICES_KEY);
+    if (stored && typeof stored === "object") fetchedPrices = stored;
+  } catch {
+    // start with the built-in table
+  }
+  const priceFailedAt = {}; // slug -> when its last fetch failed
+  let priceFetching = false;
 
   let judgeUp = true;
   const queue = []; // {key, id, item, seen}, newest thread at the front
@@ -765,11 +887,42 @@ export async function activate(wibble) {
     pump();
   }
 
+  /**
+   * Fetch `model`'s prices from openrouter.ai unless a fetch under a day
+   * old is on file, one is already in flight, or its last one failed under
+   * an hour ago. Only the model's slug goes out: a plain GET, no body, no
+   * headers. A failure changes nothing; priceFor() keeps using what it had.
+   */
+  function refreshPrices(model, now) {
+    const slug = slugOf(model);
+    if (!slug || priceFetching) return;
+    const hit = fetchedPrices[slug];
+    if (hit && now - hit.at < PRICE_FRESH_MS) return;
+    if (slug in priceFailedAt && now - priceFailedAt[slug] < PRICE_RETRY_MS) return;
+
+    priceFetching = true;
+    const url = PRICES_URL + slug.split("/").map(encodeURIComponent).join("/") + "/endpoints";
+    (async () => {
+      try {
+        const res = await wibble.net.fetch(url, { method: "GET" });
+        const prices = res && res.status === 200 ? parseEndpoints(res.body, slug) : null;
+        if (!prices) throw new Error("no prices for " + slug);
+        fetchedPrices[slug] = { prices, at: Date.now() };
+        delete priceFailedAt[slug];
+        await wibble.storage.set(PRICES_KEY, fetchedPrices).catch(() => {});
+      } catch {
+        priceFailedAt[slug] = Date.now();
+      } finally {
+        priceFetching = false;
+      }
+    })();
+  }
+
   function todaysDay() {
     const key = dayKeyOf(new Date());
     let day = totals[key];
     if (!day) {
-      day = { saved: 0, actual: 0, removedTokens: 0, dollars: 0, dollarsKnown: true };
+      day = normalizeDay({});
       totals[key] = day;
     }
     return day;
@@ -782,16 +935,36 @@ export async function activate(wibble) {
     }
   }
 
-  function addSaving(saved, actual, removedTokens, dollarsSaved) {
+  /**
+   * Add one result to today's totals. `units` is saving()'s (always known);
+   * `usd` is savingUsd()'s, or null when the model had no prices -- which
+   * marks the day as not all in dollars. `dollarsSaved` is v1's dollar
+   * figure (usd.saved when known, else dollars() by family, or null).
+   * planActual/apiActual split the day's cost (in units, the one measure
+   * every result has) by how the session is billed.
+   */
+  function addSaving({ units, usd, dollarsSaved, plan, cuts, freeCuts, rereadCount }) {
     const day = todaysDay();
-    day.saved += saved;
-    day.actual += actual;
-    day.removedTokens += removedTokens;
+    day.saved += units.saved;
+    day.actual += units.actual;
+    day.removedTokens += units.removedTokens;
     if (dollarsSaved == null) {
       day.dollarsKnown = false;
     } else if (day.dollarsKnown) {
       day.dollars += dollarsSaved;
     }
+    if (usd) {
+      day.usd.saved += usd.saved;
+      day.usd.actual += usd.actual;
+      day.rereadCost += usd.rereadCost;
+    } else {
+      day.usdKnown = false;
+    }
+    if (plan) day.planActual += units.actual;
+    else day.apiActual += units.actual;
+    day.cuts += cuts;
+    day.freeCuts += freeCuts;
+    day.rereads += rereadCount;
     pruneOldDays();
   }
 
@@ -801,6 +974,8 @@ export async function activate(wibble) {
     let removedTokens = 0;
     let dollarsSum = 0;
     let dollarsKnown = true;
+    const usd = { saved: 0, actual: 0 };
+    let usdKnown = true;
     const now = new Date();
     for (let i = 0; i < WEEK_DAYS; i++) {
       const d = new Date(now);
@@ -812,8 +987,11 @@ export async function activate(wibble) {
       removedTokens += day.removedTokens;
       if (day.dollarsKnown) dollarsSum += day.dollars;
       else dollarsKnown = false;
+      usd.saved += day.usd.saved;
+      usd.actual += day.usd.actual;
+      if (!day.usdKnown) usdKnown = false;
     }
-    return { saved, actual, removedTokens, dollars: dollarsSum, dollarsKnown };
+    return { saved, actual, removedTokens, dollars: dollarsSum, dollarsKnown, usd, usdKnown };
   }
 
   // Persist "totals" to storage at most once every PERSIST_INTERVAL_MS,
@@ -851,8 +1029,11 @@ export async function activate(wibble) {
     // other extension's pill, and three pills (percent, dollars, a judge
     // note) crowded it off the edge in the live check. Whether the judge
     // is up is the README's business, not the pill's.
+    // Dollars at real prices when every day this week has them; otherwise
+    // v1's units, so a week of mixed days never adds dollars to units.
     const week = weekTotals();
-    return { kind: "chip", key: "pill", label: formatPercentLabel(week) + " · " + formatSavingsLabel(week) };
+    const shown = week.usdKnown ? { ...week, saved: week.usd.saved, actual: week.usd.actual, dollars: week.usd.saved, dollarsKnown: true } : week;
+    return { kind: "chip", key: "pill", label: formatPercentLabel(shown) + " · " + formatSavingsLabel(shown) };
   }
 
   async function drawNow() {
@@ -887,13 +1068,17 @@ export async function activate(wibble) {
     const key = seen.sessionId + ":" + seen.thread;
     const now = Date.now();
     forgetIdle(now);
+    refreshPrices(seen.model, now);
+    noteChat(chats, seen.sessionId, { calls: seen.calls, model: seen.model, billing: seen.billing }, now);
 
     // rereads() reads the thread as it was BEFORE this report is merged
     // in (see its own doc above) -- so this runs before track().
     const before = state.threads[key];
-    const rereadChars = before ? rereads(before, seen) : 0;
-    if (rereadChars > 0) {
-      pendingRereads[key] = (pendingRereads[key] || 0) + rereadChars;
+    const reread = before ? rereadItems(before, seen) : [];
+    if (reread.length) {
+      const pending = pendingRereads[key] || (pendingRereads[key] = { chars: 0, count: 0 });
+      for (const item of reread) pending.chars += item.chars;
+      pending.count += reread.length;
     }
 
     const { toJudge } = track(state, seen, now);
@@ -904,33 +1089,87 @@ export async function activate(wibble) {
       enqueueForJudge(key, seen, toJudge);
     }
 
-    // No prices yet: v1's release, exactly. Task 4 passes the model's.
-    const releasedIds = plan(thread, seen, null).now;
-    if (releasedIds.length) {
+    // No prices for the model (unknown, or an older Wibble that sends no
+    // model): v1's release, exactly.
+    const priced = priceFor(seen.model, fetchedPrices);
+    const { now: cutIds, cold, withdraw } = plan(thread, seen, priced ? priced.prices : null);
+    const sid = seen.sessionId;
+    // withdraw() came with cold drops, so a Wibble without it has neither.
+    const knowsCold = typeof wibble.trim.withdraw === "function";
+
+    if (cutIds.length) {
       // If this fails (the session just ended, say), un-mark the ids so the
       // next batch offers them again, and a later read of them isn't
       // charged as a re-read of something that was never dropped.
-      Promise.resolve(wibble.trim.drop(seen.sessionId, releasedIds)).catch(() => {
+      Promise.resolve(wibble.trim.drop(sid, cutIds)).catch(() => {
         const t = state.threads[key];
         if (!t) return;
-        for (const id of releasedIds) {
+        for (const id of cutIds) {
           t.dropped.delete(id);
           const entry = t.items.get(id);
           if (entry) t.droppedTargets.delete(entry.target);
         }
       });
     }
+    if (cold.length) {
+      todaysDay().skipped += cold.length;
+      schedulePersist();
+      // On an older Wibble they stay parked here, and each batch weighs
+      // them again: cut when they pay back, withdrawn when they stop being
+      // candidates (only in this thread's own bookkeeping).
+      if (knowsCold) {
+        // Refused: un-park them, so the next batch offers them again.
+        Promise.resolve(wibble.trim.drop(sid, cold, { when: "cold" })).catch(() => {
+          const t = state.threads[key];
+          if (t) for (const id of cold) t.coldPending.delete(id);
+        });
+      }
+    }
+    if (withdraw.length && knowsCold) {
+      // A failed withdraw leaves a cold drop that may yet apply; it's a cut
+      // the judge would have kept, the same risk as any cut.
+      Promise.resolve(wibble.trim.withdraw(sid, withdraw)).catch(() => {});
+    }
   }
 
   function onResult(result) {
     const key = result.sessionId + ":" + result.thread;
-    const rereadChars = pendingRereads[key] || 0;
+    const pending = pendingRereads[key] || { chars: 0, count: 0 };
     delete pendingRereads[key];
 
-    const format = state.threads[key] ? state.threads[key].format : null;
-    const { saved, actual, removedTokens } = saving(result, rereadChars, format);
-    const dollarsSaved = dollars(saved, result.model);
-    addSaving(saved, actual, removedTokens, dollarsSaved);
+    // What plan() needs of this thread's latest request: tokens per char,
+    // the prompt's size, and which cache it writes.
+    const thread = state.threads[key];
+    const usage = result.usage;
+    const promptTokens = usage.input + usage.cacheRead + usage.cacheWrite5m + usage.cacheWrite1h;
+    if (thread && promptTokens > 0) {
+      const chars = typeof result.sentChars === "number" && result.sentChars > 0 ? result.sentChars : result.totalChars;
+      thread.r = promptTokens / Math.max(1, chars);
+      thread.promptTokens = promptTokens;
+      thread.write1h = usage.cacheWrite1h > usage.cacheWrite5m;
+    }
+
+    const units = saving(result, pending.chars, thread ? thread.format : null);
+    const priced = priceFor(result.model, fetchedPrices);
+    const usd = priced ? savingUsd(result, pending.chars, priced.prices) : null;
+
+    // Cold drops Wibble applied on this request cost nothing to make; any
+    // other id it newly removed is an ordinary cut. No `cold` flag (an
+    // older Wibble): every one is ordinary.
+    const coldApplied = result.cold && Array.isArray(result.coldApplied) ? result.coldApplied.length : 0;
+    const newlyRemoved = typeof result.newlyRemoved === "number" ? result.newlyRemoved : 0;
+    const chat = chats[result.sessionId];
+
+    addSaving({
+      units,
+      usd,
+      dollarsSaved: usd ? usd.saved : dollars(units.saved, result.model),
+      plan: !!chat && chat.billing === "plan",
+      cuts: Math.max(0, newlyRemoved - coldApplied),
+      freeCuts: coldApplied,
+      rereadCount: pending.count,
+    });
+    noteChat(chats, result.sessionId, { model: result.model, units, usd }, Date.now());
 
     schedulePersist();
     scheduleDraw();
