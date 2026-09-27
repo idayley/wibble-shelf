@@ -330,7 +330,8 @@ export function replayThread(th, mode, r, tot) {
     const t = state.threads[key];
     t.r = r;
     t.promptTokens = P;
-    t.write1h = q.write1h;
+    // As onResult: a request that wrote nothing keeps the last answer.
+    if (q.billed && q.billed[2] + q.billed[3] > 0) t.write1h = q.write1h;
     const out = plan(t, seen, mode === "v2" ? prices : null);
     pending = out.now;
   }

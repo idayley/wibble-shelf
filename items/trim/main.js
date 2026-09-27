@@ -156,7 +156,7 @@ export function rereads(thread, seen) {
 
 /** The items rereads() charges for, so activate() can count them too. */
 function rereadItems(thread, seen) {
-  return seen.items.filter((item) => item.age === 0 && !thread.items.has(item.id) && thread.droppedTargets.has(item.target));
+  return seen.items.filter((item) => item.age === 0 && !thread.items.has(item.id) && !!item.target && thread.droppedTargets.has(item.target));
 }
 
 /** Cost of a request's usage, in input-token units. */
@@ -548,7 +548,8 @@ export function markDropped(thread, ids) {
     thread.dropped.add(id);
     thread.coldPending.delete(id);
     const entry = thread.items.get(id);
-    thread.droppedTargets.set(entry.target, entry.chars);
+    // A tool with no target (Wibble sends "") can't be re-read by name.
+    if (entry.target) thread.droppedTargets.set(entry.target, entry.chars);
     entry.head = null; // only the judge reads it, and it's done with this one
   }
 }
@@ -1396,7 +1397,9 @@ export async function activate(wibble) {
       const chars = typeof result.sentChars === "number" && result.sentChars > 0 ? result.sentChars : result.totalChars;
       thread.r = promptTokens / Math.max(1, chars);
       thread.promptTokens = promptTokens;
-      thread.write1h = usage.cacheWrite1h > usage.cacheWrite5m;
+      // A request that wrote nothing says nothing about which cache the
+      // engine uses; keep the last answer.
+      if (usage.cacheWrite1h + usage.cacheWrite5m > 0) thread.write1h = usage.cacheWrite1h > usage.cacheWrite5m;
     }
 
     // Cold drops Wibble applied on this request cost nothing to make; any

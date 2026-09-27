@@ -38,6 +38,7 @@ import {
   noteChat,
   CHATS_KEEP,
   detailNode,
+  markDropped,
 } from "./main.js";
 
 function closeTo(actual, expected, msg) {
@@ -375,6 +376,16 @@ test("rereads: charges a new id's chars once when its target was already dropped
   // Once track() (or a stand-in) has recorded "new1", it is no longer new,
   // so a later report referencing the same id must not be charged again.
   thread.items.set("new1", { tool: "read", target: "f.txt", chars: 1234, age: 0, verdict: null, asked: false });
+  assert.strictEqual(rereads(thread, seen), 0);
+});
+
+test("rereads: a tool with no target is never a re-read", () => {
+  const thread = makeThread([]);
+  thread.items.set("old", { tool: "bash", target: "", chars: 10, age: 9, verdict: null, asked: false });
+  markDropped(thread, ["old"]);
+  assert.strictEqual(thread.droppedTargets.has(""), false);
+  thread.droppedTargets.set("", 10); // even an older thread that recorded one
+  const seen = { items: [{ id: "new", tool: "bash", target: "", chars: 50, age: 0, head: null }] };
   assert.strictEqual(rereads(thread, seen), 0);
 });
 
