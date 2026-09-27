@@ -44,15 +44,18 @@ The chip in the top slot is Trim's own status: this week's percent saved and a d
 Hover the pill, or reach it with the keyboard, and a small card opens showing the working behind that number:
 
 ```
-This week    −24% · $41 saved
-Removed      3.1M tokens of old tool output
+This week
+−24% · $41 saved
+Removed      3.1M tokens of tool output
 Cuts         42 made · 31 free · 9 waiting
 Re-reads     6 · $1.20 netted out
 
-This chat    −31% · $3.10 saved · 58 calls
+This chat
+Net          −31% · $3.10 saved
+Calls        58
 
-Opus 5.5: $4/M input · cache read $0.20 · cache write $5
-updated today from openrouter.ai
+Opus 5.5 · $4/M input · cache read $0.20 · write $5
+Updated today from openrouter.ai
 Judge on
 ```
 
