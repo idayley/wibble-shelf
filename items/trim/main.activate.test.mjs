@@ -22,7 +22,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activate, JUDGE_QUESTION, cutLine } from "./main.js";
+import { activate, JUDGE_QUESTION, v1Line } from "./main.js";
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -192,7 +192,7 @@ test("activate: the judge is asked whether the item is still NEEDED, and a high 
   // running hot toward "not needed". The question must be the positive
   // one, and noul must be read as P(needed): 0.95 here means keep.
   assert.ok(!/\bNOT\b/.test(JUDGE_QUESTION), "the question is asked in positive polarity");
-  assert.ok(0.05 < cutLine(20), "sanity: 1 - 0.95 is below the cut line");
+  assert.ok(0.05 < v1Line(20), "sanity: 1 - 0.95 is below the cut line");
 
   const seenHandlers = [];
   const dropCalls = [];

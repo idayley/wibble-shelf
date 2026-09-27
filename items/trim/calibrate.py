@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""calibrate.py -- pick Trim's cutLine(calls) thresholds from labeled past work.
+"""calibrate.py -- pick Trim's v1Line(calls) thresholds (its no-prices fallback) from labeled past work.
 
 What it measures: for past tasks where we know which files the agent
 actually needed, ask the real judge (openjev-serve.py) the exact question
@@ -39,7 +39,7 @@ item size:
 main.js charges a live re-read the same way (saving()).
 For N in {20, 40} it reports the threshold T (cut when notNeeded >= T)
 with the lowest total cost over the scored items, next to the cost of the
-age rule alone (cut everything). main.js's cutLine(calls) steps on these,
+age rule alone (cut everything). main.js's v1Line(calls) steps on these,
 using calls so far as the estimate of N. Only two lines ever run: a
 thread's first batch is released at 20-25 calls (the N=20 best), and every
 later batch past 25 calls (the N=40 best).
@@ -236,7 +236,7 @@ def report(rows, prefix_items=PREFIX_ITEMS):
           f"cut needed = {REREAD_WRITE} + 0.1 x {prefix_items} = {cut_needed(prefix_items):.2f}")
     for n, (t, c, age) in best_thresholds(rows, prefix_items).items():
         print(f"  N={n:<3} best T = {t:.2f}  cost {c:.1f}  (age rule alone {age:.1f}, {1 - c / age:.0%} cheaper)")
-    print("main.js cutLine(calls): <= 25 calls (a thread's first batch) -> N=20 best, > 25 -> N=40 best")
+    print("main.js v1Line(calls): <= 25 calls (a thread's first batch) -> N=20 best, > 25 -> N=40 best")
 
 
 def thread_lengths(pattern=LENGTHS_GLOB):

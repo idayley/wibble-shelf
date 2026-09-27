@@ -13,7 +13,8 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
   track,
-  release,
+  plan,
+  v1Line,
   evictIdle,
   rereads,
   cost,
@@ -24,7 +25,6 @@ import {
   AGE,
   BATCH,
   IDLE_MS,
-  cutLine,
   slugOf,
   parseEndpoints,
   priceFor,
@@ -70,32 +70,43 @@ test("track: keeps head once seen, and offers only aged/unverdicted/unasked/undr
   assert.deepStrictEqual(out.toJudge, []);
 });
 
-// --- release() -----------------------------------------------------------
+// --- plan(), prices null: v1's release, unchanged ----------------------
 
 function makeThread(itemEntries) {
-  return { calls: 0, lastRelease: 0, items: new Map(itemEntries), dropped: new Set(), droppedTargets: new Map() };
+  return { calls: 0, lastRelease: 0, items: new Map(itemEntries), dropped: new Set(), droppedTargets: new Map(), coldPending: new Set(), stats: { cuts: 0, freeCuts: 0, skipped: 0 } };
 }
 
-test("release: no release before 20 calls", () => {
+const NO_SEEN = { totalChars: 0, items: [] };
+
+/** plan() with no prices: v1 behaviour, so only `now` can be non-empty. */
+function v1Release(thread) {
+  const out = plan(thread, NO_SEEN, null);
+  assert.deepStrictEqual(out.cold, []);
+  assert.deepStrictEqual(out.withdraw, []);
+  assert.strictEqual(out.net, 0);
+  return out.now;
+}
+
+test("plan (no prices): no release before 20 calls", () => {
   const thread = makeThread([["a", { tool: "read", target: "f.txt", chars: 10, age: AGE + 1, verdict: null, asked: false }]]);
   thread.calls = BATCH - 1; // 19
 
-  const ids = release(thread);
+  const ids = v1Release(thread);
   assert.deepStrictEqual(ids, []);
   assert.strictEqual(thread.lastRelease, 0, "no release happened, so lastRelease is untouched");
   assert.strictEqual(thread.dropped.size, 0);
 });
 
-test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=cutLine), keeps age<=5 and a needed verdict", () => {
+test("plan (no prices): at 20 calls, drops age>5 items (fallback or notNeeded>=v1Line), keeps age<=5 and a needed verdict", () => {
   const thread = makeThread([
     ["tooYoung", { tool: "read", target: "young.txt", chars: 10, age: AGE, verdict: null, asked: false }], // age === AGE, not > AGE
     ["fallback", { tool: "read", target: "fallback.txt", chars: 20, age: AGE + 1, head: "x", verdict: null, asked: true }], // no verdict at all
-    ["unneeded", { tool: "read", target: "unneeded.txt", chars: 30, age: AGE + 1, verdict: { notNeeded: cutLine(BATCH) }, asked: true }], // exactly the threshold
-    ["needed", { tool: "read", target: "needed.txt", chars: 40, age: AGE + 1, verdict: { notNeeded: cutLine(BATCH) - 0.01 }, asked: true }], // just under threshold
+    ["unneeded", { tool: "read", target: "unneeded.txt", chars: 30, age: AGE + 1, verdict: { notNeeded: v1Line(BATCH) }, asked: true }], // exactly the threshold
+    ["needed", { tool: "read", target: "needed.txt", chars: 40, age: AGE + 1, verdict: { notNeeded: v1Line(BATCH) - 0.01 }, asked: true }], // just under threshold
   ]);
   thread.calls = BATCH; // first release happens as soon as calls >= BATCH
 
-  const ids = release(thread);
+  const ids = v1Release(thread);
   assert.deepStrictEqual(ids, ["fallback", "unneeded"]);
   assert.strictEqual(thread.lastRelease, BATCH);
   assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "unneeded"]);
@@ -106,44 +117,190 @@ test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=cutLine), 
   assert.strictEqual(thread.items.get("fallback").head, null, "a dropped item's head is let go");
 });
 
-test("release: dropped ids are never returned twice, even in a later batch", () => {
+test("plan (no prices): dropped ids are never returned twice, even in a later batch", () => {
   const thread = makeThread([
     ["fallback", { tool: "read", target: "fallback.txt", chars: 20, age: AGE + 1, verdict: null, asked: true }],
     ["needed", { tool: "read", target: "needed.txt", chars: 40, age: AGE + 1, verdict: { notNeeded: 0.1 }, asked: true }],
   ]);
   thread.calls = BATCH;
-  assert.deepStrictEqual(release(thread), ["fallback"]);
+  assert.deepStrictEqual(v1Release(thread), ["fallback"]);
 
   // A second batch passes. "fallback" is still in the map and still aged
   // past AGE, but it must not be offered again. A brand-new aged item
   // ("late") is released.
   thread.items.set("late", { tool: "read", target: "late.txt", chars: 50, age: AGE + 1, verdict: null, asked: false });
   thread.calls = BATCH * 2;
-  const ids = release(thread);
+  const ids = v1Release(thread);
   // "needed" (0.1) is still under the 40-call line, so it stays.
   assert.deepStrictEqual(ids, ["late"]);
   assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "late"]);
 });
 
-// --- cutLine() -----------------------------------------------------------
+// --- v1Line() -----------------------------------------------------------
 
-test("cutLine: 0.87 for a thread's first batch (up to 25 calls), 0.82 after", () => {
-  assert.strictEqual(cutLine(0), 0.87);
-  assert.strictEqual(cutLine(20), 0.87);
-  assert.strictEqual(cutLine(25), 0.87);
-  assert.strictEqual(cutLine(26), 0.82);
-  assert.strictEqual(cutLine(400), 0.82);
+test("v1Line: 0.87 for a thread's first batch (up to 25 calls), 0.82 after", () => {
+  assert.strictEqual(v1Line(0), 0.87);
+  assert.strictEqual(v1Line(20), 0.87);
+  assert.strictEqual(v1Line(25), 0.87);
+  assert.strictEqual(v1Line(26), 0.82);
+  assert.strictEqual(v1Line(400), 0.82);
 });
 
-test("release: at 25 calls a 0.85 verdict keeps (line 0.87), at 26 it cuts (line 0.82)", () => {
+test("plan (no prices): at 25 calls a 0.85 verdict keeps (line 0.87), at 26 it cuts (line 0.82)", () => {
   const entry = () => ({ tool: "read", target: "f.txt", chars: 10, age: AGE + 1, verdict: { notNeeded: 0.85 }, asked: true });
   const at25 = makeThread([["a", entry()]]);
   at25.calls = 25;
-  assert.deepStrictEqual(release(at25), [], "0.85 < 0.87: kept");
+  assert.deepStrictEqual(v1Release(at25), [], "0.85 < 0.87: kept");
 
   const at26 = makeThread([["a", entry()]]);
   at26.calls = 26;
-  assert.deepStrictEqual(release(at26), ["a"], "0.85 >= 0.82: cut");
+  assert.deepStrictEqual(v1Release(at26), ["a"], "0.85 >= 0.82: cut");
+});
+
+// --- plan(), with prices ---------------------------------------------------
+//
+// Shared setup, per the brief: Opus 5.5's prices, r = 0.25 tokens/char,
+// calls = 20 (so L = left(20) = 105), P = 50,000 prompt tokens, a 200,000-char
+// request. CAL maps every score to p = 0.99, so the sums below are exact.
+
+const PRICES = { input: 4e-6, cacheRead: 2e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1e6 };
+const CAL = { bins: [[1, 0.99]], baseRate: 0.99 };
+const KEEPER = { bins: [[1, 0.001]], baseRate: 0.001 }; // every item now reads as needed
+const SEEN = { totalChars: 200000, items: [] };
+
+function pricedThread(items) {
+  const thread = makeThread(items.map(([id, chars, at]) => [id, { tool: "Read", target: id + ".txt", chars, at, age: AGE + 1, verdict: { notNeeded: 0.99 }, asked: true }]));
+  thread.calls = BATCH;
+  thread.r = 0.25;
+  thread.promptTokens = 50000;
+  return thread;
+}
+
+test("plan: a 40,000-char item near the start costs more to rewrite than it saves, so it waits for a cold cache", () => {
+  // keep   = 40000 * 0.25 * 2e-7 * 105                = $0.21
+  // reread = 40000 * 0.25 * 5e-6 + 50000 * 2e-7        = $0.05 + $0.01 = $0.06
+  //   candidate: 0.99 * 0.21 = 0.2079 >= 0.01 * 0.06 = 0.0006
+  // cost   = (200000 - 10000) * 0.25 * (5e-6 - 2e-7)   = $0.228
+  // net    = 0.2079 - 0.0006 - 0.228                  = -$0.0207 -> no cut
+  const thread = pricedThread([["a", 40000, 10000]]);
+  const out = plan(thread, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out.now, []);
+  assert.deepStrictEqual(out.cold, ["a"]);
+  assert.deepStrictEqual(out.withdraw, []);
+  assert.strictEqual(out.net, 0);
+  assert.strictEqual(thread.lastRelease, BATCH, "a due batch always moves lastRelease on");
+  assert.strictEqual(thread.dropped.size, 0);
+  assert.deepStrictEqual([...thread.coldPending], ["a"]);
+  assert.strictEqual(thread.stats.skipped, 1);
+});
+
+test("plan: the same item near the end pays back, so it is cut now", () => {
+  // cost = (200000 - 160000) * 0.25 * 4.8e-6 = $0.048
+  // net  = 0.2079 - 0.0006 - 0.048          = $0.1593
+  const thread = pricedThread([["a", 40000, 160000]]);
+  const out = plan(thread, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out.now, ["a"]);
+  assert.deepStrictEqual(out.cold, []);
+  closeTo(out.net, 0.1593, "net");
+  assert.deepStrictEqual([...thread.dropped], ["a"]);
+  assert.strictEqual(thread.droppedTargets.get("a.txt"), 40000);
+  assert.strictEqual(thread.coldPending.size, 0);
+  assert.strictEqual(thread.stats.skipped, 0);
+});
+
+test("plan: the best cut point skips a small early item and takes the big late one", () => {
+  // Candidates by at: small (2,000 chars at 10,000), big (40,000 at 150,000).
+  //   small: keep = 2000*0.25*2e-7*105 = $0.0105, reread = 2000*0.25*5e-6 + 0.01 = $0.0125
+  //   big:   keep = $0.21,                         reread = $0.06
+  // k = small: save = 0.99*(0.0105+0.21) = 0.218295, risk = 0.01*(0.0125+0.06) = 0.000725,
+  //            cost = 190000*0.25*4.8e-6 = 0.228  -> net = -0.01043
+  // k = big:   save = 0.2079, risk = 0.0006,
+  //            cost = 50000*0.25*4.8e-6 = 0.06    -> net =  0.1473
+  const thread = pricedThread([["big", 40000, 150000], ["small", 2000, 10000]]);
+  const out = plan(thread, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out.now, ["big"]);
+  assert.deepStrictEqual(out.cold, ["small"]);
+  closeTo(out.net, 0.1473, "net");
+});
+
+test("plan: the 1-hour write price is used when the thread's last result wrote the 1-hour cache", () => {
+  // cost = 40000 * 0.25 * (8e-6 - 2e-7) = $0.078; reread = 40000*0.25*8e-6 + 0.01 = $0.09
+  // net  = 0.2079 - 0.01*0.09 - 0.078   = $0.1290
+  const thread = pricedThread([["a", 40000, 160000]]);
+  thread.write1h = true;
+  closeTo(plan(thread, SEEN, PRICES, CAL).net, 0.129, "net");
+});
+
+test("plan: a parked item is not parked twice, and is withdrawn once its verdict says keep", () => {
+  const thread = pricedThread([["a", 40000, 10000]]);
+  assert.deepStrictEqual(plan(thread, SEEN, PRICES, CAL).cold, ["a"]);
+
+  // Next batch, same odds: still a candidate, already parked -> not in cold
+  // again. (Re-armed at 20 calls, not moved to 40: at 40, L = 132 and the
+  // cut would pay back now.)
+  thread.lastRelease = 0;
+  let out = plan(thread, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out.now, []);
+  assert.deepStrictEqual(out.cold, []);
+  assert.deepStrictEqual(out.withdraw, []);
+  assert.strictEqual(thread.stats.skipped, 1);
+
+  // The judge now says it's needed: p = 0.001 -> 0.001*keep < 0.999*reread.
+  thread.lastRelease = 0;
+  out = plan(thread, SEEN, PRICES, KEEPER);
+  assert.deepStrictEqual(out.now, []);
+  assert.deepStrictEqual(out.cold, []);
+  assert.deepStrictEqual(out.withdraw, ["a"]);
+  assert.strictEqual(thread.coldPending.size, 0);
+});
+
+test("plan: a parked item that later pays back is cut now and leaves the parked set", () => {
+  const thread = pricedThread([["a", 40000, 10000]]);
+  plan(thread, SEEN, PRICES, CAL);
+  thread.items.get("a").at = 160000; // earlier output was cut, so it moved up
+  thread.calls = BATCH * 2;
+  const out = plan(thread, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out.now, ["a"]);
+  assert.deepStrictEqual(out.withdraw, []);
+  assert.strictEqual(thread.coldPending.size, 0);
+});
+
+test("plan: not due -> nothing returned, nothing changed", () => {
+  const thread = pricedThread([["a", 40000, 160000]]);
+  thread.calls = BATCH - 1;
+  const out = plan(thread, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out, { now: [], cold: [], withdraw: [], net: 0 });
+  assert.strictEqual(thread.lastRelease, 0);
+  assert.strictEqual(thread.dropped.size, 0);
+  assert.strictEqual(thread.coldPending.size, 0);
+  assert.strictEqual(thread.stats.skipped, 0);
+});
+
+test("plan: items without `at` sit at the earliest known position (0 when none is known)", () => {
+  // "late" has no at, so it counts as sitting at 150,000 (the only known
+  // at): both it and "known" are cut, costing the rewrite from 150,000.
+  const mixed = pricedThread([["known", 40000, 150000], ["late", 40000, undefined]]);
+  const out = plan(mixed, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(out.now.sort(), ["known", "late"]);
+  // save = 2*0.2079, risk = 2*0.0006, cost = 50000*0.25*4.8e-6 = 0.06
+  closeTo(out.net, 0.3546, "net");
+
+  // No at anywhere (an older Wibble): everything sits at 0, so the rewrite
+  // is the whole 200,000 chars = $0.24 > $0.2073 saved -> parked.
+  const old = pricedThread([["a", 40000, undefined]]);
+  const outOld = plan(old, SEEN, PRICES, CAL);
+  assert.deepStrictEqual(outOld.now, []);
+  assert.deepStrictEqual(outOld.cold, ["a"]);
+});
+
+test("plan: r and promptTokens fall back to 0.3 and totalChars * r before any result has arrived", () => {
+  // r = 0.3, P = 200000*0.3 = 60000.
+  // keep = 40000*0.3*2e-7*105 = 0.252; reread = 40000*0.3*5e-6 + 60000*2e-7 = 0.072
+  // cost = 40000*0.3*4.8e-6 = 0.0576; net = 0.99*0.252 - 0.01*0.072 - 0.0576 = 0.19116
+  const thread = pricedThread([["a", 40000, 160000]]);
+  delete thread.r;
+  delete thread.promptTokens;
+  closeTo(plan(thread, SEEN, PRICES, CAL).net, 0.19116, "net");
 });
 
 test("track: the judge is asked at any thread length; the thread records when it was seen and its format", () => {
@@ -154,6 +311,20 @@ test("track: the judge is asked at any thread length; the thread records when it
   assert.strictEqual(track(s26, { sessionId: "s", thread: "t", calls: 26, format: "responses", items: [item] }, 2000).toJudge.length, 1);
   assert.strictEqual(s26.threads["s:t"].lastSeenAt, 2000);
   assert.strictEqual(s26.threads["s:t"].format, "responses");
+});
+
+test("track: every thread starts with an empty parked set and zeroed stats, and keeps each item's latest `at`", () => {
+  const state = {};
+  const seen = (calls, at) => ({ sessionId: "s", thread: "t", calls, items: [{ id: "a", tool: "Read", target: "f.txt", chars: 10, age: 0, head: null, at }] });
+  track(state, seen(1, 500));
+  const thread = state.threads["s:t"];
+  assert.ok(thread.coldPending instanceof Set && thread.coldPending.size === 0);
+  assert.deepStrictEqual(thread.stats, { cuts: 0, freeCuts: 0, skipped: 0 });
+  assert.strictEqual(thread.items.get("a").at, 500);
+  track(state, seen(2, 300)); // something before it was cut: it moved up
+  assert.strictEqual(thread.items.get("a").at, 300);
+  track(state, seen(3, undefined)); // an older Wibble's report: keep what we had
+  assert.strictEqual(thread.items.get("a").at, 300);
 });
 
 // --- evictIdle() -----------------------------------------------------------

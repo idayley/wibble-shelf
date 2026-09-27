@@ -10,21 +10,24 @@
 // for.
 //
 // The rule (docs/specs/2026-09-26-trim-design.md §2-3):
-//   1. Never on the request path -- track()/release() only read state
+//   1. Never on the request path -- track()/plan() only read state
 //      activate()'s handlers already collected from wibble.trim's events.
 //   2. Cut in batches of BATCH calls, and only tool results older than AGE.
-//   3. A local judge may mark an aged item "not needed" (p >= cutLine(calls));
-//      absent a verdict -- judge down, or just hasn't reached the item yet
-//      -- the age rule itself is the fallback, so an unverdicted aged item
-//      is still cut at the next release.
+//   3. A local judge scores each aged item; plan() cuts only the items whose
+//      cut pays back at the model's real prices (payback spec §2.3-2.5), and
+//      parks the rest for a cold cache. Absent a verdict -- judge down, or
+//      just hasn't reached the item yet -- the item is priced at the base
+//      rate. With no prices at all, v1's fixed lines (v1Line) decide.
 
 export const AGE = 5;
 export const BATCH = 20;
 /** A thread not seen for this long is forgotten (see evictIdle()). */
 export const IDLE_MS = 2 * 60 * 60 * 1000;
 /**
- * The keep line for a thread `calls` long: the judge's verdict cuts an aged
- * item when notNeeded >= cutLine(calls).
+ * v1's keep line for a thread `calls` long: the judge's verdict cuts an aged
+ * item when notNeeded >= v1Line(calls). plan() only uses it when it has no
+ * prices for the model (an unknown model, or before any are known); with
+ * prices, the line comes from them instead (payback spec §2.4).
  *
  * Chosen by cost, not by a wrong-cut cap. An aged item with no verdict is
  * cut anyway (the age rule), so the judge only decides what to KEEP. Per
@@ -40,7 +43,7 @@ export const IDLE_MS = 2 * 60 * 60 * 1000;
  *   N=40: best T 0.82, 30% cheaper
  * Re-run calibrate.py after changing the model, question or prompt.
  */
-export function cutLine(calls) {
+export function v1Line(calls) {
   return calls <= 25 ? 0.87 : 0.82;
 }
 
@@ -50,8 +53,13 @@ export function cutLine(calls) {
  *
  * `state.threads[sessionId + ":" + thread]` is:
  *   { calls, lastRelease, lastSeenAt, format, items: Map(id -> {
- *       tool, target, chars, age, head, verdict: null|{notNeeded}, asked
- *     }), dropped: Set(id), droppedTargets: Map(target -> chars) }
+ *       tool, target, chars, at, age, head, verdict: null|{notNeeded}, asked
+ *     }), dropped: Set(id), droppedTargets: Map(target -> chars),
+ *     coldPending: Set(id), stats: { cuts, freeCuts, skipped } }
+ *
+ * `at` is the item's offset in the request, in chars; an older Wibble
+ * doesn't send it, and the item keeps whatever it had (or none). onResult
+ * adds r, promptTokens and write1h for plan().
  *
  * Two parallel subagents in one session whose first messages match share a
  * `thread` name, so their calls interleave here. Rare, and it fails safe:
@@ -64,7 +72,17 @@ export function track(state, seen, now = Date.now()) {
   const key = seen.sessionId + ":" + seen.thread;
   let thread = state.threads[key];
   if (!thread) {
-    thread = { calls: 0, lastRelease: 0, lastSeenAt: now, format: null, items: new Map(), dropped: new Set(), droppedTargets: new Map() };
+    thread = {
+      calls: 0,
+      lastRelease: 0,
+      lastSeenAt: now,
+      format: null,
+      items: new Map(),
+      dropped: new Set(),
+      droppedTargets: new Map(),
+      coldPending: new Set(), // parked for a cold cache (plan()'s `cold`)
+      stats: { cuts: 0, freeCuts: 0, skipped: 0 },
+    };
     state.threads[key] = thread;
   }
 
@@ -77,6 +95,8 @@ export function track(state, seen, now = Date.now()) {
     if (existing) {
       existing.chars = item.chars;
       existing.age = item.age;
+      // Offsets shift as earlier output is cut, so the latest one wins.
+      if (typeof item.at === "number") existing.at = item.at;
       // Keep the head once seen: a later report that omits it (or repeats
       // the same first lines) never blanks out what we already captured.
       if (existing.head == null && item.head != null) existing.head = item.head;
@@ -85,6 +105,7 @@ export function track(state, seen, now = Date.now()) {
         tool: item.tool,
         target: item.target,
         chars: item.chars,
+        at: typeof item.at === "number" ? item.at : undefined,
         age: item.age,
         head: item.head ?? null,
         verdict: null,
@@ -101,47 +122,6 @@ export function track(state, seen, now = Date.now()) {
   }
 
   return { toJudge };
-}
-
-/**
- * Release the next batch of drops for one thread, if a full batch of calls
- * has passed since the last release. Mutates `thread` (lastRelease, dropped,
- * droppedTargets) only when a release actually happens.
- *
- * Whether the judge is up doesn't matter here (spec §3: the age rule is the
- * fallback whether the judge is down or just hasn't reached an item yet) --
- * either way an item with no verdict is cut at release.
- *
- * @returns {string[]} ids released this call (empty if no batch is due, or
- *   nothing in the batch qualifies).
- */
-export function release(thread) {
-  if (thread.calls - thread.lastRelease < BATCH) return [];
-
-  const line = cutLine(thread.calls);
-  const ids = [];
-  for (const [id, entry] of thread.items) {
-    if (thread.dropped.has(id)) continue;
-    if (entry.age <= AGE) continue;
-
-    const verdict = entry.verdict;
-    const verdictSaysDrop = verdict != null && verdict.notNeeded >= line;
-    const verdictSaysNeeded = verdict != null && verdict.notNeeded < line;
-    const fallbackApplies = verdict == null; // judge down, or not reached yet
-
-    if (verdictSaysNeeded) continue;
-    if (verdictSaysDrop || fallbackApplies) ids.push(id);
-  }
-
-  thread.lastRelease = thread.calls;
-  for (const id of ids) {
-    thread.dropped.add(id);
-    const entry = thread.items.get(id);
-    thread.droppedTargets.set(entry.target, entry.chars);
-    entry.head = null; // only the judge reads it, and it's done with this one
-  }
-
-  return ids;
 }
 
 /**
@@ -428,6 +408,127 @@ export function probNotNeeded(verdict, cal = CALIBRATION) {
   if (verdict == null) return cal.baseRate;
   const bin = cal.bins.find(([upper]) => verdict.notNeeded <= upper) || cal.bins[cal.bins.length - 1];
   return bin[1];
+}
+
+// ---------------------------------------------------------------------------
+// The planner (design doc §2.3-2.5): which aged items to cut on this batch,
+// and which to park until the cache has gone cold.
+// ---------------------------------------------------------------------------
+
+/** Mark `ids` dropped, as v1's release did: sticky, and charged if re-read. */
+function markDropped(thread, ids) {
+  for (const id of ids) {
+    thread.dropped.add(id);
+    const entry = thread.items.get(id);
+    thread.droppedTargets.set(entry.target, entry.chars);
+    entry.head = null; // only the judge reads it, and it's done with this one
+  }
+}
+
+/**
+ * Plan the next batch for one thread, if a full batch of calls has passed
+ * since the last one (BATCH calls; only items older than AGE). Mutates
+ * `thread` only when a batch is due.
+ *
+ * With prices (all in dollars per token; r = tokens per char, from the
+ * thread's last result or 0.3; P = the prompt's tokens; L = left(calls);
+ * write = the 1-hour write price if the last result wrote the 1-hour cache,
+ * else the 5-minute one), for each aged, undropped item with p =
+ * probNotNeeded(verdict):
+ *
+ *   keep   = chars x r x cacheRead x L          (what keeping it costs)
+ *   reread = chars x r x write + P x cacheRead  (what a wrong cut costs)
+ *
+ * It is a candidate when p x keep >= (1 - p) x reread. Every subset of
+ * candidates pays one rewrite, from its earliest item to the end, so each
+ * candidate i (sorted by `at`) is tried as the earliest cut:
+ *
+ *   net_i = Σ_{j>=i} p_j x keep_j - Σ_{j>=i} (1 - p_j) x reread_j
+ *           - (totalChars - at_i) x r x (write - cacheRead)
+ *
+ * The best net_i, if above zero, is cut now (`now` = candidates i..). The
+ * candidates left out failed only on the rewrite's cost, which a cold cache
+ * waives, so they are parked (`cold`, and thread.coldPending) for Wibble to
+ * drop on the first request after the cache expires. A parked item the
+ * judge has since marked needed comes back out (`withdraw`).
+ *
+ * `at` is missing on an older Wibble: those items sit at the smallest known
+ * `at`, or 0 -- the most a cut could cost, so a guess never overspends.
+ *
+ * With `prices` null this is v1's release: every aged item the judge
+ * hasn't marked needed (notNeeded < v1Line(calls)) is cut, nothing parked.
+ *
+ * @param thread  track()'s thread, plus from onResult: r, promptTokens, write1h
+ * @param seen    the onSeen report that triggered this (totalChars)
+ * @param prices  { input, cacheRead, write5m, write1h, output, context } or null
+ * @param cal     the judge's calibration (tests pass their own)
+ * @returns {{ now: string[], cold: string[], withdraw: string[], net: number }}
+ *   net is the chosen cut's dollars, 0 when nothing is cut now.
+ */
+export function plan(thread, seen, prices, cal = CALIBRATION) {
+  const nothing = { now: [], cold: [], withdraw: [], net: 0 };
+  if (thread.calls - thread.lastRelease < BATCH) return nothing;
+  thread.lastRelease = thread.calls;
+
+  const aged = [];
+  for (const [id, entry] of thread.items) {
+    if (!thread.dropped.has(id) && entry.age > AGE) aged.push([id, entry]);
+  }
+
+  if (prices == null) {
+    const line = v1Line(thread.calls);
+    const now = aged.filter(([, e]) => e.verdict == null || e.verdict.notNeeded >= line).map(([id]) => id);
+    markDropped(thread, now);
+    return { ...nothing, now };
+  }
+
+  const r = thread.r ?? 0.3;
+  const P = thread.promptTokens ?? seen.totalChars * r;
+  const L = left(thread.calls, P, prices.context);
+  const write = thread.write1h ? prices.write1h : prices.write5m;
+
+  const candidates = [];
+  const withdraw = [];
+  for (const [id, entry] of aged) {
+    const p = probNotNeeded(entry.verdict, cal);
+    const keep = entry.chars * r * prices.cacheRead * L;
+    const reread = entry.chars * r * write + P * prices.cacheRead;
+    if (p * keep >= (1 - p) * reread) candidates.push({ id, at: entry.at, gain: p * keep, risk: (1 - p) * reread });
+    else if (thread.coldPending.has(id)) withdraw.push(id);
+  }
+
+  const known = candidates.filter((c) => typeof c.at === "number").map((c) => c.at);
+  const floor = known.length ? Math.min(...known) : 0;
+  for (const c of candidates) if (typeof c.at !== "number") c.at = floor;
+  candidates.sort((x, y) => x.at - y.at);
+
+  // Walk from the end so each suffix's sums build up in one pass.
+  let best = -1;
+  let bestNet = 0;
+  let gain = 0;
+  let risk = 0;
+  for (let i = candidates.length - 1; i >= 0; i--) {
+    gain += candidates[i].gain;
+    risk += candidates[i].risk;
+    const rewrite = Math.max(0, seen.totalChars - candidates[i].at) * r * (write - prices.cacheRead);
+    const net = gain - risk - rewrite;
+    if (net > bestNet) {
+      bestNet = net;
+      best = i;
+    }
+  }
+
+  const now = best < 0 ? [] : candidates.slice(best).map((c) => c.id);
+  const cold = candidates.slice(0, best < 0 ? candidates.length : best).map((c) => c.id).filter((id) => !thread.coldPending.has(id));
+
+  markDropped(thread, now);
+  // A parked item cut now is no longer waiting on a cold cache.
+  for (const id of now) thread.coldPending.delete(id);
+  for (const id of cold) thread.coldPending.add(id);
+  for (const id of withdraw) thread.coldPending.delete(id);
+  thread.stats.skipped += cold.length;
+
+  return { now, cold, withdraw, net: bestNet };
 }
 
 // ---------------------------------------------------------------------------
@@ -803,7 +904,8 @@ export async function activate(wibble) {
       enqueueForJudge(key, seen, toJudge);
     }
 
-    const releasedIds = release(thread);
+    // No prices yet: v1's release, exactly. Task 4 passes the model's.
+    const releasedIds = plan(thread, seen, null).now;
     if (releasedIds.length) {
       // If this fails (the session just ended, say), un-mark the ids so the
       // next batch offers them again, and a later read of them isn't
