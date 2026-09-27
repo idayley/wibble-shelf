@@ -27,9 +27,10 @@ charged back. That is the bar the live numbers are checked against.
 
 Three parts, each there for a measured reason:
 
-1. **Never make a request wait.** Wibble asks Trim before each request and
-   waits at most 20 ms. Trim answers from decisions it already made; it
-   never calls a model while a request is waiting. (yoshi, a similar proxy
+1. **Never make a request wait.** Wibble never asks Trim anything during a
+   request. It tells Trim what each request carried (`trim.seen`) and what
+   it cost (`trim.result`); Trim decides in the background and pushes ids
+   with `wibble.trim.drop`, which apply from the next request on. (yoshi, a similar proxy
    that judged on the request path, made tasks 4–5x slower.)
 2. **Cut in batches.** A cut makes the prompt cache rewrite everything
    after it, so Trim releases new cuts for an agent only every **20 calls**,
@@ -65,18 +66,19 @@ whether the agent will still need it.
 
 ## 4. The pill and the number
 
-**Pill: off by default,** switchable in Trim's panel. When on, it shows the
+**Pill: on by default** (Trim's panel sits in the top slot), switchable in Trim's panel. When on, it shows the
 percentage saved, e.g. `−24%`. Hover shows dollars and tokens cut, today
 and this week.
 
 **How the saving is worked out,** per request, from what Wibble reports
-(`trim.applied`) and the usage event (which carries cache tokens on every
-engine):
+(`trim.result`, which carries the request's `usage` with cache tokens and
+the characters removed; Trim turns characters into tokens using that same
+request's usage):
 
 - *Would have cost:* the removed tokens, priced as they would have been
   billed on that request (cache read if they sat before the cache break,
   write otherwise).
-- *Minus the cut's cost:* at a batch, everything after `firstCut` is
+- *Minus the cut's cost:* at a batch, everything after `firstCutChars` is
   rewritten to the cache at the write price instead of read — charged in
   full.
 - *Minus re-reads:* when a later tool call touches a file whose output was
@@ -112,7 +114,6 @@ items/trim/
 - The rule, offline: feed recorded sessions through `main.js`'s decision
   code and check the replay's cost within a few percent of the scratch
   simulation (56% main thread at 5/20).
-- Deadline: `onDecide` answers in under 2 ms with 500 items pending.
 - The saving: a hand-worked three-batch session gives the same number the
   pill shows.
 - Live: one real session in a dev build with the pill on; compare its
