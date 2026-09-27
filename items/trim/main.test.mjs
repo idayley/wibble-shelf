@@ -37,6 +37,7 @@ import {
   savingUsd,
   noteChat,
   CHATS_KEEP,
+  detailNode,
 } from "./main.js";
 
 function closeTo(actual, expected, msg) {
@@ -790,4 +791,146 @@ test("probNotNeeded: CALIBRATION's own bins are within [0, 1] and non-decreasing
   }
   assert.strictEqual(CALIBRATION.bins[CALIBRATION.bins.length - 1][0], 1, "the top bin covers the rest of the range");
   assert.ok(CALIBRATION.baseRate >= 0 && CALIBRATION.baseRate <= 1);
+});
+
+// --- detailNode() -- the pill's hover card (payback spec §3) --------------
+
+function findRow(children, label) {
+  return children.find((c) => c.kind === "row" && c.label === label);
+}
+
+const OPUS_PRICES = { input: 4e-6, cacheRead: 2e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1000000 };
+
+/**
+ * The design doc's own worked example (§3): saved/actual chosen so the
+ * arithmetic lands exactly on its literal numbers --
+ *   week:  41 / (41 + 130) = 0.2397... -> round -> 24% ; dollars = $41
+ *   chat:  3.1 / (3.1 + 6.9) = 0.31 exactly -> 31% ; $3.10, 58 calls
+ */
+function baseView(now) {
+  return {
+    week: { saved: 41, actual: 130, dollars: 41, dollarsKnown: true, removedTokens: 3100000, cuts: 42, freeCuts: 31, skipped: 9, rereads: 6, rereadCost: 1.2 },
+    chat: { saved: 3.1, actual: 6.9, calls: 58, billing: "api", usd: true, units: { saved: 0, actual: 0 }, model: "claude-opus-5-5" },
+    prices: OPUS_PRICES,
+    priceSource: "fetched",
+    priceAt: now,
+    judgeUp: true,
+    plan: false,
+  };
+}
+
+test("detailNode: the design doc's worked example, node for node", () => {
+  const now = Date.now();
+  const node = detailNode(baseView(now), now);
+
+  assert.strictEqual(node.kind, "stack");
+  assert.deepStrictEqual(node.children[0], { kind: "heading", content: "This week  −24% · $41 saved" });
+  assert.deepStrictEqual(findRow(node.children, "This chat"), { kind: "row", label: "This chat", value: "−31% · $3.10 saved · 58 calls" });
+  assert.deepStrictEqual(findRow(node.children, "Removed"), { kind: "row", label: "Removed", value: "3.1M tokens of old tool output" });
+  assert.deepStrictEqual(findRow(node.children, "Cuts"), {
+    kind: "row",
+    label: "Cuts",
+    value: "42 made · 31 free (after a pause) · 9 skipped (wouldn't pay back yet)",
+  });
+  assert.deepStrictEqual(findRow(node.children, "Re-reads"), { kind: "row", label: "Re-reads", value: "6, cost $1.20 (already subtracted)" });
+  assert.deepStrictEqual(findRow(node.children, "Prices"), {
+    kind: "row",
+    label: "Prices",
+    value: "Opus 5.5: $4/M input · cache read $0.20 · cache write $5",
+  });
+  const text = node.children.find((c) => c.kind === "text");
+  assert.deepStrictEqual(text, { kind: "text", content: "updated today from openrouter.ai" });
+  assert.deepStrictEqual(findRow(node.children, "Judge"), { kind: "row", label: "Judge", value: "on" });
+
+  // No button/check/input/wibblet/detail anywhere in the card.
+  for (const c of node.children) assert.ok(["heading", "row", "text"].includes(c.kind), c.kind);
+});
+
+test("detailNode: a plan-billed chat's dollar line reads an API-price estimate, not a saving", () => {
+  const view = baseView(Date.now());
+  view.chat = { ...view.chat, billing: "plan" };
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(findRow(node.children, "This chat"), {
+    kind: "row",
+    label: "This chat",
+    value: "−31% · ≈ $3.10 at API prices · 58 calls",
+  });
+});
+
+test("detailNode: the week heading reads an API-price estimate when plan requests are the majority", () => {
+  const view = baseView(Date.now());
+  view.plan = true;
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(node.children[0], { kind: "heading", content: "This week  −24% · ≈ $41 at API prices" });
+});
+
+test("detailNode: no chat yet omits both the This chat row and the Prices row", () => {
+  const view = baseView(Date.now());
+  view.chat = null;
+  view.prices = null;
+  view.priceSource = null;
+  view.priceAt = null;
+  const node = detailNode(view, Date.now());
+
+  assert.strictEqual(findRow(node.children, "This chat"), undefined);
+  assert.strictEqual(findRow(node.children, "Prices"), undefined);
+  assert.strictEqual(node.children.find((c) => c.kind === "text"), undefined);
+  assert.deepStrictEqual(
+    node.children.map((c) => c.label || c.kind),
+    ["heading", "Removed", "Cuts", "Re-reads", "Judge"],
+  );
+});
+
+test("detailNode: unknown prices name the model and drop the updated-text line", () => {
+  const view = baseView(Date.now());
+  view.prices = null;
+  view.priceSource = null;
+  view.priceAt = null;
+  const node = detailNode(view, Date.now());
+
+  assert.deepStrictEqual(findRow(node.children, "Prices"), { kind: "row", label: "Prices", value: "unknown for claude-opus-5-5, counting tokens" });
+  assert.strictEqual(node.children.find((c) => c.kind === "text"), undefined);
+});
+
+test("detailNode: built-in prices read 'built-in prices', regardless of priceAt", () => {
+  const view = baseView(Date.now() - 999 * 24 * 60 * 60 * 1000);
+  view.priceSource = "built-in";
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(node.children.find((c) => c.kind === "text"), { kind: "text", content: "built-in prices" });
+});
+
+test("detailNode: a stale fetch reads 'updated N days ago', with no source named", () => {
+  const now = Date.now();
+  const view = baseView(now - 3 * 24 * 60 * 60 * 1000);
+  const node = detailNode(view, now);
+  assert.deepStrictEqual(node.children.find((c) => c.kind === "text"), { kind: "text", content: "updated 3 days ago" });
+});
+
+test("detailNode: the judge off reads the age-rule fallback", () => {
+  const view = baseView(Date.now());
+  view.judgeUp = false;
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(findRow(node.children, "Judge"), { kind: "row", label: "Judge", value: "off — using the age rule" });
+});
+
+test("detailNode: a chat with unknown dollars falls back to units, the same way the chip does", () => {
+  const view = baseView(Date.now());
+  view.chat = { saved: 0, actual: 0, calls: 12, billing: "api", usd: false, units: { saved: 500000, actual: 1500000 }, model: "claude-opus-5-5" };
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(findRow(node.children, "This chat"), { kind: "row", label: "This chat", value: "−25% · 500K units saved · 12 calls" });
+});
+
+test("detailNode: model display names -- GPT family, and the fallback to the slug after '/'", () => {
+  const now = Date.now();
+  let view = baseView(now);
+  view.chat = { ...view.chat, model: "gpt-5.5" };
+  view.prices = { input: 5e-6, cacheRead: 5e-7, write5m: 5e-6, write1h: 5e-6, output: 3e-5, context: 1050000 };
+  let node = detailNode(view, now);
+  assert.strictEqual(findRow(node.children, "Prices").value, "GPT-5.5: $5/M input · cache read $0.50 · cache write $5");
+
+  view = baseView(now);
+  view.chat = { ...view.chat, model: "deepseek/deepseek-v3" };
+  view.prices = { input: 2.7e-7, cacheRead: 2.7e-8, write5m: 2.7e-7, write1h: 2.7e-7, output: 1.1e-6, context: 128000 };
+  node = detailNode(view, now);
+  assert.strictEqual(findRow(node.children, "Prices").value, "deepseek-v3: $0.27/M input · cache read $0.03 · cache write $0.27");
 });

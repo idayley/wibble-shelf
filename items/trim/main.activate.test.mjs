@@ -938,3 +938,66 @@ test("activate: a cold drop Wibble applies becomes an ordinary sticky drop -- no
   const day = Object.values(h.store.get("totals"))[0];
   assert.strictEqual(day.rereads, 1, "the re-read of the applied cold drop's target is counted");
 });
+
+// --- the hover card (payback spec §3) ------------------------------------
+
+test("activate: the pill chip's kind/key/label are unchanged, and it now carries a detail", async () => {
+  const h = makeWibble({ health: "up" });
+  await activate(h.wibble);
+
+  h.fireResult(opusResult());
+  await wait(1100);
+
+  const node = h.panelCalls[h.panelCalls.length - 1].node;
+  assert.strictEqual(node.kind, "chip");
+  assert.strictEqual(node.key, "pill");
+  assert.strictEqual(node.label, "−50% · $20 saved", "the label's own logic is untouched");
+  assert.strictEqual(node.detail.kind, "stack");
+  assert.ok(Array.isArray(node.detail.children) && node.detail.children.length > 0, "detail is always sent, even though only a newer Wibble reads it");
+});
+
+test("activate: the hover card's This chat and Prices rows reflect the chat most recently seen", async () => {
+  const h = makeWibble({ health: "up" });
+  await activate(h.wibble);
+
+  h.fireSeen(seenEvent({ sessionId: "s1", model: "claude-opus-5-5", calls: 1, items: [] }));
+  h.fireResult(opusResult({ sessionId: "s1" }));
+  await wait(1100);
+
+  const node = h.panelCalls[h.panelCalls.length - 1].node;
+  const chatRow = node.detail.children.find((c) => c.label === "This chat");
+  assert.ok(chatRow && chatRow.value.endsWith(" calls"), chatRow && chatRow.value);
+  const pricesRow = node.detail.children.find((c) => c.label === "Prices");
+  assert.ok(pricesRow && pricesRow.value.startsWith("Opus 5.5:"), pricesRow && pricesRow.value);
+  assert.strictEqual(node.detail.children.find((c) => c.label === "Judge").value, "on", "the fake judge answered health up on start");
+});
+
+test("activate: the chip label reads an API-price estimate when plan requests are the week's majority", async () => {
+  const h = makeWibble({ health: "up" });
+  await activate(h.wibble);
+
+  h.fireSeen(seenEvent({ sessionId: "s1", model: "claude-opus-5-5", billing: "plan", calls: 1, items: [] }));
+  h.fireResult(opusResult({ sessionId: "s1" }));
+  await wait(1100);
+
+  const node = h.panelCalls[h.panelCalls.length - 1].node;
+  assert.strictEqual(node.label, "−50% · ≈ $20 at API prices");
+  assert.strictEqual(node.detail.children[0].content, "This week  −50% · ≈ $20 at API prices");
+});
+
+test("activate: after a reload, before any chat is seen again this run, the hover card omits This chat and Prices", async () => {
+  const today = new Date().toISOString().slice(0, 10);
+  const day = {
+    saved: 10, actual: 10, removedTokens: 100, dollars: 10, dollarsKnown: true,
+    usd: { saved: 10, actual: 10 }, usdKnown: true,
+    cuts: 1, freeCuts: 0, skipped: 0, rereads: 0, rereadCost: 0, planActual: 0, apiActual: 10,
+  };
+  const h = makeWibble({ health: "up" }, { store: { totals: { [today]: day } } });
+  await activate(h.wibble);
+  await wait(20); // the initial paint's fire-and-forget scheduleDraw()
+
+  const node = h.panelCalls[h.panelCalls.length - 1].node;
+  assert.strictEqual(node.label, "−50% · $10 saved");
+  assert.strictEqual(node.detail.children.find((c) => c.label === "This chat"), undefined, "no chat noted yet this run -- chats is in-memory only");
+  assert.strictEqual(node.detail.children.find((c) => c.label === "Prices"), undefined);
+});

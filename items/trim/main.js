@@ -771,15 +771,164 @@ function normalizeDay(day) {
   return day;
 }
 
+// Under $10 shows cents, so a small figure reads "$0.10" rather than
+// rounding to "$0" (Math.round(-0.1) is -0).
+function dollarAmountString(d) {
+  const abs = Math.abs(d);
+  return abs < 10 ? abs.toFixed(2) : String(Math.round(abs));
+}
+
+/** "$X saved" (or "spent" for a negative -- net cost -- figure). */
+function dollarPhrase(d) {
+  const amount = dollarAmountString(d);
+  return d < 0 && amount !== "0.00" ? "$" + amount + " spent" : "$" + amount + " saved";
+}
+
+/**
+ * A plan-billed dollar figure (payback spec §3): not real money -- the
+ * session pays for the plan either way -- so it reads as an estimate at
+ * API prices rather than a saving or a spend.
+ */
+function formatPlanDollarPhrase(d) {
+  return "≈ $" + dollarAmountString(d) + " at API prices";
+}
+
 function formatSavingsLabel(week) {
-  if (week.dollarsKnown) {
-    // Under $10 shows cents, so a small week reads "$0.10 spent" rather
-    // than rounding to "$0 saved" (Math.round(-0.1) is -0).
-    const d = week.dollars;
-    const amount = Math.abs(d) < 10 ? Math.abs(d).toFixed(2) : String(Math.round(Math.abs(d)));
-    return d < 0 && amount !== "0.00" ? "$" + amount + " spent" : "$" + amount + " saved";
-  }
+  if (week.dollarsKnown) return dollarPhrase(week.dollars);
   return formatCompactNumber(week.removedTokens) + " tokens saved";
+}
+
+/**
+ * Model id -> display name for the hover card (payback spec §3):
+ * "anthropic/claude-opus-5.5" -> "Opus 5.5", "openai/gpt-5.5" -> "GPT-5.5",
+ * else the slug after "/". `slug` is `slugOf()`'s form (lowercase
+ * "author/family-version"); a model `slugOf` can't place is returned as-is.
+ */
+function modelDisplayName(slug) {
+  if (!slug) return slug;
+  const at = slug.indexOf("/");
+  if (at < 0) return slug;
+  const author = slug.slice(0, at);
+  const rest = slug.slice(at + 1);
+  if (author === "anthropic" && rest.startsWith("claude-")) {
+    const [family, ...version] = rest.slice("claude-".length).split("-");
+    return family.charAt(0).toUpperCase() + family.slice(1) + (version.length ? " " + version.join(".") : "");
+  }
+  if (author === "openai" && rest.startsWith("gpt-")) {
+    return "GPT-" + rest.slice("gpt-".length);
+  }
+  return rest;
+}
+
+/** Dollars per token -> dollars per million tokens, for the Prices row. */
+function perMillion(price) {
+  const v = price * 1e6;
+  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+}
+
+/** The Prices row's value: `model`'s display name and its per-million-token prices. */
+function pricesRowValue(model, prices) {
+  return (
+    modelDisplayName(slugOf(model)) +
+    ": $" +
+    perMillion(prices.input) +
+    "/M input · cache read $" +
+    perMillion(prices.cacheRead) +
+    " · cache write $" +
+    perMillion(prices.write5m)
+  );
+}
+
+/**
+ * The text under the Prices row: when they were last updated. A fetch
+ * under a day old is never stale by the time this renders, so "today"
+ * only needs the day, not the hour.
+ */
+function pricesUpdatedText(source, at, now) {
+  if (source !== "fetched") return "built-in prices";
+  const days = Math.floor((now - at) / (24 * 60 * 60 * 1000));
+  if (days <= 0) return "updated today from openrouter.ai";
+  return "updated " + days + " day" + (days === 1 ? "" : "s") + " ago";
+}
+
+/**
+ * The This chat row's value: the chat's own percent (dollars when known,
+ * else its units, same fallback as the chip), the dollar/units figure
+ * (a plan-billed chat reads an API-price estimate instead of a saving,
+ * payback spec §3), and its call count.
+ */
+function chatRowValue(chat) {
+  const shown = chat.usd ? { saved: chat.saved, actual: chat.actual } : { saved: chat.units.saved, actual: chat.units.actual };
+  const dollarPart =
+    chat.billing === "plan"
+      ? formatPlanDollarPhrase(chat.saved)
+      : chat.usd
+        ? dollarPhrase(chat.saved)
+        : formatCompactNumber(chat.units.saved) + " units saved";
+  return formatPercentLabel(shown) + " · " + dollarPart + " · " + chat.calls + " calls";
+}
+
+/** The chat Trim saw most recently: the one with the latest `lastAt`. */
+function latestChat(chats) {
+  let best = null;
+  for (const chat of Object.values(chats)) {
+    if (!best || chat.lastAt > best.lastAt) best = chat;
+  }
+  return best;
+}
+
+/**
+ * The pill's hover card (payback spec §3): `view` is
+ * `{ week, chat, prices, priceSource, priceAt, judgeUp, plan }` --
+ * `week` is the same figures the chip's own label is built from; `chat`
+ * is the chat Trim saw most recently (`null` with no chat yet, which
+ * omits both the This chat row and the Prices row -- Prices names that
+ * chat's model, and there is none to name); `prices`/`priceSource`/
+ * `priceAt` are `priceFor()`'s for that chat's model (`prices` null for
+ * an unknown model, which drops the "updated" text and reads "unknown for
+ * <model>, counting tokens" instead); `judgeUp` is whether the local judge
+ * answered recently; `plan` is whether plan requests were the week's
+ * majority (the same flag that changes the chip's own label).
+ *
+ * Pure but for "today" vs "N days ago": `now` (default `Date.now()`) is
+ * only for that, so a test can pass its own for a deterministic string.
+ */
+export function detailNode(view, now = Date.now()) {
+  const { week, chat, prices, priceSource, priceAt, judgeUp, plan } = view;
+
+  const children = [
+    {
+      kind: "heading",
+      content: "This week  " + formatPercentLabel(week) + " · " + (plan ? formatPlanDollarPhrase(week.dollars) : formatSavingsLabel(week)),
+    },
+  ];
+
+  if (chat) children.push({ kind: "row", label: "This chat", value: chatRowValue(chat) });
+
+  children.push({ kind: "row", label: "Removed", value: formatCompactNumber(week.removedTokens) + " tokens of old tool output" });
+  children.push({
+    kind: "row",
+    label: "Cuts",
+    value: week.cuts + " made · " + week.freeCuts + " free (after a pause) · " + week.skipped + " skipped (wouldn't pay back yet)",
+  });
+  children.push({
+    kind: "row",
+    label: "Re-reads",
+    value: week.rereads + ", cost $" + dollarAmountString(week.rereadCost) + " (already subtracted)",
+  });
+
+  if (chat) {
+    if (prices) {
+      children.push({ kind: "row", label: "Prices", value: pricesRowValue(chat.model, prices) });
+      children.push({ kind: "text", content: pricesUpdatedText(priceSource, priceAt, now) });
+    } else {
+      children.push({ kind: "row", label: "Prices", value: "unknown for " + chat.model + ", counting tokens" });
+    }
+  }
+
+  children.push({ kind: "row", label: "Judge", value: judgeUp ? "on" : "off — using the age rule" });
+
+  return { kind: "stack", children };
 }
 
 export async function activate(wibble) {
@@ -1026,6 +1175,17 @@ export async function activate(wibble) {
     let dollarsKnown = true;
     const usd = { saved: 0, actual: 0 };
     let usdKnown = true;
+    // cuts/freeCuts/skipped/rereads/rereadCost feed the hover card's Cuts
+    // and Re-reads rows; planActual/apiActual (v1 units) are only ever used
+    // as a ratio, to tell the hover card and the chip whether plan requests
+    // were the week's majority (payback spec §3).
+    let cuts = 0;
+    let freeCuts = 0;
+    let skipped = 0;
+    let rereads = 0;
+    let rereadCost = 0;
+    let planActual = 0;
+    let apiActual = 0;
     const now = new Date();
     for (let i = 0; i < WEEK_DAYS; i++) {
       const d = new Date(now);
@@ -1040,8 +1200,15 @@ export async function activate(wibble) {
       usd.saved += day.usd.saved;
       usd.actual += day.usd.actual;
       if (!day.usdKnown) usdKnown = false;
+      cuts += day.cuts;
+      freeCuts += day.freeCuts;
+      skipped += day.skipped;
+      rereads += day.rereads;
+      rereadCost += day.rereadCost;
+      planActual += day.planActual;
+      apiActual += day.apiActual;
     }
-    return { saved, actual, removedTokens, dollars: dollarsSum, dollarsKnown, usd, usdKnown };
+    return { saved, actual, removedTokens, dollars: dollarsSum, dollarsKnown, usd, usdKnown, cuts, freeCuts, skipped, rereads, rereadCost, planActual, apiActual };
   }
 
   // Persist "totals" to storage at most once every PERSIST_INTERVAL_MS,
@@ -1088,7 +1255,26 @@ export async function activate(wibble) {
     // already be a blend of exact and estimated amounts, not one or other.
     const week = weekTotals();
     const shown = week.usdKnown ? { ...week, saved: week.usd.saved, actual: week.usd.actual, dollars: week.usd.saved, dollarsKnown: true } : week;
-    return { kind: "chip", key: "pill", label: formatPercentLabel(shown) + " · " + formatSavingsLabel(shown) };
+    // "the chip label uses ≈ $41 at API prices when plan requests make up
+    // more than half the week's actual cost" (payback spec §3). Only when
+    // there's a dollar figure to show an estimate of -- planActual/apiActual
+    // (v1 units) are used only for this ratio, never as a dollar amount.
+    const plan = shown.dollarsKnown && week.planActual > week.apiActual;
+    const savingsLabel = plan ? formatPlanDollarPhrase(shown.dollars) : formatSavingsLabel(shown);
+
+    const chat = latestChat(chats);
+    const priced = chat && chat.model ? priceFor(chat.model, fetchedPrices) : null;
+    const view = {
+      week: shown,
+      chat,
+      prices: priced ? priced.prices : null,
+      priceSource: priced ? priced.source : null,
+      priceAt: priced && priced.source === "fetched" ? fetchedPrices[priced.slug].at : null,
+      judgeUp,
+      plan,
+    };
+
+    return { kind: "chip", key: "pill", label: formatPercentLabel(shown) + " · " + savingsLabel, detail: detailNode(view) };
   }
 
   async function drawNow() {
