@@ -51,9 +51,9 @@ Whether Trim sees a session at all depends on the engine and how it's signed in 
 
 | Engine | Trimmed? |
 |---|---|
-| Claude Code (API key or claude.ai login) | Yes |
+| Claude Code | Yes (measured on a claude.ai login; an API key goes through the same setting) |
 | Codex, signed in with a ChatGPT login | Yes |
-| Codex, with an API key, or a `config.toml` pointing at its own provider | Not yet — runs direct, untrimmed |
+| Codex, with an API key, or a `config.toml` (yours or the project's) pointing at its own provider | Not yet — runs direct, untrimmed |
 | OpenCode, an OpenAI-compatible provider | Yes |
 | OpenCode, other provider types | Not yet |
 
