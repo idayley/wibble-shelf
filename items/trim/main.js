@@ -843,38 +843,38 @@ function perMillion(price) {
   return Number.isInteger(v) ? String(v) : v.toFixed(2);
 }
 
-/** The Prices row's value: `model`'s display name and its per-million-token prices. */
-function pricesRowValue(model, prices) {
+/** The footer's prices line: `model`'s display name and its per-million-token prices. */
+function pricesLine(model, prices) {
   return (
     modelDisplayName(slugOf(model)) +
-    ": $" +
+    " · $" +
     perMillion(prices.input) +
     "/M input · cache read $" +
     perMillion(prices.cacheRead) +
-    " · cache write $" +
+    " · write $" +
     perMillion(prices.write5m)
   );
 }
 
 /**
- * The text under the Prices row: when they were last updated. A fetch
- * under a day old is never stale by the time this renders, so "today"
- * only needs the day, not the hour.
+ * When the prices were last updated, for the footer. A fetch under a day
+ * old is never stale by the time this renders, so "today" only needs the
+ * day, not the hour.
  */
 function pricesUpdatedText(source, at, now) {
-  if (source !== "fetched") return "built-in prices";
+  if (source !== "fetched") return "Built-in prices";
   const days = Math.floor((now - at) / (24 * 60 * 60 * 1000));
-  if (days <= 0) return "updated today from openrouter.ai";
-  return "updated " + days + " day" + (days === 1 ? "" : "s") + " ago";
+  if (days <= 0) return "Updated today from openrouter.ai";
+  return "Updated " + days + " day" + (days === 1 ? "" : "s") + " ago";
 }
 
 /**
- * The This chat row's value: the chat's own percent (dollars when known,
- * else its units, same fallback as the chip), the dollar/units figure
- * (a plan-billed chat reads an API-price estimate instead of a saving,
- * payback spec §3), and its call count.
+ * The This chat group's Net value: the chat's own percent (dollars when
+ * known, else its units, same fallback as the chip) and the dollar/units
+ * figure (a plan-billed chat reads an API-price estimate instead of a
+ * saving, payback spec §3).
  */
-function chatRowValue(chat) {
+function chatNetValue(chat) {
   const shown = chat.usd ? { saved: chat.saved, actual: chat.actual } : { saved: chat.units.saved, actual: chat.units.actual };
   const dollarPart =
     chat.billing === "plan"
@@ -882,7 +882,7 @@ function chatRowValue(chat) {
       : chat.usd
         ? dollarPhrase(chat.saved)
         : formatCompactNumber(chat.units.saved) + " units saved";
-  return formatPercentLabel(shown) + " · " + dollarPart + " · " + chat.calls + " calls";
+  return formatPercentLabel(shown) + " · " + dollarPart;
 }
 
 /** The chat Trim saw most recently: the one with the latest `lastAt`. */
@@ -899,13 +899,18 @@ function latestChat(chats) {
  * `{ week, chat, prices, priceSource, priceAt, judgeUp, plan }` --
  * `week` is the same figures the chip's own label is built from; `chat`
  * is the chat Trim saw most recently (`null` with no chat yet, which
- * omits both the This chat row and the Prices row -- Prices names that
- * chat's model, and there is none to name); `prices`/`priceSource`/
+ * omits both the This chat group and the footer's prices -- they name
+ * that chat's model, and there is none to name); `prices`/`priceSource`/
  * `priceAt` are `priceFor()`'s for that chat's model (`prices` null for
- * an unknown model, which drops the "updated" text and reads "unknown for
- * <model>, counting tokens" instead); `judgeUp` is whether the local judge
+ * an unknown model, which drops the "updated" text and reads "Prices
+ * unknown for <model>, counting tokens" instead); `judgeUp` is whether the local judge
  * answered recently; `plan` is whether plan requests were the week's
  * majority (the same flag that changes the chip's own label).
+ *
+ * Three sections, each a stack (Wibble draws a hairline between them): the
+ * week's headline and the figures behind it, This chat, and a quiet
+ * footer. Rows carry one short label each so the card's label column
+ * stays narrow.
  *
  * Pure but for "today" vs "N days ago": `now` (default `Date.now()`) is
  * only for that, so a test can pass its own for a deterministic string.
@@ -913,39 +918,60 @@ function latestChat(chats) {
 export function detailNode(view, now = Date.now()) {
   const { week, chat, prices, priceSource, priceAt, judgeUp, plan } = view;
 
-  const children = [
+  // The week: a headline, then the figures behind it.
+  const sections = [
     {
-      kind: "heading",
-      content: "This week  " + formatPercentLabel(week) + " · " + (plan ? formatPlanDollarPhrase(week.dollars) : formatSavingsLabel(week)),
+      kind: "stack",
+      gap: 8,
+      children: [
+        {
+          kind: "stack",
+          gap: 2,
+          children: [
+            { kind: "text", content: "This week", tone: "muted" },
+            {
+              kind: "heading",
+              content: formatPercentLabel(week) + " · " + (plan ? formatPlanDollarPhrase(week.dollars) : formatSavingsLabel(week)),
+            },
+          ],
+        },
+        {
+          kind: "stack",
+          gap: 4,
+          children: [
+            { kind: "row", label: "Removed", value: formatCompactNumber(week.removedTokens) + " tokens of tool output" },
+            { kind: "row", label: "Cuts", value: week.cuts + " made · " + week.freeCuts + " free · " + week.skipped + " waiting" },
+            { kind: "row", label: "Re-reads", value: week.rereads + " · $" + dollarAmountString(week.rereadCost) + " netted out" },
+          ],
+        },
+      ],
     },
   ];
 
-  if (chat) children.push({ kind: "row", label: "This chat", value: chatRowValue(chat) });
-
-  children.push({ kind: "row", label: "Removed", value: formatCompactNumber(week.removedTokens) + " tokens of old tool output" });
-  children.push({
-    kind: "row",
-    label: "Cuts",
-    value: week.cuts + " made · " + week.freeCuts + " free (after a pause) · " + week.skipped + " skipped (wouldn't pay back yet)",
-  });
-  children.push({
-    kind: "row",
-    label: "Re-reads",
-    value: week.rereads + ", cost $" + dollarAmountString(week.rereadCost) + " (already subtracted)",
-  });
-
   if (chat) {
-    if (prices) {
-      children.push({ kind: "row", label: "Prices", value: pricesRowValue(chat.model, prices) });
-      children.push({ kind: "text", content: pricesUpdatedText(priceSource, priceAt, now) });
-    } else {
-      children.push({ kind: "row", label: "Prices", value: "unknown for " + chat.model + ", counting tokens" });
-    }
+    sections.push({
+      kind: "stack",
+      gap: 4,
+      children: [
+        { kind: "text", content: "This chat", tone: "muted" },
+        { kind: "row", label: "Net", value: chatNetValue(chat) },
+        { kind: "row", label: "Calls", value: String(chat.calls) },
+      ],
+    });
   }
 
-  children.push({ kind: "row", label: "Judge", value: judgeUp ? "on" : "off — using the age rule" });
+  // A quiet footer: the model's prices, when they were updated, the judge.
+  const footer = [];
+  if (chat && prices) {
+    footer.push({ kind: "text", content: pricesLine(chat.model, prices), tone: "faint" });
+    footer.push({ kind: "text", content: pricesUpdatedText(priceSource, priceAt, now), tone: "faint" });
+  } else if (chat) {
+    footer.push({ kind: "text", content: "Prices unknown for " + chat.model + ", counting tokens", tone: "faint" });
+  }
+  footer.push({ kind: "text", content: judgeUp ? "Judge on" : "Judge off, using the age rule", tone: "faint" });
+  sections.push({ kind: "stack", gap: 2, children: footer });
 
-  return { kind: "stack", children };
+  return { kind: "stack", gap: 12, children: sections };
 }
 
 export async function activate(wibble) {

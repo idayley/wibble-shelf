@@ -958,7 +958,7 @@ test("activate: the pill chip's kind/key/label are unchanged, and it now carries
   assert.ok(Array.isArray(node.detail.children) && node.detail.children.length > 0, "detail is always sent, even though only a newer Wibble reads it");
 });
 
-test("activate: the hover card's This chat and Prices rows reflect the chat most recently seen", async () => {
+test("activate: the hover card's This chat group and prices reflect the chat most recently seen", async () => {
   const h = makeWibble({ health: "up" });
   await activate(h.wibble);
 
@@ -967,11 +967,11 @@ test("activate: the hover card's This chat and Prices rows reflect the chat most
   await wait(1100);
 
   const node = h.panelCalls[h.panelCalls.length - 1].node;
-  const chatRow = node.detail.children.find((c) => c.label === "This chat");
-  assert.ok(chatRow && chatRow.value.endsWith(" calls"), chatRow && chatRow.value);
-  const pricesRow = node.detail.children.find((c) => c.label === "Prices");
-  assert.ok(pricesRow && pricesRow.value.startsWith("Opus 5.5:"), pricesRow && pricesRow.value);
-  assert.strictEqual(node.detail.children.find((c) => c.label === "Judge").value, "on", "the fake judge answered health up on start");
+  const [, chat, footer] = node.detail.children;
+  assert.deepStrictEqual(chat.children.map((c) => c.label || c.content), ["This chat", "Net", "Calls"]);
+  assert.strictEqual(chat.children[2].value, "1");
+  assert.ok(footer.children[0].content.startsWith("Opus 5.5 · "), footer.children[0].content);
+  assert.strictEqual(footer.children[2].content, "Judge on", "the fake judge answered health up on start");
 });
 
 test("activate: the chip label reads an API-price estimate when plan requests are the week's majority", async () => {
@@ -984,10 +984,10 @@ test("activate: the chip label reads an API-price estimate when plan requests ar
 
   const node = h.panelCalls[h.panelCalls.length - 1].node;
   assert.strictEqual(node.label, "−50% · ≈ $20 at API prices");
-  assert.strictEqual(node.detail.children[0].content, "This week  −50% · ≈ $20 at API prices");
+  assert.strictEqual(node.detail.children[0].children[0].children[1].content, "−50% · ≈ $20 at API prices");
 });
 
-test("activate: after a reload, before any chat is seen again this run, the hover card omits This chat and Prices", async () => {
+test("activate: after a reload, before any chat is seen again this run, the hover card omits This chat and the prices", async () => {
   const today = new Date().toISOString().slice(0, 10);
   const day = {
     saved: 10, actual: 10, removedTokens: 100, dollars: 10, dollarsKnown: true,
@@ -1000,6 +1000,6 @@ test("activate: after a reload, before any chat is seen again this run, the hove
 
   const node = h.panelCalls[h.panelCalls.length - 1].node;
   assert.strictEqual(node.label, "−50% · $10 saved");
-  assert.strictEqual(node.detail.children.find((c) => c.label === "This chat"), undefined, "no chat noted yet this run -- chats is in-memory only");
-  assert.strictEqual(node.detail.children.find((c) => c.label === "Prices"), undefined);
+  assert.strictEqual(node.detail.children.length, 2, "no chat noted yet this run -- chats is in-memory only");
+  assert.deepStrictEqual(node.detail.children[1].children.map((c) => c.content), ["Judge on"], "no prices either");
 });

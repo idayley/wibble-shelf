@@ -823,8 +823,22 @@ test("probNotNeeded: CALIBRATION's own bins are within [0, 1] and non-decreasing
 
 // --- detailNode() -- the pill's hover card (payback spec §3) --------------
 
-function findRow(children, label) {
-  return children.find((c) => c.kind === "row" && c.label === label);
+/** Every node in the card, depth first, the card's own stack included. */
+function allNodes(node) {
+  return [node, ...(node.children || []).flatMap(allNodes)];
+}
+
+function findRow(node, label) {
+  return allNodes(node).find((c) => c.kind === "row" && c.label === label);
+}
+
+function heading(node) {
+  return allNodes(node).find((c) => c.kind === "heading");
+}
+
+/** The footer: the card's last section, as its lines of text. */
+function footer(node) {
+  return node.children[node.children.length - 1].children.map((c) => c.content);
 }
 
 const OPUS_PRICES = { input: 4e-6, cacheRead: 2e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1000000 };
@@ -851,27 +865,59 @@ test("detailNode: the design doc's worked example, node for node", () => {
   const now = Date.now();
   const node = detailNode(baseView(now), now);
 
-  assert.strictEqual(node.kind, "stack");
-  assert.deepStrictEqual(node.children[0], { kind: "heading", content: "This week  −24% · $41 saved" });
-  assert.deepStrictEqual(findRow(node.children, "This chat"), { kind: "row", label: "This chat", value: "−31% · $3.10 saved · 58 calls" });
-  assert.deepStrictEqual(findRow(node.children, "Removed"), { kind: "row", label: "Removed", value: "3.1M tokens of old tool output" });
-  assert.deepStrictEqual(findRow(node.children, "Cuts"), {
-    kind: "row",
-    label: "Cuts",
-    value: "42 made · 31 free (after a pause) · 9 skipped (wouldn't pay back yet)",
+  assert.deepStrictEqual(node, {
+    kind: "stack",
+    gap: 12,
+    children: [
+      {
+        kind: "stack",
+        gap: 8,
+        children: [
+          {
+            kind: "stack",
+            gap: 2,
+            children: [
+              { kind: "text", content: "This week", tone: "muted" },
+              { kind: "heading", content: "−24% · $41 saved" },
+            ],
+          },
+          {
+            kind: "stack",
+            gap: 4,
+            children: [
+              { kind: "row", label: "Removed", value: "3.1M tokens of tool output" },
+              { kind: "row", label: "Cuts", value: "42 made · 31 free · 9 waiting" },
+              { kind: "row", label: "Re-reads", value: "6 · $1.20 netted out" },
+            ],
+          },
+        ],
+      },
+      {
+        kind: "stack",
+        gap: 4,
+        children: [
+          { kind: "text", content: "This chat", tone: "muted" },
+          { kind: "row", label: "Net", value: "−31% · $3.10 saved" },
+          { kind: "row", label: "Calls", value: "58" },
+        ],
+      },
+      {
+        kind: "stack",
+        gap: 2,
+        children: [
+          { kind: "text", content: "Opus 5.5 · $4/M input · cache read $0.20 · write $5", tone: "faint" },
+          { kind: "text", content: "Updated today from openrouter.ai", tone: "faint" },
+          { kind: "text", content: "Judge on", tone: "faint" },
+        ],
+      },
+    ],
   });
-  assert.deepStrictEqual(findRow(node.children, "Re-reads"), { kind: "row", label: "Re-reads", value: "6, cost $1.20 (already subtracted)" });
-  assert.deepStrictEqual(findRow(node.children, "Prices"), {
-    kind: "row",
-    label: "Prices",
-    value: "Opus 5.5: $4/M input · cache read $0.20 · cache write $5",
-  });
-  const text = node.children.find((c) => c.kind === "text");
-  assert.deepStrictEqual(text, { kind: "text", content: "updated today from openrouter.ai" });
-  assert.deepStrictEqual(findRow(node.children, "Judge"), { kind: "row", label: "Judge", value: "on" });
 
-  // No button/check/input/wibblet/detail anywhere in the card.
-  for (const c of node.children) assert.ok(["heading", "row", "text"].includes(c.kind), c.kind);
+  // Nothing but these kinds anywhere in the card: no button/check/field/wibblet/detail.
+  for (const c of allNodes(node)) {
+    assert.ok(["stack", "heading", "row", "text"].includes(c.kind), c.kind);
+    assert.strictEqual(c.detail, undefined);
+  }
 });
 
 test("detailNode: a percent that rounds to zero reads 0%, with no sign either way", () => {
@@ -880,8 +926,8 @@ test("detailNode: a percent that rounds to zero reads 0%, with no sign either wa
     view.week = { ...view.week, saved, actual };
     view.chat = { ...view.chat, saved, actual };
     const node = detailNode(view, Date.now());
-    assert.match(node.children[0].content, /^This week {2}0% · /, `week ${saved}/${actual}`);
-    assert.match(findRow(node.children, "This chat").value, /^0% · /, `chat ${saved}/${actual}`);
+    assert.match(heading(node).content, /^0% · /, `week ${saved}/${actual}`);
+    assert.match(findRow(node, "Net").value, /^0% · /, `chat ${saved}/${actual}`);
   }
 });
 
@@ -889,28 +935,24 @@ test("detailNode: a plan-billed chat's dollar line reads an API-price estimate, 
   const view = baseView(Date.now());
   view.chat = { ...view.chat, billing: "plan" };
   const node = detailNode(view, Date.now());
-  assert.deepStrictEqual(findRow(node.children, "This chat"), {
-    kind: "row",
-    label: "This chat",
-    value: "−31% · ≈ $3.10 at API prices · 58 calls",
-  });
+  assert.deepStrictEqual(findRow(node, "Net"), { kind: "row", label: "Net", value: "−31% · ≈ $3.10 at API prices" });
 });
 
 test("detailNode: a plan-billed chat that cost more says so, still as an API-price estimate", () => {
   const view = baseView(Date.now());
   view.chat = { ...view.chat, billing: "plan", saved: -view.chat.saved };
   const node = detailNode(view, Date.now());
-  assert.match(findRow(node.children, "This chat").value, /≈ \$3\.10 more at API prices/);
+  assert.deepStrictEqual(findRow(node, "Net"), { kind: "row", label: "Net", value: "+82% · ≈ $3.10 more at API prices" });
 });
 
 test("detailNode: the week heading reads an API-price estimate when plan requests are the majority", () => {
   const view = baseView(Date.now());
   view.plan = true;
   const node = detailNode(view, Date.now());
-  assert.deepStrictEqual(node.children[0], { kind: "heading", content: "This week  −24% · ≈ $41 at API prices" });
+  assert.deepStrictEqual(heading(node), { kind: "heading", content: "−24% · ≈ $41 at API prices" });
 });
 
-test("detailNode: no chat yet omits both the This chat row and the Prices row", () => {
+test("detailNode: no chat yet omits both the This chat group and the prices", () => {
   const view = baseView(Date.now());
   view.chat = null;
   view.prices = null;
@@ -918,52 +960,66 @@ test("detailNode: no chat yet omits both the This chat row and the Prices row", 
   view.priceAt = null;
   const node = detailNode(view, Date.now());
 
-  assert.strictEqual(findRow(node.children, "This chat"), undefined);
-  assert.strictEqual(findRow(node.children, "Prices"), undefined);
-  assert.strictEqual(node.children.find((c) => c.kind === "text"), undefined);
+  assert.strictEqual(node.children.length, 2, "the week and the footer, nothing between");
+  assert.strictEqual(findRow(node, "Net"), undefined);
+  assert.strictEqual(findRow(node, "Calls"), undefined);
+  assert.ok(!allNodes(node).some((c) => c.content === "This chat"));
+  assert.deepStrictEqual(footer(node), ["Judge on"]);
   assert.deepStrictEqual(
-    node.children.map((c) => c.label || c.kind),
-    ["heading", "Removed", "Cuts", "Re-reads", "Judge"],
+    allNodes(node).filter((c) => c.kind === "row").map((c) => c.label),
+    ["Removed", "Cuts", "Re-reads"],
   );
 });
 
-test("detailNode: unknown prices name the model and drop the updated-text line", () => {
+test("detailNode: unknown prices name the model and drop the updated text", () => {
   const view = baseView(Date.now());
   view.prices = null;
   view.priceSource = null;
   view.priceAt = null;
   const node = detailNode(view, Date.now());
 
-  assert.deepStrictEqual(findRow(node.children, "Prices"), { kind: "row", label: "Prices", value: "unknown for claude-opus-5-5, counting tokens" });
-  assert.strictEqual(node.children.find((c) => c.kind === "text"), undefined);
+  assert.deepStrictEqual(footer(node), ["Prices unknown for claude-opus-5-5, counting tokens", "Judge on"]);
 });
 
-test("detailNode: built-in prices read 'built-in prices', regardless of priceAt", () => {
+test("detailNode: built-in prices read 'Built-in prices', regardless of priceAt", () => {
   const view = baseView(Date.now() - 999 * 24 * 60 * 60 * 1000);
   view.priceSource = "built-in";
   const node = detailNode(view, Date.now());
-  assert.deepStrictEqual(node.children.find((c) => c.kind === "text"), { kind: "text", content: "built-in prices" });
+  assert.deepStrictEqual(footer(node).slice(1), ["Built-in prices", "Judge on"]);
 });
 
-test("detailNode: a stale fetch reads 'updated N days ago', with no source named", () => {
+test("detailNode: a stale fetch reads 'Updated N days ago', with no source named", () => {
   const now = Date.now();
   const view = baseView(now - 3 * 24 * 60 * 60 * 1000);
   const node = detailNode(view, now);
-  assert.deepStrictEqual(node.children.find((c) => c.kind === "text"), { kind: "text", content: "updated 3 days ago" });
+  assert.deepStrictEqual(footer(node).slice(1), ["Updated 3 days ago", "Judge on"]);
 });
 
 test("detailNode: the judge off reads the age-rule fallback", () => {
   const view = baseView(Date.now());
   view.judgeUp = false;
-  const node = detailNode(view, Date.now());
-  assert.deepStrictEqual(findRow(node.children, "Judge"), { kind: "row", label: "Judge", value: "off — using the age rule" });
+  let node = detailNode(view, Date.now());
+  assert.deepStrictEqual(footer(node).slice(1), ["Updated today from openrouter.ai", "Judge off, using the age rule"]);
+
+  view.chat = null;
+  view.prices = null;
+  node = detailNode(view, Date.now());
+  assert.deepStrictEqual(footer(node), ["Judge off, using the age rule"]);
 });
 
 test("detailNode: a chat with unknown dollars falls back to units, the same way the chip does", () => {
   const view = baseView(Date.now());
   view.chat = { saved: 0, actual: 0, calls: 12, billing: "api", usd: false, units: { saved: 500000, actual: 1500000 }, model: "claude-opus-5-5" };
   const node = detailNode(view, Date.now());
-  assert.deepStrictEqual(findRow(node.children, "This chat"), { kind: "row", label: "This chat", value: "−25% · 500K units saved · 12 calls" });
+  assert.deepStrictEqual(findRow(node, "Net"), { kind: "row", label: "Net", value: "−25% · 500K units saved" });
+  assert.deepStrictEqual(findRow(node, "Calls"), { kind: "row", label: "Calls", value: "12" });
+});
+
+test("detailNode: the week without known dollars reads its tokens in the headline", () => {
+  const view = baseView(Date.now());
+  view.week = { ...view.week, dollarsKnown: false };
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(heading(node), { kind: "heading", content: "−24% · 3.1M tokens saved" });
 });
 
 test("detailNode: model display names -- GPT family, and the fallback to the slug after '/'", () => {
@@ -972,11 +1028,11 @@ test("detailNode: model display names -- GPT family, and the fallback to the slu
   view.chat = { ...view.chat, model: "gpt-5.5" };
   view.prices = { input: 5e-6, cacheRead: 5e-7, write5m: 5e-6, write1h: 5e-6, output: 3e-5, context: 1050000 };
   let node = detailNode(view, now);
-  assert.strictEqual(findRow(node.children, "Prices").value, "GPT-5.5: $5/M input · cache read $0.50 · cache write $5");
+  assert.strictEqual(footer(node)[0], "GPT-5.5 · $5/M input · cache read $0.50 · write $5");
 
   view = baseView(now);
   view.chat = { ...view.chat, model: "deepseek/deepseek-v3" };
   view.prices = { input: 2.7e-7, cacheRead: 2.7e-8, write5m: 2.7e-7, write1h: 2.7e-7, output: 1.1e-6, context: 128000 };
   node = detailNode(view, now);
-  assert.strictEqual(findRow(node.children, "Prices").value, "deepseek-v3: $0.27/M input · cache read $0.03 · cache write $0.27");
+  assert.strictEqual(footer(node)[0], "deepseek-v3 · $0.27/M input · cache read $0.03 · write $0.27");
 });
