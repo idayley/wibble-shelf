@@ -22,7 +22,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activate } from "./main.js";
+import { activate, JUDGE_QUESTION, NOT_NEEDED_P } from "./main.js";
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -38,7 +38,7 @@ function wait(ms) {
 function makeWibble(judge = {}) {
   const health = judge.health || "up";
   const askMode = judge.ask || "up";
-  const notNeeded = judge.notNeeded ?? 0.9;
+  const notNeeded = judge.notNeeded ?? 0.99;
 
   const seenHandlers = [];
   const resultHandlers = [];
@@ -61,7 +61,7 @@ function makeWibble(judge = {}) {
       },
     },
     net: {
-      async fetch(url, opts) {
+      async fetch(url) {
         if (url.endsWith("/health")) {
           if (health === "up") return { status: 200, headers: {}, body: JSON.stringify({ ok: true, model: "test" }) };
           return { status: 500, headers: {}, body: "" };
@@ -69,7 +69,8 @@ function makeWibble(judge = {}) {
         if (url.endsWith("/v1/systemone")) {
           if (askMode === "reject") throw new Error("connection refused");
           if (askMode === "down") return { status: 500, headers: {}, body: "" };
-          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: notNeeded } } }) };
+          // The judge answers P(still needed); main.js inverts it.
+          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 1 - notNeeded } } }) };
         }
         throw new Error("unexpected fetch: " + url);
       },
@@ -181,7 +182,56 @@ test("activate: a judge verdict of notNeeded 0.2 keeps the item (no drop)", asyn
   }
   await wait(20);
 
-  assert.strictEqual(h.dropCalls.length, 0, "the only item was judged needed (0.2 < 0.7), so nothing is dropped");
+  assert.strictEqual(h.dropCalls.length, 0, "the only item was judged needed (0.2 < NOT_NEEDED_P), so nothing is dropped");
+});
+
+// --- the judge is asked the positive question, and its answer inverted --
+
+test("activate: the judge is asked whether the item is still NEEDED, and a high answer keeps it", async () => {
+  // Task 3 measured the negative wording ("how likely it is NOT needed")
+  // running hot toward "not needed". The question must be the positive
+  // one, and noul must be read as P(needed): 0.95 here means keep.
+  assert.ok(!/\bNOT\b/.test(JUDGE_QUESTION), "the question is asked in positive polarity");
+  assert.ok(0.05 < NOT_NEEDED_P, "sanity: 1 - 0.95 is below the cut line");
+
+  const seenHandlers = [];
+  const dropCalls = [];
+  const asked = [];
+  const wibble = {
+    trim: {
+      onSeen(fn) {
+        seenHandlers.push(fn);
+        return () => {};
+      },
+      onResult: () => () => {},
+      async drop(sessionId, ids) {
+        dropCalls.push({ sessionId, ids });
+      },
+    },
+    net: {
+      async fetch(url, opts) {
+        if (url.endsWith("/health")) return { status: 200, headers: {}, body: "{}" };
+        const body = JSON.parse(opts.body);
+        asked.push(body);
+        return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 0.95 } } }) };
+      },
+    },
+    storage: { get: async () => undefined, set: async () => {}, keys: async () => [], onChange: () => () => {} },
+    panel: { async set() {} },
+  };
+  await activate(wibble);
+
+  for (let call = 1; call <= 20; call++) {
+    seenHandlers.forEach((fn) =>
+      fn(seenEvent({ calls: call, items: [{ id: "item1", tool: "Read", target: "f.txt", chars: 500, age: call, head: "hello" }] })),
+    );
+    if (call === 6) await wait(20); // let the verdict land before the batch
+  }
+  await wait(20);
+
+  assert.strictEqual(asked.length, 1);
+  assert.deepStrictEqual(asked[0].questions, { stale: { type: "noul", instructions: JUDGE_QUESTION } });
+  assert.strictEqual(dropCalls.length, 0, "P(needed) 0.95 -> notNeeded 0.05 -> kept");
 });
 
 // --- judge fetch rejects -> judge marked down and fallback still drops --
@@ -346,7 +396,7 @@ test("activate: the judge queue is capped at 200 (drop oldest) and drains newest
           // Answer "needed" (kept, not dropped) for everything asked, so
           // the only ids release() would drop are ones that were CAPPED
           // out of the queue and never asked at all.
-          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 0.2 } } }) };
+          return { status: 200, headers: {}, body: JSON.stringify({ answers: { stale: { noul: 0.8 } } }) }; // P(needed) 0.8
         }
         throw new Error("unexpected fetch: " + url);
       },
@@ -463,7 +513,7 @@ test("activate: a judge failure re-arms a fresh 60s health-probe window from the
   // while judgeUp was false) -- but it establishes a non-zero clock
   // baseline before the failure, so the assertions below are actually
   // checking "60s from the failure" and not "60s from t=0".
-  await t.mock.timers.tick(40000);
+  t.mock.timers.tick(40000);
   await flush();
   assert.strictEqual(healthCalls, 1, "no probe fires before anything has failed");
 
@@ -483,12 +533,12 @@ test("activate: a judge failure re-arms a fresh 60s health-probe window from the
 
   // 59s after the failure (t=99s): the fresh window anchored to the
   // failure has not yet elapsed, so still no probe.
-  await t.mock.timers.tick(59000);
+  t.mock.timers.tick(59000);
   await flush();
   assert.strictEqual(healthCalls, 1, "still no probe -- only 59s of the 60s anchored to the failure has passed");
 
   // 1s more (t=100s, exactly 60s after the failure): the probe fires.
-  await t.mock.timers.tick(1000);
+  t.mock.timers.tick(1000);
   await flush();
   assert.strictEqual(healthCalls, 2, "the probe fires 60s after the failure itself, not on a stale fixed schedule");
 });

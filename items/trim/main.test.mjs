@@ -57,13 +57,13 @@ test("release: no release before 20 calls", () => {
   const thread = makeThread([["a", { tool: "read", target: "f.txt", chars: 10, age: AGE + 1, verdict: null, asked: false }]]);
   thread.calls = BATCH - 1; // 19
 
-  const ids = release(thread, true);
+  const ids = release(thread);
   assert.deepStrictEqual(ids, []);
   assert.strictEqual(thread.lastRelease, 0, "no release happened, so lastRelease is untouched");
   assert.strictEqual(thread.dropped.size, 0);
 });
 
-test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=0.7), keeps age<=5 and a needed verdict", () => {
+test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=NOT_NEEDED_P), keeps age<=5 and a needed verdict", () => {
   const thread = makeThread([
     ["tooYoung", { tool: "read", target: "young.txt", chars: 10, age: AGE, verdict: null, asked: false }], // age === AGE, not > AGE
     ["fallback", { tool: "read", target: "fallback.txt", chars: 20, age: AGE + 1, verdict: null, asked: true }], // no verdict at all
@@ -72,7 +72,7 @@ test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=0.7), keep
   ]);
   thread.calls = BATCH; // first release happens as soon as calls >= BATCH
 
-  const ids = release(thread, true);
+  const ids = release(thread);
   assert.deepStrictEqual(ids, ["fallback", "unneeded"]);
   assert.strictEqual(thread.lastRelease, BATCH);
   assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "unneeded"]);
@@ -88,14 +88,14 @@ test("release: dropped ids are never returned twice, even in a later batch", () 
     ["needed", { tool: "read", target: "needed.txt", chars: 40, age: AGE + 1, verdict: { notNeeded: 0.1 }, asked: true }],
   ]);
   thread.calls = BATCH;
-  assert.deepStrictEqual(release(thread, true), ["fallback"]);
+  assert.deepStrictEqual(release(thread), ["fallback"]);
 
   // A second batch passes. "fallback" is still in the map and still aged
   // past AGE, but it must not be offered again. A brand-new aged item
   // ("late") should be the only one released.
   thread.items.set("late", { tool: "read", target: "late.txt", chars: 50, age: AGE + 1, verdict: null, asked: false });
   thread.calls = BATCH * 2;
-  const ids = release(thread, true);
+  const ids = release(thread);
   assert.deepStrictEqual(ids, ["late"]);
   assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "late"]);
 });

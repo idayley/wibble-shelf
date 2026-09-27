@@ -2,8 +2,8 @@
 """openjev-serve.py -- a tiny local Jev-compatible judge for Trim.
 
 Trim's worker (items/trim/main.js) asks this server, over HTTP on
-127.0.0.1:8791, how likely an old tool output is NOT needed by the agent
-anymore. This process:
+127.0.0.1:8791, how likely the agent still needs an old tool output
+(Trim cuts on 1 - that). This process:
 
   1. Loads one local MLX language model once at startup (an Apple-Silicon
      model runtime -- see mlx-lm on PyPI). Loading is the slow part
@@ -94,27 +94,48 @@ class Judge:
 
         self.model_name = os.path.basename(os.path.normpath(model_path)) or model_path
         self.model, self.tokenizer = load(model_path)
-        self.yes_id = self._first_token("Yes")
-        self.no_id = self._first_token("No")
         self.lock = threading.Lock()
+        self.yes_id, self.no_id = self._pick_answer_tokens()
 
-    def _first_token(self, word):
-        ids = self.tokenizer.encode(word, add_special_tokens=False)
-        if not ids:
-            raise RuntimeError(f"tokenizer produced no tokens for {word!r}")
-        return ids[0]
+    def _single_token_variants(self, word):
+        """The single-token spellings of `word` ("Yes", " Yes"), as {id: text}."""
+        out = {}
+        for text in (word, " " + word):
+            ids = self.tokenizer.encode(text, add_special_tokens=False)
+            if len(ids) == 1:
+                out[ids[0]] = text
+        return out
 
-    def score_noul(self, state, instructions):
-        """Return P(yes) to `instructions`, given `state`, in [0, 1].
+    def _pick_answer_tokens(self):
+        """Startup self-check: which Yes/No token ids does the chat template
+        actually produce first?
 
-        Forces the model's very next token to be its one-word answer (no
-        chain-of-thought), then reads a two-way softmax over just the
-        "Yes" and "No" token logits at that position -- the same
-        forced-choice-via-logits idea dev.py used, done as one in-process
-        forward pass instead of a subprocess call.
+        A tokenizer can have both "Yes" and " Yes" as single tokens, and which
+        one the model emits right after the assistant header depends on the
+        chat template. Reading the logit of a spelling the model never emits
+        there would quietly skew every score. So run one probe in the same
+        template context score_noul() uses and, for each word, keep the
+        single-token spelling the model rates highest at that position.
+        Fails loudly (RuntimeError, the server never starts) if a word has no
+        single-token spelling at all.
         """
-        import mlx.core as mx
+        yes_vars = self._single_token_variants("Yes")
+        no_vars = self._single_token_variants("No")
+        if not yes_vars or not no_vars:
+            raise RuntimeError(
+                "openjev-serve self-check: tokenizer has no single-token spelling of "
+                f"{'Yes' if not yes_vars else 'No'} (tried 'X' and ' X'); cannot score noul"
+            )
+        last = self._last_logits("Tool output under question:\nRead README.md", "Is this a question?")
+        yes_id = max(yes_vars, key=lambda i: last[i].item())
+        no_id = max(no_vars, key=lambda i: last[i].item())
+        print(
+            f"[openjev-serve] answer tokens: {yes_vars[yes_id]!r}={yes_id} {no_vars[no_id]!r}={no_id}",
+            file=sys.stderr,
+        )
+        return yes_id, no_id
 
+    def _prompt_ids(self, state, instructions):
         messages = [
             {"role": "system", "content": JUDGE_SYSTEM_PROMPT},
             {
@@ -128,12 +149,31 @@ class Judge:
         prompt = self.tokenizer.apply_chat_template(
             messages, add_generation_prompt=True, tokenize=False, enable_thinking=False
         )
-        ids = self.tokenizer.encode(prompt, add_special_tokens=False)
+        return self.tokenizer.encode(prompt, add_special_tokens=False)
+
+    def _last_logits(self, state, instructions):
+        """Next-token logits right after the assistant header, as one forward pass."""
+        import mlx.core as mx
+
+        ids = self._prompt_ids(state, instructions)
         with self.lock:
             logits = self.model(mx.array(ids)[None])
             last = logits[0, -1]
-            yes_logit = last[self.yes_id].item()
-            no_logit = last[self.no_id].item()
+            mx.eval(last)
+        return last
+
+    def score_noul(self, state, instructions):
+        """Return P(yes) to `instructions`, given `state`, in [0, 1].
+
+        Forces the model's very next token to be its one-word answer (no
+        chain-of-thought), then reads a two-way softmax over just the
+        "Yes" and "No" token logits at that position -- the same
+        forced-choice-via-logits idea dev.py used, done as one in-process
+        forward pass instead of a subprocess call.
+        """
+        last = self._last_logits(state, instructions)
+        yes_logit = last[self.yes_id].item()
+        no_logit = last[self.no_id].item()
         # sigmoid(yes - no) == softmax over exactly {yes, no} -- numerically
         # stable and avoids a full-vocab softmax we don't need.
         return 1.0 / (1.0 + math.exp(no_logit - yes_logit))
@@ -143,16 +183,18 @@ def make_handler(judge):
     class Handler(BaseHTTPRequestHandler):
         server_version = "openjev-serve/1.0"
 
-        def _send_json(self, status, payload):
+        def _send_json(self, status, payload, close=False):
             body = json.dumps(payload).encode("utf-8")
             self.send_response(status)
             self.send_header("Content-Type", "application/json")
             self.send_header("Content-Length", str(len(body)))
+            if close:
+                self.send_header("Connection", "close")
             self.end_headers()
             self.wfile.write(body)
 
-        def _send_error_json(self, status, message):
-            self._send_json(status, {"error": message})
+        def _send_error_json(self, status, message, close=False):
+            self._send_json(status, {"error": message}, close=close)
 
         def do_GET(self):
             if self.path == "/health":
@@ -171,10 +213,14 @@ def make_handler(judge):
             except ValueError:
                 length = -1
             if length <= 0 or length > MAX_BODY_BYTES:
-                self._send_error_json(400, "missing or oversized body")
-                # Drain whatever is there so the connection can be reused/closed cleanly.
-                if length_header and length_header.isdigit():
-                    self.rfile.read(min(int(length_header), MAX_BODY_BYTES))
+                # Drain what a well-formed but empty/small-enough length says is
+                # there, then close either way: with a malformed or oversized
+                # length we can't know where this request ends, so the
+                # connection can't be reused.
+                if length_header and length_header.isdigit() and 0 < int(length_header) <= MAX_BODY_BYTES:
+                    self.rfile.read(int(length_header))
+                self.close_connection = True
+                self._send_error_json(400, "missing, malformed or oversized body", close=True)
                 return
 
             raw = self.rfile.read(length)  # never logged, never echoed back.
@@ -196,17 +242,20 @@ def make_handler(judge):
                 self._send_error_json(400, "expected {state, questions}")
                 return
 
+            # Validate every question before scoring any, so a bad one is a
+            # 400 without having spent model time on the good ones.
+            todo = []
             for name, spec in questions.items():
                 if not isinstance(spec, dict) or spec.get("type") != "noul":
                     self._send_error_json(400, f"unsupported question type for {name!r}")
                     return
+                instructions = spec.get("instructions")
+                if not isinstance(instructions, str) or not instructions:
+                    self._send_error_json(400, f"missing instructions for {name!r}")
+                    return
+                todo.append((name, instructions))
 
-            answers = {}
-            for name, spec in questions.items():
-                instructions = spec.get("instructions", "")
-                p = judge.score_noul(state, instructions)
-                answers[name] = {"noul": p}
-
+            answers = {name: {"noul": judge.score_noul(state, text)} for name, text in todo}
             self._send_json(200, {"answers": answers})
 
         def log_message(self, fmt, *args):

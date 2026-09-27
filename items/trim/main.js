@@ -80,15 +80,14 @@ export function track(state, seen) {
  * has passed since the last release. Mutates `thread` (lastRelease, dropped,
  * droppedTargets) only when a release actually happens.
  *
- * `judgeUp` is accepted for signature parity with the spec's fallback rule
- * (spec §3: the age rule is the fallback whether the judge is down or just
- * hasn't reached an item yet) -- either way an item with no verdict is
- * always cut at release, so it is not consulted in the decision below.
+ * Whether the judge is up doesn't matter here (spec §3: the age rule is the
+ * fallback whether the judge is down or just hasn't reached an item yet) --
+ * either way an item with no verdict is cut at release.
  *
  * @returns {string[]} ids released this call (empty if no batch is due, or
  *   nothing in the batch qualifies).
  */
-export function release(thread, judgeUp) {
+export function release(thread) {
   if (thread.calls - thread.lastRelease < BATCH) return [];
 
   const ids = [];
@@ -191,6 +190,9 @@ const JUDGE_URL = JUDGE_ORIGIN + "/v1/systemone";
 const HEALTH_URL = JUDGE_ORIGIN + "/health";
 const HEALTH_PROBE_INTERVAL_MS = 60000; // 60 s from the failure, not from a fixed schedule -- see scheduleHealthProbe()
 const QUEUE_CAP = 200;
+export const JUDGE_QUESTION =
+  "Will the agent still need this tool output to finish the operator's current request?";
+
 const CAP_LAST_USER = 1500;
 const CAP_RECENT_ASSISTANT = 1500;
 const CAP_HEAD = 1200;
@@ -344,8 +346,11 @@ export async function activate(wibble) {
       questions: {
         stale: {
           type: "noul",
-          instructions:
-            "Will the agent still need this tool output to finish the operator's current request? Answer how likely it is NOT needed.",
+          // Positive polarity on purpose: asked "how likely is it NOT
+          // needed", the judge ran hot toward "not needed" (task 3 measured
+          // a clearly-needed item at 0.905). The server answers P(Yes), so
+          // noul here is P(still needed) and we invert it below.
+          instructions: JUDGE_QUESTION,
         },
       },
     });
@@ -356,7 +361,7 @@ export async function activate(wibble) {
     });
     if (res.status !== 200) throw new Error("judge responded " + res.status);
     const parsed = JSON.parse(res.body);
-    return { notNeeded: parsed.answers.stale.noul };
+    return { notNeeded: 1 - parsed.answers.stale.noul };
   }
 
   function pump() {
@@ -523,7 +528,7 @@ export async function activate(wibble) {
       enqueueForJudge(key, seen, toJudge);
     }
 
-    const releasedIds = release(thread, judgeUp);
+    const releasedIds = release(thread);
     if (releasedIds.length) {
       wibble.trim.drop(seen.sessionId, releasedIds);
     }
