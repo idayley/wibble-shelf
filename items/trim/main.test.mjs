@@ -31,6 +31,7 @@ import {
   BUILTIN_PRICES,
   MAKERS,
   LEFT_TABLE,
+  LEFT_SCALE,
   left,
   CALIBRATION,
   probNotNeeded,
@@ -173,8 +174,9 @@ test("plan (no prices): at 25 calls a 0.85 verdict keeps (line 0.87), at 26 it c
 // --- plan(), with prices ---------------------------------------------------
 //
 // Shared setup, per the brief: Opus 5.5's prices, r = 0.25 tokens/char,
-// calls = 20 (so L = left(20) = 105), P = 50,000 prompt tokens, a 200,000-char
-// request. CAL maps every score to p = 0.99, so the sums below are exact.
+// calls = 20 (so L = left(20) = 210, LEFT_SCALE x the 105-median table
+// point), P = 50,000 prompt tokens, a 200,000-char request. CAL maps every
+// score to p = 0.99, so the sums below are exact.
 
 const PRICES = { input: 4e-6, cacheRead: 2e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1e6 };
 const CAL = { bins: [[1, 0.99]], baseRate: 0.99 };
@@ -190,12 +192,15 @@ function pricedThread(items) {
 }
 
 test("plan: a 40,000-char item near the start costs more to rewrite than it saves, so it waits for a cold cache", () => {
-  // keep   = 40000 * 0.25 * 2e-7 * 105                = $0.21
-  // reread = 40000 * 0.25 * 5e-6 + 50000 * 2e-7        = $0.05 + $0.01 = $0.06
-  //   candidate: 0.99 * 0.21 = 0.2079 >= 0.01 * 0.06 = 0.0006
+  // With L doubled to 210, a 40,000-char item here would already pay back
+  // (see the next test) -- so this one is 20,000 chars instead, still too
+  // small to earn back the rewrite.
+  // keep   = 20000 * 0.25 * 2e-7 * 210                 = $0.21
+  // reread = 20000 * 0.25 * 5e-6 + 50000 * 2e-7        = $0.025 + $0.01 = $0.035
+  //   candidate: 0.99 * 0.21 = 0.2079 >= 0.01 * 0.035 = 0.00035
   // cost   = (200000 - 10000) * 0.25 * (5e-6 - 2e-7)   = $0.228
-  // net    = 0.2079 - 0.0006 - 0.228                  = -$0.0207 -> no cut
-  const thread = pricedThread([["a", 40000, 10000]]);
+  // net    = 0.2079 - 0.00035 - 0.228                 = -$0.02045 -> no cut
+  const thread = pricedThread([["a", 20000, 10000]]);
   const out = plan(thread, SEEN, PRICES, CAL);
   assert.deepStrictEqual(out.now, []);
   assert.deepStrictEqual(out.cold, ["a"]);
@@ -208,13 +213,14 @@ test("plan: a 40,000-char item near the start costs more to rewrite than it save
 });
 
 test("plan: the same item near the end pays back, so it is cut now", () => {
+  // keep = 40000 * 0.25 * 2e-7 * 210 = $0.42; gain = 0.99 * 0.42 = $0.4158
   // cost = (200000 - 160000) * 0.25 * 4.8e-6 = $0.048
-  // net  = 0.2079 - 0.0006 - 0.048          = $0.1593
+  // net  = 0.4158 - 0.0006 - 0.048          = $0.3672
   const thread = pricedThread([["a", 40000, 160000]]);
   const out = plan(thread, SEEN, PRICES, CAL);
   assert.deepStrictEqual(out.now, ["a"]);
   assert.deepStrictEqual(out.cold, []);
-  closeTo(out.net, 0.1593, "net");
+  closeTo(out.net, 0.3672, "net");
   assert.deepStrictEqual([...thread.dropped], ["a"]);
   assert.strictEqual(thread.droppedTargets.get("a.txt"), 40000);
   assert.strictEqual(thread.coldPending.size, 0);
@@ -223,33 +229,36 @@ test("plan: the same item near the end pays back, so it is cut now", () => {
 
 test("plan: the best cut point skips a small early item and takes the big late one", () => {
   // Candidates by at: small (2,000 chars at 10,000), big (40,000 at 150,000).
-  //   small: keep = 2000*0.25*2e-7*105 = $0.0105, reread = 2000*0.25*5e-6 + 0.01 = $0.0125
-  //   big:   keep = $0.21,                         reread = $0.06
-  // k = small: save = 0.99*(0.0105+0.21) = 0.218295, risk = 0.01*(0.0125+0.06) = 0.000725,
-  //            cost = 190000*0.25*4.8e-6 = 0.228  -> net = -0.01043
-  // k = big:   save = 0.2079, risk = 0.0006,
-  //            cost = 50000*0.25*4.8e-6 = 0.06    -> net =  0.1473
+  //   small: keep = 2000*0.25*2e-7*210 = $0.021, reread = 2000*0.25*5e-6 + 0.01 = $0.0125
+  //   big:   keep = 40000*0.25*2e-7*210 = $0.42,  reread = 40000*0.25*5e-6 + 0.01 = $0.06
+  // k = small: gain = 0.99*(0.021+0.42) = 0.43659, risk = 0.01*(0.0125+0.06) = 0.000725,
+  //            cost = 190000*0.25*4.8e-6 = 0.228  -> net = 0.207865
+  // k = big:   gain = 0.99*0.42 = 0.4158, risk = 0.01*0.06 = 0.0006,
+  //            cost = 50000*0.25*4.8e-6 = 0.06    -> net = 0.3552
   const thread = pricedThread([["big", 40000, 150000], ["small", 2000, 10000]]);
   const out = plan(thread, SEEN, PRICES, CAL);
   assert.deepStrictEqual(out.now, ["big"]);
   assert.deepStrictEqual(out.cold, ["small"]);
-  closeTo(out.net, 0.1473, "net");
+  closeTo(out.net, 0.3552, "net");
 });
 
 test("plan: the 1-hour write price is used when the thread's last result wrote the 1-hour cache", () => {
+  // keep = 40000 * 0.25 * 2e-7 * 210 = $0.42; gain = 0.99 * 0.42 = $0.4158
   // cost = 40000 * 0.25 * (8e-6 - 2e-7) = $0.078; reread = 40000*0.25*8e-6 + 0.01 = $0.09
-  // net  = 0.2079 - 0.01*0.09 - 0.078   = $0.1290
+  // net  = 0.4158 - 0.01*0.09 - 0.078   = $0.3369
   const thread = pricedThread([["a", 40000, 160000]]);
   thread.write1h = true;
-  closeTo(plan(thread, SEEN, PRICES, CAL).net, 0.129, "net");
+  closeTo(plan(thread, SEEN, PRICES, CAL).net, 0.3369, "net");
 });
 
 test("plan: a parked item is not parked twice, and is withdrawn once its verdict says keep", () => {
-  const thread = pricedThread([["a", 40000, 10000]]);
+  // 20,000 chars, same reasoning as the "waits for a cold cache" test above:
+  // a 40,000-char item here would already pay back with L doubled.
+  const thread = pricedThread([["a", 20000, 10000]]);
   assert.deepStrictEqual(plan(thread, SEEN, PRICES, CAL).cold, ["a"]);
 
   // Next batch, same odds: still a candidate, already parked -> not in cold
-  // again. (Re-armed at 20 calls, not moved to 40: at 40, L = 132 and the
+  // again. (Re-armed at 20 calls, not moved to 40: at 40, L = 264 and the
   // cut would pay back now.)
   thread.lastRelease = 0;
   let out = plan(thread, SEEN, PRICES, CAL);
@@ -268,7 +277,8 @@ test("plan: a parked item is not parked twice, and is withdrawn once its verdict
 });
 
 test("plan: a parked item that later pays back is cut now and leaves the parked set", () => {
-  const thread = pricedThread([["a", 40000, 10000]]);
+  // 20,000 chars, same reasoning as the "waits for a cold cache" test above.
+  const thread = pricedThread([["a", 20000, 10000]]);
   plan(thread, SEEN, PRICES, CAL);
   thread.items.get("a").at = 160000; // earlier output was cut, so it moved up
   thread.calls = BATCH * 2;
@@ -295,12 +305,15 @@ test("plan: items without `at` sit at the earliest known position (0 when none i
   const mixed = pricedThread([["known", 40000, 150000], ["late", 40000, undefined]]);
   const out = plan(mixed, SEEN, PRICES, CAL);
   assert.deepStrictEqual(out.now.sort(), ["known", "late"]);
-  // save = 2*0.2079, risk = 2*0.0006, cost = 50000*0.25*4.8e-6 = 0.06
-  closeTo(out.net, 0.3546, "net");
+  // gain = 2*0.4158, risk = 2*0.0006, cost = 50000*0.25*4.8e-6 = 0.06
+  closeTo(out.net, 0.7704, "net");
 
   // No at anywhere (an older Wibble): everything sits at 0, so the rewrite
-  // is the whole 200,000 chars = $0.24 > $0.2073 saved -> parked.
-  const old = pricedThread([["a", 40000, undefined]]);
+  // is the whole 200,000 chars = $0.24. A 40,000-char item would pay that
+  // back with L doubled (gain 0.4158 alone beats it), so this one is
+  // 20,000 chars: keep = 20000*0.25*2e-7*210 = $0.21, gain = 0.99*0.21 =
+  // $0.2079 < $0.24 -> parked.
+  const old = pricedThread([["a", 20000, undefined]]);
   const outOld = plan(old, SEEN, PRICES, CAL);
   assert.deepStrictEqual(outOld.now, []);
   assert.deepStrictEqual(outOld.cold, ["a"]);
@@ -308,12 +321,13 @@ test("plan: items without `at` sit at the earliest known position (0 when none i
 
 test("plan: r and promptTokens fall back to 0.3 and totalChars * r before any result has arrived", () => {
   // r = 0.3, P = 200000*0.3 = 60000.
-  // keep = 40000*0.3*2e-7*105 = 0.252; reread = 40000*0.3*5e-6 + 60000*2e-7 = 0.072
-  // cost = 40000*0.3*4.8e-6 = 0.0576; net = 0.99*0.252 - 0.01*0.072 - 0.0576 = 0.19116
+  // keep = 40000*0.3*2e-7*210 = 0.504; gain = 0.99*0.504 = 0.49896
+  // reread = 40000*0.3*5e-6 + 60000*2e-7 = 0.072; risk = 0.01*0.072 = 0.00072
+  // cost = 40000*0.3*4.8e-6 = 0.0576; net = 0.49896 - 0.00072 - 0.0576 = 0.44064
   const thread = pricedThread([["a", 40000, 160000]]);
   delete thread.r;
   delete thread.promptTokens;
-  closeTo(plan(thread, SEEN, PRICES, CAL).net, 0.19116, "net");
+  closeTo(plan(thread, SEEN, PRICES, CAL).net, 0.44064, "net");
 });
 
 test("track: the judge is asked at any thread length; the thread records when it was seen and its format", () => {
@@ -750,26 +764,29 @@ test("priceFor: an unknown model is null, fetched or not", () => {
 // --- left() -----------------------------------------------------------
 
 test("left: exactly on a table point, and flat past both ends", () => {
-  // LEFT_TABLE's first/last points, from calibrate.py --lengths.
-  assert.strictEqual(left(20), LEFT_TABLE[0][1]);
-  closeTo(left(20), 105, "left(20)");
+  // LEFT_TABLE's first/last points, from calibrate.py --lengths, each times
+  // LEFT_SCALE (2): left() bets on twice the median.
+  assert.strictEqual(left(20), LEFT_TABLE[0][1] * LEFT_SCALE);
+  closeTo(left(20), 210, "left(20)");
   assert.strictEqual(left(5), left(20), "below the first point is flat");
-  closeTo(left(5), 105, "left(5)");
-  assert.strictEqual(left(1000), LEFT_TABLE[LEFT_TABLE.length - 1][1], "past the last point is flat");
-  closeTo(left(1000), 231, "left(1000)");
+  closeTo(left(5), 210, "left(5)");
+  assert.strictEqual(left(1000), LEFT_TABLE[LEFT_TABLE.length - 1][1] * LEFT_SCALE, "past the last point is flat");
+  closeTo(left(1000), 462, "left(1000)");
 });
 
 test("left: linear interpolation between two table points", () => {
-  // Between (20, 105) and (40, 132): 105 + (132-105) * (30-20)/(40-20) = 118.5
-  closeTo(left(30), 118.5, "left(30)");
+  // Between (20, 210) and (40, 264) (each table point x LEFT_SCALE):
+  // 210 + (264-210) * (30-20)/(40-20) = 237
+  closeTo(left(30), 237, "left(30)");
 });
 
 test("left: capped at 10 once the prompt is >= 85% of the model's context, uncapped otherwise", () => {
-  // calls=100 lands exactly on a table point (164), so any deviation from
-  // 164 below is purely the compaction cap, not interpolation.
+  // calls=100 lands exactly on a table point (164 x LEFT_SCALE = 328), so
+  // any deviation from 328 below is purely the compaction cap, not
+  // interpolation.
   closeTo(left(100, 870000, 1000000), 10, "870000/1000000 = 87% full -> capped at 10");
-  closeTo(left(100, 800000, 1000000), 164, "80% full -> under the 85% line, uncapped");
-  closeTo(left(100, 870000, null), 164, "no context given -> cap never applies");
+  closeTo(left(100, 800000, 1000000), 328, "80% full -> under the 85% line, uncapped");
+  closeTo(left(100, 870000, null), 328, "no context given -> cap never applies");
 });
 
 // --- probNotNeeded() -----------------------------------------------------------

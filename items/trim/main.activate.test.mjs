@@ -817,16 +817,18 @@ test("activate: a re-read is counted, with its cost in dollars", async () => {
 // --- cold drops and withdrawals ------------------------------------------
 
 // Built-in Sonnet 5 (cache read $0.20/M, 5-minute write $2.50/M). One
-// 20,000-char item at the very start of a 1,000,000-char prompt; r = 0.3
-// (no result yet), P = 300,000 tokens.
-//   At 20 calls, no verdict (p = base rate 0.6467), L = 105:
-//     gain = 0.6467 x 20000 x 0.3 x 2e-7 x 105 = 0.0815
-//     risk = 0.3533 x (20000 x 0.3 x 2.5e-6 + 300000 x 2e-7) = 0.3533 x 0.075 = 0.0265
+// 10,000-char item at the very start of a 1,000,000-char prompt; r = 0.3
+// (no result yet), P = 300,000 tokens. (With L doubled, a 20,000-char item
+// would still be a candidate at 40 calls even on the judge's "keep" verdict,
+// so this item is 10,000 chars -- small enough that the verdict flips it.)
+//   At 20 calls, no verdict (p = base rate 0.6467), L = 210:
+//     gain = 0.6467 x 10000 x 0.3 x 2e-7 x 210 = 0.0815
+//     risk = 0.3533 x (10000 x 0.3 x 2.5e-6 + 300000 x 2e-7) = 0.3533 x 0.0675 = 0.0238
 //     a candidate, but rewriting 1e6 chars costs 1e6 x 0.3 x 2.3e-6 = 0.69 -> parked
-//   At 40 calls, the judge's 0.01 (p = 0.2667), L = 132:
-//     gain = 0.2667 x 0.1584 = 0.0422 < risk = 0.7333 x 0.075 = 0.055 -> withdrawn
+//   At 40 calls, the judge's 0.01 (p = 0.2667), L = 264:
+//     gain = 0.2667 x 0.1584 = 0.0422 < risk = 0.7333 x 0.0675 = 0.0495 -> withdrawn
 const bigEarly = (calls) =>
-  seenEvent({ model: "claude-sonnet-5", totalChars: 1000000, calls, items: [{ id: "big", tool: "Read", target: "big.txt", chars: 20000, at: 0, age: calls - 14 }] });
+  seenEvent({ model: "claude-sonnet-5", totalChars: 1000000, calls, items: [{ id: "big", tool: "Read", target: "big.txt", chars: 10000, at: 0, age: calls - 14 }] });
 
 test("activate: an item that only fails on the rewrite is dropped cold, and withdrawn once the judge says keep", async () => {
   const h = makeWibble({ health: "up", ask: "up", notNeeded: 0.01 }, { cold: true });

@@ -475,10 +475,20 @@ export const LEFT_TABLE = [
 ];
 
 /**
- * How many more requests a thread `calls` long typically has left,
- * interpolated between `LEFT_TABLE`'s points and flat past both ends
- * (median, not mean, so a few 1,000-call threads don't drag short ones
- * up). Capped at 10 once `promptTokens` is within 15% of `context` (the
+ * `left()` bets on twice the median. A cut is an expected-value bet, and
+ * the mean (3-5x the median: long threads run very long) is where the
+ * money is, but the mean over-cuts short threads. The replay on real
+ * history (replay.mjs, 2026-09-27, 99k requests) put v2's saving at 9.3%
+ * with the median, 12.9% at 2x, 12.8% at 1.75x and 2.25x, 12.5% with the
+ * mean table -- a flat top, so 2 is not a knife-edge.
+ */
+export const LEFT_SCALE = 2;
+
+/**
+ * How many more requests a thread `calls` long has left, for pricing a
+ * cut: LEFT_SCALE times the median,
+ * interpolated between `LEFT_TABLE`'s points and flat past both ends.
+ * Capped at 10 once `promptTokens` is within 15% of `context` (the
  * model's window): compaction is about to happen and would throw away
  * whatever a cut just saved anyway. `context` is `null` when unknown --
  * the cap never applies then.
@@ -493,6 +503,7 @@ export function left(calls, promptTokens = 0, context = null) {
     const [c0, v0] = t[i - 1], [c1, v1] = t[i];
     v = v0 + ((v1 - v0) * (calls - c0)) / (c1 - c0);
   }
+  v *= LEFT_SCALE;
   return context && promptTokens >= 0.85 * context ? Math.min(v, 10) : v;
 }
 
