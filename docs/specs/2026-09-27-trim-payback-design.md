@@ -67,8 +67,12 @@ reached `calls`, from a built-in table measured on real history (§1):
 |---|---|---|---|---|---|---|
 | median still to come | 105 | 132 | 127 | 164 | 154 | 231 |
 
-Interpolated between points, flat past the ends. Median, not mean: the mean
-is carried by a few 1,000-call threads and would over-cut short ones.
+Interpolated between points, flat past the ends, then multiplied by
+`LEFT_SCALE = 2`. The median alone under-cut: the replay (§6) saved 9.3%
+with it against v1's 10.0%. The mean (3–5× the median, carried by a few
+1,000-call threads) saved 12.5%; 1.75×, 2× and 2.25× the median saved
+12.8%, 12.9% and 12.8%. 2× was chosen on that same replay (in-sample), on
+a flat top.
 `calibrate.py --lengths` regenerates the table from `~/.claude/projects`.
 
 Capped by compaction: when the prompt is within 15% of the model's context
