@@ -720,7 +720,7 @@ test("parseEndpoints: malformed JSON, no data.endpoints, a non-numeric price and
 test("priceFor: a fetched entry wins over the built-in table", () => {
   const fetched = { "anthropic/claude-opus-5.5": { prices: { input: 3e-6, cacheRead: 1e-7, write5m: 4e-6, write1h: 6e-6, output: 1.5e-5, context: 1000000 }, at: 12345 } };
   const out = priceFor("claude-opus-5-5", fetched);
-  assert.deepStrictEqual(out, { slug: "anthropic/claude-opus-5.5", prices: fetched["anthropic/claude-opus-5.5"].prices, source: "fetched" });
+  assert.deepStrictEqual(out, { slug: "anthropic/claude-opus-5.5", prices: fetched["anthropic/claude-opus-5.5"].prices, source: "fetched", at: 12345 });
 });
 
 test("priceFor: the built-in table is used when nothing has been fetched for that slug", () => {
@@ -855,6 +855,13 @@ test("detailNode: a plan-billed chat's dollar line reads an API-price estimate, 
     label: "This chat",
     value: "−31% · ≈ $3.10 at API prices · 58 calls",
   });
+});
+
+test("detailNode: a plan-billed chat that cost more says so, still as an API-price estimate", () => {
+  const view = baseView(Date.now());
+  view.chat = { ...view.chat, billing: "plan", saved: -view.chat.saved };
+  const node = detailNode(view, Date.now());
+  assert.match(findRow(node.children, "This chat").value, /≈ \$3\.10 more at API prices/);
 });
 
 test("detailNode: the week heading reads an API-price estimate when plan requests are the majority", () => {

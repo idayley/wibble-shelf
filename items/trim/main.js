@@ -308,7 +308,7 @@ export function priceFor(model, fetched) {
   const slug = slugOf(model);
   if (!slug) return null;
   const hit = fetched && fetched[slug];
-  if (hit && hit.prices) return { slug, prices: hit.prices, source: "fetched" };
+  if (hit && hit.prices) return { slug, prices: hit.prices, source: "fetched", at: hit.at };
   const builtin = BUILTIN_PRICES[slug];
   if (builtin) return { slug, prices: builtin, source: "built-in" };
   return null;
@@ -790,7 +790,8 @@ function dollarPhrase(d) {
  * API prices rather than a saving or a spend.
  */
 function formatPlanDollarPhrase(d) {
-  return "≈ $" + dollarAmountString(d) + " at API prices";
+  const amount = dollarAmountString(d);
+  return d < 0 && amount !== "0.00" ? "≈ $" + amount + " more at API prices" : "≈ $" + amount + " at API prices";
 }
 
 function formatSavingsLabel(week) {
@@ -1269,7 +1270,7 @@ export async function activate(wibble) {
       chat,
       prices: priced ? priced.prices : null,
       priceSource: priced ? priced.source : null,
-      priceAt: priced && priced.source === "fetched" ? fetchedPrices[priced.slug].at : null,
+      priceAt: priced && priced.source === "fetched" ? priced.at : null,
       judgeUp,
       plan,
     };
