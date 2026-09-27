@@ -11,7 +11,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { track, release, rereads, cost, saving, dollars, percent, PRICE_PER_M, AGE, BATCH, NOT_NEEDED_P } from "./main.js";
+import { track, release, rereads, cost, saving, dollars, percent, PRICE_PER_M, AGE, BATCH, cutLine } from "./main.js";
 
 function closeTo(actual, expected, msg) {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${msg}: got ${actual}, expected ${expected}`);
@@ -63,12 +63,12 @@ test("release: no release before 20 calls", () => {
   assert.strictEqual(thread.dropped.size, 0);
 });
 
-test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=NOT_NEEDED_P), keeps age<=5 and a needed verdict", () => {
+test("release: at 20 calls, drops age>5 items (fallback or notNeeded>=cutLine), keeps age<=5 and a needed verdict", () => {
   const thread = makeThread([
     ["tooYoung", { tool: "read", target: "young.txt", chars: 10, age: AGE, verdict: null, asked: false }], // age === AGE, not > AGE
     ["fallback", { tool: "read", target: "fallback.txt", chars: 20, age: AGE + 1, verdict: null, asked: true }], // no verdict at all
-    ["unneeded", { tool: "read", target: "unneeded.txt", chars: 30, age: AGE + 1, verdict: { notNeeded: NOT_NEEDED_P }, asked: true }], // exactly the threshold
-    ["needed", { tool: "read", target: "needed.txt", chars: 40, age: AGE + 1, verdict: { notNeeded: NOT_NEEDED_P - 0.01 }, asked: true }], // just under threshold
+    ["unneeded", { tool: "read", target: "unneeded.txt", chars: 30, age: AGE + 1, verdict: { notNeeded: cutLine(BATCH) }, asked: true }], // exactly the threshold
+    ["needed", { tool: "read", target: "needed.txt", chars: 40, age: AGE + 1, verdict: { notNeeded: cutLine(BATCH) - 0.01 }, asked: true }], // just under threshold
   ]);
   thread.calls = BATCH; // first release happens as soon as calls >= BATCH
 
@@ -92,12 +92,57 @@ test("release: dropped ids are never returned twice, even in a later batch", () 
 
   // A second batch passes. "fallback" is still in the map and still aged
   // past AGE, but it must not be offered again. A brand-new aged item
-  // ("late") should be the only one released.
+  // ("late") is released.
   thread.items.set("late", { tool: "read", target: "late.txt", chars: 50, age: AGE + 1, verdict: null, asked: false });
   thread.calls = BATCH * 2;
   const ids = release(thread);
-  assert.deepStrictEqual(ids, ["late"]);
-  assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "late"]);
+  // At 40 calls the thread is past the last cut line (cutLine(40) is null),
+  // so "needed"'s verdict is ignored and the age rule cuts it too.
+  assert.deepStrictEqual(ids, ["needed", "late"]);
+  assert.deepStrictEqual([...thread.dropped].sort(), ["fallback", "late", "needed"]);
+});
+
+// --- cutLine() -----------------------------------------------------------
+
+test("cutLine: 0.82 up to 10 calls, 0.78 for 11-25, none (pure age rule) past 25", () => {
+  assert.strictEqual(cutLine(0), 0.82);
+  assert.strictEqual(cutLine(10), 0.82);
+  assert.strictEqual(cutLine(11), 0.78);
+  assert.strictEqual(cutLine(25), 0.78);
+  assert.strictEqual(cutLine(26), null);
+  assert.strictEqual(cutLine(400), null);
+});
+
+test("release: at 25 calls a 0.77 verdict keeps (line 0.78), at 26 the verdict is ignored and the age rule cuts", () => {
+  const entry = () => ({ tool: "read", target: "f.txt", chars: 10, age: AGE + 1, verdict: { notNeeded: 0.77 }, asked: true });
+  const at25 = makeThread([["a", entry()]]);
+  at25.calls = 25;
+  assert.deepStrictEqual(release(at25), [], "0.77 < 0.78: kept");
+
+  const at26 = makeThread([["a", entry()]]);
+  at26.calls = 26;
+  assert.deepStrictEqual(release(at26), ["a"], "past 25 calls the verdict is ignored");
+});
+
+test("release: at 10 calls the line is 0.82, at 11 it is 0.78", () => {
+  const entry = () => ({ tool: "read", target: "f.txt", chars: 10, age: AGE + 1, verdict: { notNeeded: 0.8 }, asked: true });
+  const at10 = makeThread([["a", entry()]]);
+  at10.calls = 10;
+  at10.lastRelease = 10 - BATCH; // a batch is due
+  assert.deepStrictEqual(release(at10), [], "0.80 < 0.82: kept");
+
+  const at11 = makeThread([["a", entry()]]);
+  at11.calls = 11;
+  at11.lastRelease = 11 - BATCH;
+  assert.deepStrictEqual(release(at11), ["a"], "0.80 >= 0.78: cut");
+});
+
+test("track: past 25 calls nothing is sent to the judge; at 25 it still is", () => {
+  const item = { id: "a", tool: "Read", target: "f.txt", chars: 10, age: AGE + 1, head: null };
+  const s25 = {};
+  assert.strictEqual(track(s25, { sessionId: "s", thread: "t", calls: 25, items: [item] }).toJudge.length, 1);
+  const s26 = {};
+  assert.deepStrictEqual(track(s26, { sessionId: "s", thread: "t", calls: 26, items: [item] }).toJudge, []);
 });
 
 // --- rereads() -----------------------------------------------------------

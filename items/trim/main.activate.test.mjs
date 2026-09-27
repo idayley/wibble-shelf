@@ -22,7 +22,7 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { activate, JUDGE_QUESTION, NOT_NEEDED_P } from "./main.js";
+import { activate, JUDGE_QUESTION, cutLine } from "./main.js";
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -182,7 +182,7 @@ test("activate: a judge verdict of notNeeded 0.2 keeps the item (no drop)", asyn
   }
   await wait(20);
 
-  assert.strictEqual(h.dropCalls.length, 0, "the only item was judged needed (0.2 < NOT_NEEDED_P), so nothing is dropped");
+  assert.strictEqual(h.dropCalls.length, 0, "the only item was judged needed (0.2 < the cut line), so nothing is dropped");
 });
 
 // --- the judge is asked the positive question, and its answer inverted --
@@ -192,7 +192,7 @@ test("activate: the judge is asked whether the item is still NEEDED, and a high 
   // running hot toward "not needed". The question must be the positive
   // one, and noul must be read as P(needed): 0.95 here means keep.
   assert.ok(!/\bNOT\b/.test(JUDGE_QUESTION), "the question is asked in positive polarity");
-  assert.ok(0.05 < NOT_NEEDED_P, "sanity: 1 - 0.95 is below the cut line");
+  assert.ok(0.05 < cutLine(20), "sanity: 1 - 0.95 is below the cut line");
 
   const seenHandlers = [];
   const dropCalls = [];

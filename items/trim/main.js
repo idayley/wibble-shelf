@@ -13,28 +13,35 @@
 //   1. Never on the request path -- track()/release() only read state
 //      activate()'s handlers already collected from wibble.trim's events.
 //   2. Cut in batches of BATCH calls, and only tool results older than AGE.
-//   3. A local judge may mark an aged item "not needed" (p >= NOT_NEEDED_P);
+//   3. A local judge may mark an aged item "not needed" (p >= cutLine(calls));
 //      absent a verdict -- judge down, or just hasn't reached the item yet
 //      -- the age rule itself is the fallback, so an unverdicted aged item
 //      is still cut at the next release.
 
 export const AGE = 5;
 export const BATCH = 20;
-// The cut line, chosen by cost, not by a wrong-cut cap. An aged item
-// with no verdict is cut anyway (the age rule), so the judge only decides
-// what to KEEP. Per unit of item size: keeping an unneeded item costs
-// ~0.1 x N (a cache read on each of N later calls); cutting a needed one
-// costs ~1.25 (re-read + re-cache). calibrate.py (2026-09-27) minimises
-// that over labeled past files, qwen35-4b-q4 judge, positive question:
-//   old "safe to discard" prompt, 337 items: AUC 0.755, best T 0.86 (N=10),
-//     0.71 (N=20), 0.66 (N=40), each cheaper than the age rule alone.
-//   neutral prompt (now in openjev-serve.py), same first 150 items: AUC
-//     0.761 vs 0.745, best T 0.82 (N=10), 0.78 (N=20); at N=40 no T beats
-//     the age rule.
-// 0.80 sits between the N=10 and N=20 optima. On the neutral 150 it is
-// 21% cheaper than the age rule at N=10 and 5% at N=20, but 29% dearer
-// at N=40 -- re-run calibrate.py after changing the model or the question.
-export const NOT_NEEDED_P = 0.8;
+/**
+ * The keep line for a thread `calls` long: the judge's verdict cuts an aged
+ * item when notNeeded >= cutLine(calls). null means the judge isn't worth
+ * asking -- verdicts are ignored (pure age rule) and items aren't sent.
+ *
+ * Chosen by cost, not by a wrong-cut cap. An aged item with no verdict is
+ * cut anyway (the age rule), so the judge only decides what to KEEP. Per
+ * unit of item size: keeping an unneeded item costs ~0.1 x N (a cache read
+ * on each of N later calls); cutting a needed one costs ~1.25 (re-read +
+ * re-cache). Calls so far stand in for N, the calls still to come.
+ * calibrate.py (2026-09-27), qwen35-4b-q4, positive question, neutral
+ * prompt, 150 labeled past files (AUC 0.761):
+ *   N=10: best T 0.82, 33% cheaper than the age rule alone
+ *   N=20: best T 0.78, 14% cheaper
+ *   N=40: no threshold beats the age rule alone -> no judge past 25 calls
+ * Re-run calibrate.py after changing the model, question or prompt.
+ */
+export function cutLine(calls) {
+  if (calls <= 10) return 0.82;
+  if (calls <= 25) return 0.78;
+  return null;
+}
 
 /**
  * Fold one `wibble.trim.onSeen` report into `state`, and report which items
@@ -80,6 +87,9 @@ export function track(state, seen) {
   }
 
   const toJudge = [];
+  // Past the last cut line the judge's verdict would be ignored -- don't
+  // spend a judge call on it.
+  if (cutLine(thread.calls) === null) return { toJudge };
   for (const [id, entry] of thread.items) {
     if (entry.age > AGE && entry.verdict === null && !entry.asked && !thread.dropped.has(id)) {
       toJudge.push({ id, ...entry });
@@ -104,14 +114,17 @@ export function track(state, seen) {
 export function release(thread) {
   if (thread.calls - thread.lastRelease < BATCH) return [];
 
+  const line = cutLine(thread.calls);
   const ids = [];
   for (const [id, entry] of thread.items) {
     if (thread.dropped.has(id)) continue;
     if (entry.age <= AGE) continue;
 
-    const verdictSaysDrop = entry.verdict != null && entry.verdict.notNeeded >= NOT_NEEDED_P;
-    const verdictSaysNeeded = entry.verdict != null && entry.verdict.notNeeded < NOT_NEEDED_P;
-    const fallbackApplies = entry.verdict == null; // judge down, or not reached yet
+    // line === null: a long thread, pure age rule -- any verdict is ignored.
+    const verdict = line === null ? null : entry.verdict;
+    const verdictSaysDrop = verdict != null && verdict.notNeeded >= line;
+    const verdictSaysNeeded = verdict != null && verdict.notNeeded < line;
+    const fallbackApplies = verdict == null; // judge down, not reached yet, or ignored
 
     if (verdictSaysNeeded) continue;
     if (verdictSaysDrop || fallbackApplies) ids.push(id);
@@ -385,6 +398,10 @@ export async function activate(wibble) {
       try {
         while (judgeUp && queue.length) {
           const next = queue.shift();
+          // The thread may have grown past the last cut line while this
+          // waited; its verdict would be ignored, so skip the judge call.
+          const waiting = state.threads[next.key];
+          if (!waiting || cutLine(waiting.calls) === null) continue;
           try {
             const verdict = await ask(next.item, next.seen);
             const thread = state.threads[next.key];

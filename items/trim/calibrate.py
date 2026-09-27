@@ -33,7 +33,10 @@ item size:
   keep a needed / cut an unneeded   0
 For N in {10, 20, 40} it reports the threshold T (cut when notNeeded >= T)
 with the lowest total cost over the scored items, next to the cost of the
-age rule alone (cut everything). Pick NOT_NEEDED_P from that range.
+age rule alone (cut everything). main.js's cutLine(calls) steps on these,
+using calls so far as the estimate of N: <= 10 calls -> the N=10 best,
+11-25 -> the N=20 best, past 25 -> no judge (pure age rule), because at
+N=40 no threshold beat the age rule on the neutral-prompt run.
 
 Also reported, for context: AUC (probability a random not-needed item
 scores higher "not needed" than a random needed one), and for each
@@ -185,6 +188,8 @@ def report(rows):
     print(f"cost model: keep unneeded = {KEEP_UNNEEDED_PER_CALL} x N, cut needed = {CUT_NEEDED}")
     for n, (t, c, age) in best_thresholds(rows).items():
         print(f"  N={n:<3} best T = {t:.2f}  cost {c:.1f}  (age rule alone {age:.1f}, {1 - c / age:.0%} cheaper)")
+    print("main.js cutLine(calls) rule (calls so far estimate N): <=10 calls -> N=10 best, "
+          "11-25 -> N=20 best, >25 -> no judge (age rule), when N=40's best doesn't beat the age rule")
 
 
 def main():
