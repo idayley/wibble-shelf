@@ -941,6 +941,45 @@ test("activate: a cold drop Wibble applies becomes an ordinary sticky drop -- no
   assert.strictEqual(day.rereads, 1, "the re-read of the applied cold drop's target is counted");
 });
 
+test("activate: a result that writes nothing leaves thread.write1h as it was, so the next plan still prices at write1h", async () => {
+  // onResult only updates thread.write1h when a request actually wrote
+  // something (usage.cacheWrite1h + usage.cacheWrite5m > 0) -- a request
+  // that writes neither says nothing about which cache the engine uses, so
+  // the thread keeps betting on whichever it last actually saw. Prove it
+  // the way a regression would break it: if that guard were missing,
+  // write1h would flip to false (5-minute) on the no-write result below,
+  // and the batch's own numbers show that flip changes the outcome.
+  //
+  // Opus 5.5's built-in prices (cacheRead 2e-7, write5m 5e-6, write1h 8e-6).
+  // One 20,000-char item at 100,000 chars into a 200,000-char prompt; r =
+  // 0.25, P = 50,000 (from the results below), 20 calls so L = left(20) =
+  // 210, and no verdict (judge down) so p = CALIBRATION.baseRate = 0.6467.
+  //   keep = 20000 x 0.25 x 2e-7 x 210 = $0.21; gain = 0.6467 x 0.21 = $0.135807
+  //   at write1h (correct): reread = 20000 x 0.25 x 8e-6 + 50000 x 2e-7 = $0.05,
+  //     risk = 0.3533 x 0.05 = $0.017665; cost = 100000 x 0.25 x 7.8e-6 = $0.195
+  //     net = 0.135807 - 0.017665 - 0.195 = -$0.076858 -> not above 0: parked cold
+  //   at write5m (the bug this guards against): reread = 20000 x 0.25 x 5e-6 +
+  //     50000 x 2e-7 = $0.035, risk = 0.3533 x 0.035 = $0.0123655;
+  //     cost = 100000 x 0.25 x 4.8e-6 = $0.12
+  //     net = 0.135807 - 0.0123655 - 0.12 = $0.0034415 -> above 0: cut now
+  // So write1h staying true is exactly what keeps this item parked instead
+  // of cut.
+  const h = makeWibble({ health: "down" }, { cold: true });
+  await activate(h.wibble);
+
+  // Create the thread record before any result names it.
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 1, items: [] }));
+  // Writes the 1-hour cache: thread.write1h becomes true.
+  h.fireResult(opusResult({ usage: { input: 0, cacheRead: 0, cacheWrite5m: 0, cacheWrite1h: 50000, output: 0 }, sentChars: 200000, totalChars: 200000, removedChars: 0 }));
+  // Writes nothing at all: thread.write1h must stay true, not flip to false.
+  h.fireResult(opusResult({ usage: { input: 0, cacheRead: 50000, cacheWrite5m: 0, cacheWrite1h: 0, output: 0 }, sentChars: 200000, totalChars: 200000, removedChars: 0 }));
+
+  h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 20, totalChars: 200000, items: [{ id: "a", tool: "Read", target: "a.txt", chars: 20000, at: 100000, age: 6 }] }));
+  await wait(20);
+
+  assert.deepStrictEqual(h.dropCalls, [{ sessionId: "s1", ids: ["a"], opts: { when: "cold" } }], "parked cold at the write1h price, not cut now at the write5m price");
+});
+
 // --- the hover card (payback spec §3) ------------------------------------
 
 test("activate: the pill chip's kind/key/label are unchanged, and it now carries a detail", async () => {

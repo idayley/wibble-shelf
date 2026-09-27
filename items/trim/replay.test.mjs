@@ -59,8 +59,8 @@ test("replay: a short thread where v2 skips and v1 loses", () => {
   // req 20 reads 1,100 and writes 10,000 x 20 = 201,100; req 21 reads
   // 11,100. Total 255,100.
   closeTo(tot.none.usd, 255100 * U, "none");
-  // v2 at request 20: a0 is a candidate (p x 100 x 1 x left(20)=105 =
-  // 6,790 >= (1-p) x (100 x 20 + 11,100) = 4,628) but the rewrite from it,
+  // v2 at request 20: a0 is a candidate (p x 100 x 1 x left(20)=210 =
+  // 13,581 >= (1-p) x (100 x 20 + 11,100) = 4,628) but the rewrite from it,
   // 10,100 x 19 = 191,900, sinks it: parked for a cold cache, which never
   // comes. So v2 is no trimming.
   closeTo(tot.v2.usd, 255100 * U, "v2");
@@ -79,10 +79,11 @@ test("replay: three threads' totals (short: v1 loses; long: both save; paused: v
 
   // B, none: req 0 writes 11,000 x 20 = 220,000; reqs 1-59 read 11,000 =
   // 649,000. Total 869,000.
-  // B, both: at 20 b0 is cut (v2: 0.6467 x 10,000 x 105 = 679,035 gain,
-  // 0.3533 x (200,000 + 11,000) = 74,546 risk, 10,000 x 19 = 190,000
-  // rewrite: net 414,489 > 0). Reqs 0-20 = 440,000; req 21 reads the 1,000
-  // before it and writes nothing = 1,000; reqs 22-59 = 38,000. Total 479,000.
+  // B, both: at 20 b0 is cut (v2: 0.6467 x 10,000 x left(20)=210 =
+  // 1,358,070 gain, 0.3533 x (200,000 + 11,000) = 74,546 risk, 10,000 x 19
+  // = 190,000 rewrite: net 1,093,524 > 0). Reqs 0-20 = 440,000; req 21
+  // reads the 1,000 before it and writes nothing = 1,000; reqs 22-59 =
+  // 38,000. Total 479,000.
   //
   // C, none (5-minute writes, 12.5): req 0 = 13,750; reqs 1-19 = 20,900;
   // req 20 = 1,100 + 125,000 = 126,100; reqs 21-24 = 44,400; req 25 after
@@ -91,7 +92,7 @@ test("replay: three threads' totals (short: v1 loses; long: both save; paused: v
   // C, v1: cut applied at 21 = 1,000 + 10,000 x 12.5 = 126,000; reqs 22-24
   // = 33,000; req 25 = 11,000 x 12.5 = 137,500; reqs 26-29 = 44,000. With
   // reqs 0-20 (160,750): 501,250.
-  // C, v2: c0 parked at 20 (6,790 gain vs 0.3533 x (1,250 + 11,100) =
+  // C, v2: c0 parked at 20 (13,581 gain vs 0.3533 x (1,250 + 11,100) =
   // 4,363 risk, but 10,100 x 11.5 = 116,150 rewrite), applied free at 25:
   // reqs 0-24 as none = 205,150; req 25 = 137,500; reqs 26-29 = 44,000.
   // Total 386,650.
@@ -122,7 +123,7 @@ test("replay: a later call naming a dropped item's target is charged as a re-rea
   // Both: B's 479,000; req 30 = 1,000 read + 50 x 20 = 2,000 (+1,000);
   // the re-read at 30: its prompt 1,050 read again + 50 x 20 written =
   // 2,050; reqs 31-40 read 1,050 (+500). At 40 b30 is cut (v2: 0.6467 x 50
-  // x left(40)=132 = 4,268 gain, 0.3533 x (1,000 + 1,050) = 724 risk, 50 x
+  // x left(40)=264 = 8,536 gain, 0.3533 x (1,000 + 1,050) = 724 risk, 50 x
   // 19 = 950 rewrite), so reqs 41-59 read 1,000 as in B. 479,000 + 1,000 +
   // 2,050 + 500 = 482,550.
   closeTo(out.runs.v1.usd, 482550 * U, "v1");
