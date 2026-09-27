@@ -543,7 +543,7 @@ export function probNotNeeded(verdict, cal = CALIBRATION) {
  * Mark `ids` dropped, as v1's release did: sticky, and charged if re-read.
  * An id parked for a cold cache is no longer waiting on one.
  */
-function markDropped(thread, ids) {
+export function markDropped(thread, ids) {
   for (const id of ids) {
     thread.dropped.add(id);
     thread.coldPending.delete(id);
