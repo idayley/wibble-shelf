@@ -12432,11 +12432,22 @@ const CAPABILITIES = [
   "protocols.list",
   "foley.play",
   "storage",
-  "pin.data"
+  "pin.data",
+  "context.trim",
+  "net.fetch"
 ];
 const SLOTS = ["sidebar", "rail", "top"];
 const API = 1;
 const PIN_CAPABILITIES = ["pin.create", "storage", "pin.data"];
+const HOST_RE = /^[a-z0-9.-]+(?::(\d{1,5}))?$/;
+function isValidHost(value) {
+  if (typeof value !== "string") return false;
+  const match = HOST_RE.exec(value);
+  if (!match) return false;
+  if (match[1] === void 0) return true;
+  const port = Number(match[1]);
+  return port >= 1 && port <= 65535;
+}
 function parseManifest(raw, folderName) {
   let parsed;
   try {
@@ -12515,6 +12526,54 @@ function parseManifest(raw, folderName) {
       message: `Unknown capability: ${unknownCapability}`
     };
   }
+  let hosts = [];
+  if (obj.hosts !== void 0) {
+    if (!Array.isArray(obj.hosts)) {
+      return {
+        ok: false,
+        reason: "field",
+        message: "hosts must be an array"
+      };
+    }
+    if (obj.hosts.length > 8) {
+      return {
+        ok: false,
+        reason: "field",
+        message: `hosts has ${obj.hosts.length} entries, more than the 8 allowed`
+      };
+    }
+    if (obj.hosts.length < 1) {
+      return {
+        ok: false,
+        reason: "field",
+        message: "hosts must not be empty when it is given at all"
+      };
+    }
+    const malformed = obj.hosts.find((host) => !isValidHost(host));
+    if (malformed !== void 0) {
+      return {
+        ok: false,
+        reason: "field",
+        message: `hosts entry ${JSON.stringify(malformed)} is not a bare hostname or "hostname:port" (lowercase letters, digits, '.', '-' only; no scheme, path or '*'; port 1-65535)`
+      };
+    }
+    hosts = obj.hosts;
+  }
+  const hasNetFetch = capabilities.includes("net.fetch");
+  if (hosts.length > 0 && !hasNetFetch) {
+    return {
+      ok: false,
+      reason: "field",
+      message: 'hosts was given but the "net.fetch" capability was not requested'
+    };
+  }
+  if (hasNetFetch && hosts.length === 0) {
+    return {
+      ok: false,
+      reason: "field",
+      message: 'the "net.fetch" capability needs a non-empty "hosts" array to name what it may reach'
+    };
+  }
   let slot = "sidebar";
   if (obj.slot !== void 0) {
     if (typeof obj.slot !== "string") {
@@ -12567,7 +12626,8 @@ function parseManifest(raw, folderName) {
     api,
     capabilities,
     slot,
-    kind
+    kind,
+    hosts
   };
   return {
     ok: true,
