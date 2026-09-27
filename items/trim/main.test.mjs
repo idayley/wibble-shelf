@@ -1,11 +1,17 @@
-// trim/logic.test.mjs — run with `node --test items/trim/`.
+// trim/main.test.mjs — run with `node --test items/trim/main.test.mjs`.
 //
 // Hand-worked numbers live in comments right above the assertion that
 // checks them, so the arithmetic can be checked without re-deriving it.
+//
+// These exercise only the pure functions at the top of main.js. Importing
+// it here runs none of Task 2's wiring -- only activate() does that -- so
+// this file needs no fake `wibble` object. See main.activate.test.mjs for
+// the judge client, drop release, savings totals and panel pill, driven
+// through activate() with a fake wibble.
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { track, release, rereads, cost, saving, dollars, percent, PRICE_PER_M, AGE, BATCH, NOT_NEEDED_P } from "./logic.js";
+import { track, release, rereads, cost, saving, dollars, percent, PRICE_PER_M, AGE, BATCH, NOT_NEEDED_P } from "./main.js";
 
 function closeTo(actual, expected, msg) {
   assert.ok(Math.abs(actual - expected) < 1e-6, `${msg}: got ${actual}, expected ${expected}`);
@@ -179,7 +185,12 @@ test("dollars: matches a known model family by substring, null for an unknown on
   assert.strictEqual(dollars(1_000_000, undefined), null);
 });
 
-test("percent: saved / (actual + saved)", () => {
+test("percent: saved / (actual + saved), and 0 (not NaN) when both are 0", () => {
   // 1000 / (12760 + 1000) = 1000 / 13760
   closeTo(percent({ saved: 1000, actual: 12760 }), 1000 / 13760, "percent");
+
+  // A fresh install (or a week with no activity) has totals {saved: 0,
+  // actual: 0}. saved/(actual+saved) is 0/0 there, which is NaN, not a
+  // percentage -- percent() special-cases the empty denominator to 0.
+  assert.strictEqual(percent({ saved: 0, actual: 0 }), 0, "percent of nothing spent or saved is 0, not NaN");
 });
