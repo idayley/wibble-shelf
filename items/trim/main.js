@@ -20,7 +20,13 @@
 
 export const AGE = 5;
 export const BATCH = 20;
-export const NOT_NEEDED_P = 0.7;
+// Calibrated by calibrate.py (2026-09-27) on 337 labeled past files across
+// 42 tasks (104 truly needed, 233 not), qwen35-4b-q4 judge, positive
+// question: AUC 0.755. No threshold in 0.50..0.90 kept wrong cuts (needed
+// files cut) at or under 5%, so per the rule this is the 0.90 ceiling:
+// 17.3% wrong cuts, 57.9% of not-needed files cut. (0.94 would be 4.8% /
+// 27.0%.) Re-run calibrate.py after changing the model or the question.
+export const NOT_NEEDED_P = 0.9;
 
 /**
  * Fold one `wibble.trim.onSeen` report into `state`, and report which items
