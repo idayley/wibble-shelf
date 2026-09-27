@@ -35,21 +35,26 @@ Per model, per million tokens: input, cache read, 5-minute cache write,
 in fixed multipliers (Opus 5.5's cache read is 5% of input, not the 10% v1
 assumed).
 
-- Source: `https://openrouter.ai/api/v1/models` (public, no key). Map
-  `pricing.prompt`, `input_cache_read`, `input_cache_write`,
-  `input_cache_write_1h`, `completion` (strings, dollars per token).
-- Model matching: the engine's model id (`claude-opus-5-5`,
-  `claude-opus-5-5[1m]`, `gpt-5.5`, `deepseek/deepseek-v4`, …) is normalized
-  (lowercase, strip `[…]` and date suffixes, `-` between version digits →
-  `.`) and matched against the OpenRouter id with its provider prefix
-  removed; skip `:batch`/`:free` variants. No match → the built-in table,
-  then v1's family fallback, then tokens only.
+- Source: OpenRouter's per-model endpoint list,
+  `https://openrouter.ai/api/v1/models/<author>/<slug>/endpoints` (public,
+  no key, ~12 KB). The full `/api/v1/models` list is ~800 KB, too close to
+  `wibble.net.fetch`'s 1 MB cap, and Trim only needs the models it has seen.
+  From `data.endpoints`, take those whose `provider_name` is the model's own
+  maker (`Anthropic`, `OpenAI`, `DeepSeek`, …), else all of them, and use
+  the one with the lowest `pricing.prompt`. Map `prompt`,
+  `input_cache_read`, `input_cache_write`, `input_cache_write_1h`,
+  `completion` (strings, dollars per token) and `context_length`.
+- Model id → slug: lowercase; strip a `[…]` suffix (`[1m]`) and a trailing
+  date (`-20251001`); strip a router prefix (`openrouter/`); `claude-*` and
+  `gpt-*`/`o*` get `anthropic/` and `openai/`; a version's digits joined by
+  `-` become `.` (`claude-opus-5-5` → `anthropic/claude-opus-5.5`). An id
+  that already has `author/slug` is used as it is. A 404 or unexpected
+  shape → the built-in table, then v1's family fallback, then tokens only.
 - Missing cache write on a model (OpenAI, most OpenAI-compatible): writing
   costs the plain input price.
-- Refresh once a day and on start if older than a day; keep the last good
-  copy in storage; a failed fetch changes nothing. Ignore responses over
-  4 MB or not shaped as expected.
-- Built-in table (as of 2026-09-27, from that list) covers Opus 5.5, Opus 5,
+- Fetched once per model per day, at most one fetch in flight, the last good
+  answers kept in storage; a failed fetch changes nothing.
+- Built-in table (as of 2026-09-27, from OpenRouter) covers Opus 5.5, Opus 5,
   Sonnet 5, Haiku 4.5, GPT-5.5, GPT-5-codex.
 - Manifest: `hosts` gains `openrouter.ai`.
 
@@ -156,8 +161,10 @@ Judge           on  |  off — using the age rule
 - "This chat" is the chat whose request Trim saw most recently.
 - Prices show the model of that chat; "updated" says built-in when no fetch
   has succeeded.
-- Codex on a ChatGPT login and any subscription-billed engine: dollar lines
-  read `≈ $3.10 at API prices`.
+- A session Wibble reports as `billing: "plan"` (Claude on a claude.ai
+  login, Codex on a ChatGPT login) saves plan usage, not money: its dollar
+  lines read `≈ $3.10 at API prices`, and so does the chip when most of the
+  week was on a plan.
 - Without `detail` support (older Wibble) the chip is unchanged and the
   hover is simply absent.
 
