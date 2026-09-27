@@ -349,8 +349,90 @@ export function percent(totals) {
 }
 
 // ---------------------------------------------------------------------------
-// Task 2: the judge client, the drop/saving wiring, and the top-slot pill.
-// Everything below is driven by `activate()`, and only by it.
+// How long a thread runs, and the judge's scores as real odds (design doc
+// §2.2, §2.4). Pure, like everything above -- Task 3's planner is the one
+// that calls these; nothing here touches activate()'s wiring below.
+// ---------------------------------------------------------------------------
+
+/**
+ * Median further main-thread requests for a thread that has reached
+ * `calls`, measured on real history: `calibrate.py --lengths` (2026-09-27)
+ * over 1410 threads long enough to count, from 6805 transcripts under
+ * `~/.claude/projects`. Re-run it after enough time has passed that thread
+ * lengths might have drifted.
+ */
+export const LEFT_TABLE = [
+  [20, 105],
+  [40, 132],
+  [60, 128],
+  [100, 164],
+  [200, 154],
+  [400, 231],
+];
+
+/**
+ * How many more requests a thread `calls` long typically has left,
+ * interpolated between `LEFT_TABLE`'s points and flat past both ends
+ * (median, not mean, so a few 1,000-call threads don't drag short ones
+ * up). Capped at 10 once `promptTokens` is within 15% of `context` (the
+ * model's window): compaction is about to happen and would throw away
+ * whatever a cut just saved anyway. `context` is `null` when unknown --
+ * the cap never applies then.
+ */
+export function left(calls, promptTokens = 0, context = null) {
+  const t = LEFT_TABLE;
+  let v;
+  if (calls <= t[0][0]) v = t[0][1];
+  else if (calls >= t[t.length - 1][0]) v = t[t.length - 1][1];
+  else {
+    const i = t.findIndex(([c]) => c > calls);
+    const [c0, v0] = t[i - 1], [c1, v1] = t[i];
+    v = v0 + ((v1 - v0) * (calls - c0)) / (c1 - c0);
+  }
+  return context && promptTokens >= 0.85 * context ? Math.min(v, 10) : v;
+}
+
+/**
+ * Maps the judge's raw `notNeeded` score to a real probability: the
+ * judge separates needed from not-needed items only 76% of the time
+ * (AUC), so its scores run hot and aren't probabilities on their own.
+ * `bins` is `[[upperScore, prob], ...]` in ascending score order (the
+ * last upper is 1, covering the rest of the range), non-decreasing in
+ * prob by construction (`calibrate.py --curve`'s pool-adjacent-violators
+ * fit over 150 labeled, scored items, today's question and prompt).
+ * `baseRate` is the overall share of those items that were truly not
+ * needed -- what `probNotNeeded` falls back to for an item with no
+ * verdict at all (judge down, or not reached yet).
+ * Re-run `calibrate.py --curve` after changing the model, question, or
+ * prompt; paste both `bins` and `baseRate` in fresh.
+ */
+export const CALIBRATION = {
+  bins: [
+    [0.7549, 0.2667],
+    [0.7982, 0.4],
+    [0.8355, 0.4],
+    [0.8808, 0.5667],
+    [0.9241, 0.8222],
+    [0.9526, 0.8667],
+    [1, 0.9333],
+  ],
+  baseRate: 0.6467,
+};
+
+/**
+ * `verdict`'s (or, absent one, the base rate's) real probability of being
+ * not needed, per `cal` (default the module's own `CALIBRATION`; tests
+ * and Task 3's planner pass an override).
+ */
+export function probNotNeeded(verdict, cal = CALIBRATION) {
+  if (verdict == null) return cal.baseRate;
+  const bin = cal.bins.find(([upper]) => verdict.notNeeded <= upper) || cal.bins[cal.bins.length - 1];
+  return bin[1];
+}
+
+// ---------------------------------------------------------------------------
+// Task 2 (v1 plan): the judge client, the drop/saving wiring, and the
+// top-slot pill. Everything below is driven by `activate()`, and only by it.
 // ---------------------------------------------------------------------------
 
 const JUDGE_ORIGIN = "http://127.0.0.1:8791";

@@ -30,6 +30,10 @@ import {
   priceFor,
   BUILTIN_PRICES,
   MAKERS,
+  LEFT_TABLE,
+  left,
+  CALIBRATION,
+  probNotNeeded,
 } from "./main.js";
 
 function closeTo(actual, expected, msg) {
@@ -433,4 +437,61 @@ test("priceFor: the built-in table is used when nothing has been fetched for tha
 test("priceFor: an unknown model is null, fetched or not", () => {
   assert.strictEqual(priceFor("mystery-model-9000", {}), null);
   assert.strictEqual(priceFor(null, {}), null);
+});
+
+// --- left() -----------------------------------------------------------
+
+test("left: exactly on a table point, and flat past both ends", () => {
+  // LEFT_TABLE's first/last points, from calibrate.py --lengths.
+  assert.strictEqual(left(20), LEFT_TABLE[0][1]);
+  closeTo(left(20), 105, "left(20)");
+  assert.strictEqual(left(5), left(20), "below the first point is flat");
+  closeTo(left(5), 105, "left(5)");
+  assert.strictEqual(left(1000), LEFT_TABLE[LEFT_TABLE.length - 1][1], "past the last point is flat");
+  closeTo(left(1000), 231, "left(1000)");
+});
+
+test("left: linear interpolation between two table points", () => {
+  // Between (20, 105) and (40, 132): 105 + (132-105) * (30-20)/(40-20) = 118.5
+  closeTo(left(30), 118.5, "left(30)");
+});
+
+test("left: capped at 10 once the prompt is >= 85% of the model's context, uncapped otherwise", () => {
+  // calls=100 lands exactly on a table point (164), so any deviation from
+  // 164 below is purely the compaction cap, not interpolation.
+  closeTo(left(100, 870000, 1000000), 10, "870000/1000000 = 87% full -> capped at 10");
+  closeTo(left(100, 800000, 1000000), 164, "80% full -> under the 85% line, uncapped");
+  closeTo(left(100, 870000, null), 164, "no context given -> cap never applies");
+});
+
+// --- probNotNeeded() -----------------------------------------------------------
+
+test("probNotNeeded: no verdict falls back to the calibration's base rate", () => {
+  assert.strictEqual(probNotNeeded(null), CALIBRATION.baseRate);
+  assert.strictEqual(probNotNeeded(undefined), CALIBRATION.baseRate);
+
+  // An override calibration (as the planner's tests and Task 3 itself pass)
+  // is used in place of the module's own CALIBRATION.
+  const cal = { bins: [[1, 0.5]], baseRate: 0.42 };
+  assert.strictEqual(probNotNeeded(null, cal), 0.42);
+});
+
+test("probNotNeeded: a raw score in bin k returns bin k's prob", () => {
+  const cal = { bins: [[0.3, 0.1], [0.6, 0.4], [1, 0.9]] };
+  assert.strictEqual(probNotNeeded({ notNeeded: 0.1 }, cal), 0.1, "below the first bin's upper");
+  assert.strictEqual(probNotNeeded({ notNeeded: 0.3 }, cal), 0.1, "exactly on a bin's upper is inclusive");
+  assert.strictEqual(probNotNeeded({ notNeeded: 0.45 }, cal), 0.4, "inside the second bin");
+  assert.strictEqual(probNotNeeded({ notNeeded: 1 }, cal), 0.9, "the top bin");
+});
+
+test("probNotNeeded: CALIBRATION's own bins are within [0, 1] and non-decreasing in score", () => {
+  let prev = -Infinity;
+  for (const [upper, prob] of CALIBRATION.bins) {
+    assert.ok(upper >= 0 && upper <= 1, `upper ${upper} in [0,1]`);
+    assert.ok(prob >= 0 && prob <= 1, `prob ${prob} in [0,1]`);
+    assert.ok(prob >= prev, `probs non-decreasing: ${prob} >= ${prev}`);
+    prev = prob;
+  }
+  assert.strictEqual(CALIBRATION.bins[CALIBRATION.bins.length - 1][0], 1, "the top bin covers the rest of the range");
+  assert.ok(CALIBRATION.baseRate >= 0 && CALIBRATION.baseRate <= 1);
 });

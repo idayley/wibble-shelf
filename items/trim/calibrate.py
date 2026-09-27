@@ -50,18 +50,50 @@ threshold 0.50..0.90:
   wrong cuts = share of truly-needed items with notNeeded >= threshold
   savings    = share of not-needed items with notNeeded >= threshold
 
-Usage (the judge must already be running):
+--lengths is a second, unrelated mode: how long a thread runs, not how
+good the judge is. For every transcript under ~/.claude/projects/*/*.jsonl,
+count its main-thread (not sidechain) assistant requests, deduped by
+message id (a transcript under 2 such requests is noise and dropped). For
+each `n` in 20/40/60/100/200/400, take the median of (that count - n) over
+every transcript that reached at least `n` -- how many further requests a
+thread this long still typically has left. Prints a JS array literal,
+[[20, 105], ...], to paste into main.js as LEFT_TABLE (main.js's left()
+interpolates between these points and holds flat past both ends). Reads
+only type/isSidechain/message id from each line -- never a message's own
+content, per the no-transcript-content rule.
+
+--curve, given --from <scored.jsonl> (rows already scored by --labels/--out
+above: this file's own `notNeeded`, next to the original `label`), fits the
+judge's raw notNeeded score to a real probability (design doc §2.4): sort
+the rows by score, split into 10 equal-count bins, each bin's raw
+probability is its share of label == false (truly not needed), then pool
+adjacent violators (repeatedly merge neighbouring bins whose probability
+would otherwise decrease, into their count-weighted average) so the curve
+is non-decreasing in score end to end -- a higher raw score never maps to
+a lower probability, though a run of ties can survive unmerged. Prints
+`bins` ([[upperScore, prob], ...], the last upper forced to 1 so every
+score in [0, 1] lands somewhere) and `baseRate` (the overall share not
+needed, main.js's fallback for an item the judge never answered) -- paste
+both into main.js's CALIBRATION. main.js's probNotNeeded() looks a
+verdict's notNeeded up in these same bins.
+
+Usage (the judge must already be running, except --lengths/--curve, which
+need no judge -- they only re-read past transcripts or a scored file):
     python items/trim/calibrate.py --labels sets.json --repo ~/code/wibble \
         --max 400 --minutes 30 --out results.jsonl
     python items/trim/calibrate.py --from results.jsonl   # re-tabulate only
+    python items/trim/calibrate.py --lengths
+    python items/trim/calibrate.py --curve --from results.jsonl
 Stdlib only; no mlx needed here.
 """
 
 import argparse
+import glob
 import json
 import os
 import random
 import re
+import statistics
 import subprocess
 import sys
 import time
@@ -77,6 +109,10 @@ KEEP_UNNEEDED_PER_CALL = 0.1  # x N later calls
 REREAD_WRITE = 1.25  # the re-read text, written to cache
 PREFIX_ITEMS = 30  # the extra request's prompt, in item-sized units, read at 0.1
 CALLS = (20, 40)
+
+LENGTHS_GLOB = os.path.expanduser("~/.claude/projects/*/*.jsonl")
+LENGTHS_N = (20, 40, 60, 100, 200, 400)
+CURVE_BINS = 10
 
 
 def judge_question():
@@ -203,6 +239,105 @@ def report(rows, prefix_items=PREFIX_ITEMS):
     print("main.js cutLine(calls): <= 25 calls (a thread's first batch) -> N=20 best, > 25 -> N=40 best")
 
 
+def thread_lengths(pattern=LENGTHS_GLOB):
+    """One length per transcript: its count of main-thread (not sidechain)
+    assistant requests, deduped by message id. Transcripts under 2 such
+    requests are skipped -- see the module docstring's --lengths section.
+    Never reads a message's own content, only type/isSidechain/id."""
+    lens = []
+    for path in glob.glob(pattern):
+        seen = set()
+        count = 0
+        try:
+            for line in open(path, encoding="utf-8", errors="replace"):
+                try:
+                    o = json.loads(line)
+                except ValueError:
+                    continue
+                if o.get("type") != "assistant" or o.get("isSidechain"):
+                    continue
+                mid = (o.get("message") or {}).get("id")
+                if not mid or mid in seen:
+                    continue
+                seen.add(mid)
+                count += 1
+        except OSError:
+            continue
+        if count >= 2:
+            lens.append(count)
+    return lens
+
+
+def left_table(lens, ns=LENGTHS_N):
+    """[[n, median(len - n) over threads with len >= n], ...], skipping any
+    `n` no transcript reached at all."""
+    table = []
+    for n in ns:
+        remaining = [l - n for l in lens if l >= n]
+        if remaining:
+            table.append([n, round(statistics.median(remaining))])
+    return table
+
+
+def do_lengths():
+    lens = thread_lengths()
+    print(f"{len(lens)} threads (of {len(glob.glob(LENGTHS_GLOB))} transcripts)", file=sys.stderr)
+    print(json.dumps(left_table(lens)))
+
+
+def pav(bins):
+    """Pool adjacent violators: `bins` is [[upper, prob, count], ...] in
+    ascending score order. Repeatedly merges a bin into its predecessor
+    whenever the predecessor's probability is higher (a violation of
+    non-decreasing), replacing the pair with their count-weighted average
+    and the later bin's upper bound, until nothing violates any more."""
+    stack = []
+    for b in bins:
+        stack.append(list(b))
+        while len(stack) >= 2 and stack[-2][1] > stack[-1][1]:
+            hi = stack.pop()
+            lo = stack.pop()
+            n = lo[2] + hi[2]
+            prob = (lo[1] * lo[2] + hi[1] * hi[2]) / n
+            stack.append([hi[0], prob, n])  # the higher (later) bin's upper survives
+    return stack
+
+
+def curve_bins(rows, k=CURVE_BINS):
+    """10 equal-count bins by ascending notNeeded score; each bin's raw
+    probability is its share of label == false (truly not needed), pooled
+    (pav()) so probability is non-decreasing in score end to end. The top
+    bin's upper is forced to 1 so every score in [0, 1] lands somewhere.
+    Returns ([[upper, prob], ...], baseRate)."""
+    rows = sorted(rows, key=lambda r: r["notNeeded"])
+    n = len(rows)
+    base_rate = sum(1 for r in rows if not r["label"]) / n if n else 0.0
+
+    raw = []
+    start = 0
+    for i in range(k):
+        size = n // k + (1 if i < n % k else 0)
+        if size == 0:
+            continue
+        chunk = rows[start : start + size]
+        start += size
+        not_needed = sum(1 for r in chunk if not r["label"])
+        raw.append([chunk[-1]["notNeeded"], not_needed / len(chunk), len(chunk)])
+    if raw:
+        raw[-1][0] = 1.0
+
+    bins = [[round(u, 4), round(p, 4)] for u, p, _ in pav(raw)]
+    return bins, round(base_rate, 4)
+
+
+def do_curve(path):
+    rows = [json.loads(l) for l in open(path) if l.strip()]
+    bins, base_rate = curve_bins(rows)
+    print(f"{len(rows)} scored items, {sum(1 for r in rows if not r['label'])} not needed", file=sys.stderr)
+    print("bins =", json.dumps(bins))
+    print("baseRate =", base_rate)
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--labels")
@@ -212,11 +347,23 @@ def main():
     ap.add_argument("--minutes", type=float, default=30)
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--out", help="write one JSON line per scored item")
-    ap.add_argument("--from", dest="from_", help="re-tabulate a previous --out file")
+    ap.add_argument("--from", dest="from_", help="re-tabulate a previous --out file, or (with --curve) fit its curve")
     ap.add_argument("--prefix-items", type=float, default=PREFIX_ITEMS,
                     help="the extra request a wrong cut forces, in item-sized units (default %(default)s)")
+    ap.add_argument("--lengths", action="store_true",
+                    help="print LEFT_TABLE (a JS array literal) from ~/.claude/projects; needs no judge, no --labels")
+    ap.add_argument("--curve", action="store_true",
+                    help="with --from <scored.jsonl>, fit and print CALIBRATION's bins/baseRate; needs no judge")
     args = ap.parse_args()
 
+    if args.lengths:
+        do_lengths()
+        return
+    if args.curve:
+        if not args.from_:
+            ap.error("--curve requires --from <scored.jsonl>")
+        do_curve(args.from_)
+        return
     if args.from_:
         report([json.loads(l) for l in open(args.from_) if l.strip()], args.prefix_items)
         return
