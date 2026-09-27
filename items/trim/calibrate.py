@@ -23,12 +23,23 @@ The state for one item mirrors main.js's stateText():
 The question text is read out of main.js (JUDGE_QUESTION), so this can't
 drift from what Trim actually sends. notNeeded = 1 - noul, as in main.js.
 
-Output: AUC (probability a random not-needed item scores higher "not
-needed" than a random needed one), and for each threshold 0.50..0.90:
+The objective: minimise the expected cost of the judge's decisions.
+Trim cuts every aged item the judge has no verdict on anyway (the age
+rule), so the judge's only real job is deciding what to KEEP. Per unit of
+item size:
+  keep an item that isn't needed  ~ 0.1 * N  (a cache read on each of the
+                                              N later calls it rides along)
+  cut an item that is needed      ~ 1.25     (it gets re-read and re-cached)
+  keep a needed / cut an unneeded   0
+For N in {10, 20, 40} it reports the threshold T (cut when notNeeded >= T)
+with the lowest total cost over the scored items, next to the cost of the
+age rule alone (cut everything). Pick NOT_NEEDED_P from that range.
+
+Also reported, for context: AUC (probability a random not-needed item
+scores higher "not needed" than a random needed one), and for each
+threshold 0.50..0.90:
   wrong cuts = share of truly-needed items with notNeeded >= threshold
   savings    = share of not-needed items with notNeeded >= threshold
-and a suggested NOT_NEEDED_P: the lowest threshold whose wrong-cut rate
-is <= 5% (0.90 if none is).
 
 Usage (the judge must already be running):
     python items/trim/calibrate.py --labels sets.json --repo ~/code/wibble \
@@ -52,8 +63,10 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 CAP_LAST_USER = 1500
 CAP_RECENT_ASSISTANT = 1500
 CAP_HEAD = 1200
-MAX_WRONG_CUT = 0.05
 THRESHOLDS = [round(0.5 + 0.05 * i, 2) for i in range(9)]
+KEEP_UNNEEDED_PER_CALL = 0.1  # x N later calls
+CUT_NEEDED = 1.25
+CALLS = (10, 20, 40)
 
 
 def judge_question():
@@ -136,19 +149,42 @@ def table(rows):
         wrong = sum(r["notNeeded"] >= t for r in needed) / max(1, len(needed))
         save = sum(r["notNeeded"] >= t for r in spare) / max(1, len(spare))
         lines.append((t, wrong, save))
-    pick = next((t for t, w, _ in lines if w <= MAX_WRONG_CUT), 0.9)
-    return lines, pick, len(needed), len(spare)
+    return lines, len(needed), len(spare)
+
+
+def cost(rows, t, n):
+    total = 0.0
+    for r in rows:
+        cut = r["notNeeded"] >= t
+        if cut and r["label"]:
+            total += CUT_NEEDED
+        elif not cut and not r["label"]:
+            total += KEEP_UNNEEDED_PER_CALL * n
+    return total
+
+
+def best_thresholds(rows):
+    """{N: (best T, its cost, age-rule-alone cost)} over T = 0.00..1.00 step 0.01.
+    Ties go to the lower T (cut more)."""
+    grid = [i / 100 for i in range(101)]
+    out = {}
+    for n in CALLS:
+        t = min(grid, key=lambda g: (cost(rows, g, n), g))
+        out[n] = (t, cost(rows, t, n), cost(rows, 0.0, n))
+    return out
 
 
 def report(rows):
-    lines, pick, n_needed, n_spare = table(rows)
+    lines, n_needed, n_spare = table(rows)
     print(f"items: {len(rows)} ({n_needed} needed, {n_spare} not needed), "
           f"tasks: {len({(r['split'], r['commit']) for r in rows})}")
     print(f"AUC: {auc(rows):.3f}")
     print("threshold | wrong cuts (needed cut) | savings (not-needed cut)")
     for t, w, s in lines:
         print(f"  {t:.2f}    | {w:6.1%}                  | {s:6.1%}")
-    print(f"suggested NOT_NEEDED_P: {pick:.2f} (lowest with wrong cuts <= {MAX_WRONG_CUT:.0%})")
+    print(f"cost model: keep unneeded = {KEEP_UNNEEDED_PER_CALL} x N, cut needed = {CUT_NEEDED}")
+    for n, (t, c, age) in best_thresholds(rows).items():
+        print(f"  N={n:<3} best T = {t:.2f}  cost {c:.1f}  (age rule alone {age:.1f}, {1 - c / age:.0%} cheaper)")
 
 
 def main():

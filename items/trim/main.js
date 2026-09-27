@@ -20,13 +20,21 @@
 
 export const AGE = 5;
 export const BATCH = 20;
-// Calibrated by calibrate.py (2026-09-27) on 337 labeled past files across
-// 42 tasks (104 truly needed, 233 not), qwen35-4b-q4 judge, positive
-// question: AUC 0.755. No threshold in 0.50..0.90 kept wrong cuts (needed
-// files cut) at or under 5%, so per the rule this is the 0.90 ceiling:
-// 17.3% wrong cuts, 57.9% of not-needed files cut. (0.94 would be 4.8% /
-// 27.0%.) Re-run calibrate.py after changing the model or the question.
-export const NOT_NEEDED_P = 0.9;
+// The cut line, chosen by cost, not by a wrong-cut cap. An aged item
+// with no verdict is cut anyway (the age rule), so the judge only decides
+// what to KEEP. Per unit of item size: keeping an unneeded item costs
+// ~0.1 x N (a cache read on each of N later calls); cutting a needed one
+// costs ~1.25 (re-read + re-cache). calibrate.py (2026-09-27) minimises
+// that over labeled past files, qwen35-4b-q4 judge, positive question:
+//   old "safe to discard" prompt, 337 items: AUC 0.755, best T 0.86 (N=10),
+//     0.71 (N=20), 0.66 (N=40), each cheaper than the age rule alone.
+//   neutral prompt (now in openjev-serve.py), same first 150 items: AUC
+//     0.761 vs 0.745, best T 0.82 (N=10), 0.78 (N=20); at N=40 no T beats
+//     the age rule.
+// 0.80 sits between the N=10 and N=20 optima. On the neutral 150 it is
+// 21% cheaper than the age rule at N=10 and 5% at N=20, but 29% dearer
+// at N=40 -- re-run calibrate.py after changing the model or the question.
+export const NOT_NEEDED_P = 0.8;
 
 /**
  * Fold one `wibble.trim.onSeen` report into `state`, and report which items

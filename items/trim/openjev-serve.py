@@ -77,12 +77,9 @@ MAX_BODY_BYTES = 1_000_000  # generous for Trim's capped state text; keeps a bad
 # "noul" scorer; only main.js's *instructions* text happens to be about
 # tool-output staleness today.
 JUDGE_SYSTEM_PROMPT = (
-    "You are judging whether one tool result from earlier in an AI coding "
-    "agent's session is now safe to discard because the agent has moved "
-    "past needing it. You will see the context and a yes/no question "
-    "about it. Decide from the context alone whether the agent still "
-    "needs to refer back to that exact tool result to finish its current "
-    "request, then answer the question as asked."
+    "You answer yes/no questions about an AI coding agent's session. You "
+    "will see context from the session and one question about it. Answer "
+    "the question as asked, from the context alone."
 )
 
 
