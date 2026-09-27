@@ -303,6 +303,12 @@ function formatSavingsLabel(week) {
 }
 
 export async function activate(wibble) {
+  // Wibble calls activate() from above this file's own text, before the
+  // `const`s at the top of it have run; touching one first thing throws
+  // "Cannot access 'TOTALS_KEY' before initialization". One await lets the
+  // rest of the module finish first.
+  await null;
+
   // RULING: the Wibble side of wibble.trim/wibble.net is built separately
   // and concurrently. An older Wibble without it gets a chip saying so,
   // and nothing else runs -- no storage read, no judge, no timers.
