@@ -296,8 +296,11 @@ function formatPercentLabel(week) {
 
 function formatSavingsLabel(week) {
   if (week.dollarsKnown) {
-    const amount = Math.round(week.dollars);
-    return amount < 0 ? "$" + Math.abs(amount) + " spent this week" : "$" + amount + " saved this week";
+    // Under $10 shows cents, so a small week reads "$0.10 spent" rather
+    // than rounding to "$0 saved" (Math.round(-0.1) is -0).
+    const d = week.dollars;
+    const amount = Math.abs(d) < 10 ? Math.abs(d).toFixed(2) : String(Math.round(Math.abs(d)));
+    return d < 0 && amount !== "0.00" ? "$" + amount + " spent this week" : "$" + amount + " saved this week";
   }
   return formatCompactNumber(week.removedTokens) + " tokens saved this week";
 }
