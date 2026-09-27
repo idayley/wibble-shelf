@@ -1,7 +1,7 @@
 {
   "id": "trim", "name": "Trim",
   "description": "Quietly removes old tool output your agents no longer need, so every request costs less. Shows what it saved.",
-  "version": "1.0.0", "author": "idayley", "main": "main.js", "api": 1, "slot": "top",
+  "version": "1.1.0", "author": "idayley", "main": "main.js", "api": 1, "slot": "top",
   "capabilities": ["panel.render", "storage", "context.trim", "net.fetch"],
   "hosts": ["127.0.0.1:8791", "openrouter.ai"]
 }

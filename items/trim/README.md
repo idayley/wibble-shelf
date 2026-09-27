@@ -1,24 +1,70 @@
 # Trim
 
-Trim quietly drops old tool output — file reads, command results, search hits — that your agent doesn't need anymore, before your next request goes out. There's nothing to configure and nothing to look at: it works from the moment it's on, and its own pill in the top slot shows what it's actually saved. If something it dropped turns out to still matter, the agent just reads it again — that re-read, and the extra request it takes, are charged back against the savings, so the number you see is never a bluff.
+Trim quietly drops old tool output — file reads, command results, search hits — that your agent doesn't need anymore, before your next request goes out. There's nothing to configure and nothing to look at day to day: it works from the moment it's on, and its own pill in the top slot shows what it's actually saved. Hover (or focus) that pill and it opens a small card with the working behind the number. If something it dropped turns out to still matter, the agent just reads it again — that re-read, and the extra request it takes, are charged back against the savings, so the number you see is never a bluff.
 
-## The 25% number
+## What it actually saves
 
-Replaying Wibble's own past sessions — dropping any tool output more than 5 calls old, in batches every 20 calls, with every re-read charged back — saved about **$950 of $3,870** over that replay: roughly **25%**, on real past work, not a synthetic benchmark.
+A cut isn't free: once something is dropped, everything after it in the conversation has to be written into the model's cache again on the next request, instead of being read cheaply from it. So Trim only cuts something when the money that saves over the rest of the conversation is expected to beat the cost of that one rewrite — see "How it decides what to cut" below. Every number here is what that rule actually earned, not a guess.
+
+To check it, this was replayed on one person's real Claude Code history from 27 Sep 2026 — about 99,000 requests across roughly 7,400 conversations — pricing every one of those requests at the real, current per-model prices (not a rough multiplier). As a sanity check, a "no trimming at all" version of the same replay landed within 1% of what those requests actually billed, which is what says the cost model behind these numbers is trustworthy in the first place.
+
+- **No trimming:** $9,220.70.
+- **The previous version** (drop anything more than 5 calls old, no payback check): saved $916.86 — **9.9%**. 78,801 cuts, 1,507 of them re-read later at a cost of $130.28.
+- **This version** (the payback rule below): saved $1,185.76 — **12.9%**. 26,117 cuts, 484 of them free (the chat had already gone quiet long enough for the cache to expire on its own, so the cut rode along for nothing — see below), and 474 re-reads costing back $34.01.
+
+Two honest caveats on that 12.9%:
+
+- It's the same replay this version was tuned on. How far ahead Trim bets on a conversation still running (see below) was picked by trying a few settings against this exact data and taking the best one — 12.9%. The runners-up were close (12.8% either a bit more or a bit less aggressive, 12.5% for a much more aggressive setting), so it wasn't a knife-edge choice, but it hasn't been checked against history Trim hadn't already seen.
+- Every re-read above is charged whenever a later call touches a cut item again — even on the (common) occasions where the agent would have re-read it anyway, cut or not. Leaving that charge out entirely (crediting Trim for those instead) puts the previous version at 11.4% and this one at 13.2%. The truth is somewhere between the number quoted and that one.
+
+(An older version of this doc quoted 25%. That came from a smaller, earlier replay that priced everything with fixed read/write multipliers instead of each model's real prices, run over one project's history rather than everything on the machine — this is the number that replaces it.)
 
 ## How it decides what to cut
 
-A tool output becomes a candidate once it's more than 5 calls old. Every 20 calls, Trim looks at that thread's candidates.
+A tool output becomes a candidate once it's more than 5 calls old, and Trim looks at that thread's candidates every 20 calls — same as before. What's new is the question it asks about each one: not just "is this still needed", but "does dropping it actually pay for itself".
 
-A small model running on your own machine (see below) — the judge — is asked how likely it is the agent still needs each candidate for what the operator just asked. Only a confident "not needed", or no answer at all (the judge is off, or hasn't reached it yet), gets the item cut. Anything short of that keeps it until the next batch, 20 calls later, when it's looked at again. The judge can only ever *save* an item; it never adds a cut the age rule wasn't already going to make.
+**Why a cut can lose money.** Cutting something removes it from every later request in that chat — but the request that makes the cut has to rewrite the model's cache from that point on, which is pricier than reading it. Cut something near the very end of a long prompt, or near the start when the chat is about to wrap up, and that one rewrite can cost more than the cut ever saves.
 
-"Confident" is stricter for a thread's first batch (at 20 calls) than for later ones: the longer a thread runs, the more an unneeded item costs by riding along on every call, so later batches cut a little more readily.
+**Guessing how much longer a chat has left.** To weigh that trade-off, Trim needs a rough sense of how many more requests are still coming. It gets that from this same person's own past work: looking at about 1,400 real past Claude Code conversations (93,641 requests in total), once a conversation has reached 20 calls, half the time it runs at least ~105 calls further, and 85% of the time it runs at least 20 further. Trim then leans into that a bit harder — betting on twice that number, not the number itself — because the small number of very long chats carry most of the actual money at stake, and underestimating them costs more than overestimating a short one does.
 
-Honestly: the judge isn't great. On 337 real tool outputs from 42 past tasks, each hand-labeled as actually needed or not, it told needed apart from not-needed correctly about 76% of the time (50% would be a coin flip, 100% would be never wrong). That's worth asking, not worth trusting blindly — so it only gets to keep things, and anything it hasn't answered on is cut by age as if it weren't there.
+**The payback rule itself.** Every 20 calls, for each old candidate, Trim weighs what keeping it costs from here (a small amount, paid again on every future request, for as long as the chat above is expected to keep going) against what a wrong cut would cost (rewriting it back in, plus the one extra request that forces). It only cuts the ones where the first number wins — and among those, it picks the single cut point that pays back the most, since one cut point pays for the whole rewrite regardless of how many things are removed at once.
+
+**Free cuts.** Sometimes a candidate would pay off eventually, just not on the very next request — the rewrite it would force right now costs more than it's worth yet. Trim doesn't force it. Instead it hands the item to Wibble to hold, and the moment this chat goes quiet long enough that the model's cache expires on its own (so the whole prompt gets rewritten anyway, cut or not), the cut applies for free. If the judge decides in the meantime that the held item really is still needed, Trim lets go of it before it's ever cut.
+
+**The judge.** A small model running on your own machine (see below) is asked how likely it is the agent still needs each candidate for what the operator just asked. Honestly, it isn't great: on 337 real tool outputs from 42 past tasks, each hand-labeled as actually needed or not, it told needed apart from not-needed correctly about 76% of the time (50% would be a coin flip, 100% would be never wrong). Trim doesn't take its raw answer at face value — it's been checked against those same 337 labeled examples first, and every dollar figure above already accounts for the judge sometimes being wrong. Skip setting it up, or let it go down, and Trim falls back to that same measured error rate for every item, still run through the payback math above; the judge can only ever make Trim *more* cautious about a cut, never less.
+
+## Live prices
+
+The payback math above needs real dollar prices, not guesses, so Trim checks openrouter.ai for whatever model you're actually talking to. All it ever sends is a plain `GET` for that one model's name — no body, no headers, no key — and at most once a day per model. A handful of common models (the current Claude and GPT families) are also built in, so pricing works even before the first check succeeds or if it ever fails; a failed check just means Trim keeps using whatever it had.
+
+## The pill
+
+The chip in the top slot is Trim's own status: this week's percent saved and a dollar figure, like `−24% · $41 saved`. It's on by default and has no settings of its own — you turn Trim on or off from Wibble's own Settings, the same as any other extension.
+
+Hover the pill, or reach it with the keyboard, and a small card opens showing the working behind that number:
+
+```
+This week    −24% · $41 saved
+Removed      3.1M tokens of old tool output
+Cuts         42 made · 31 free · 9 waiting
+Re-reads     6 · $1.20 netted out
+
+This chat    −31% · $3.10 saved · 58 calls
+
+Opus 5.5: $4/M input · cache read $0.20 · cache write $5
+updated today from openrouter.ai
+Judge on
+```
+
+"Waiting" is a candidate that hasn't paid back yet (see "free cuts" above); it isn't lost, it's just parked. If you're signed in with a subscription rather than an API key, the dollar figures read "≈ $41 at API prices" instead of "saved" — Trim still shows you what it would have cost, but a plan doesn't actually charge you per request.
+
+## What it can't do
+
+Trim can only remove old tool output from what your agents send. It can't add anything, change anything, or see anything beyond that. The only addresses it's allowed to reach at all are `127.0.0.1:8791` (the judge on your own machine) and `openrouter.ai` (to check a model's current price, as above) — it can't reach anywhere else on the internet, and it can't open your files directly either way.
 
 ## Turning on the judge
 
-Trim works with just the age rule if you skip this. To get the smarter behavior:
+Trim works with just the age and payback rules if you skip this. To get the smarter behavior:
 
 ```bash
 # 1. a venv for the model runtime (Apple silicon only)
@@ -36,15 +82,7 @@ python3 -m venv ~/.venvs/openjev
   --model ~/.cache/openjev/qwen35-4b-q4
 ```
 
-It listens on `127.0.0.1:8791` only, and holds the model loaded in memory so each question is fast. If it goes down, Trim notices within a minute, falls back to the age rule, and picks the judge back up on its own once it answers again — nothing to restart by hand.
-
-## The pill
-
-The chip in the top slot is Trim's own status, nothing more: one chip with this week's percent saved and a dollar figure, like `−24% · $41 saved` (or a token count, if the model isn't one we know the price of). It's on by default and has no settings of its own — you turn Trim on or off from Wibble's own Settings, the same as any other extension.
-
-## What it can't do
-
-Trim can only remove old tool output from what your agents send. It can't add anything, change anything, or see anything beyond that. It can't reach the internet or your files directly — the only address it's allowed to reach at all is `127.0.0.1:8791`, the judge on your own machine.
+It listens on `127.0.0.1:8791` only, and holds the model loaded in memory so each question is fast. If it goes down, Trim notices within a minute, falls back to the age and payback rules alone, and picks the judge back up on its own once it answers again — nothing to restart by hand.
 
 ## Engines
 

@@ -133,11 +133,16 @@
       "id": "trim",
       "name": "Trim",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "607186dd3a257f356b0a1771bd7baf295747ab4b",
+      "ref": "13f8cb6b5af5815873eea7b4534c76e57391cd52",
       "path": "items/trim",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "Quietly removes old tool output your agents no longer need, so every request costs less. Shows what it saved.",
       "history": [
+        {
+          "version": "1.1.0",
+          "date": "27 Sep",
+          "note": "Cuts only when they pay back; hover shows the working; live prices."
+        },
         {
           "version": "1.0.0",
           "date": "27 Sep",
