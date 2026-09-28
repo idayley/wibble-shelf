@@ -106,11 +106,16 @@
       "id": "discovery-kit",
       "name": "Discovery kit",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "0818941cfa5bffcbcee6e7741e56505ab733797b",
+      "ref": "4bbad1403c5aab2300284623f66404d371a564b5",
       "path": "items/discovery-kit/kit.json",
-      "version": "1.0.2",
+      "version": "1.0.3",
       "description": "Customer discovery for founders: find people, ask for calls, score each call on a hair-on-fire ladder, and see when a market has earned a yes.",
       "history": [
+        {
+          "version": "1.0.3",
+          "date": "28 Sep",
+          "note": "Four zones in one row, lined up as they land. Plan and Clutter are gone."
+        },
         {
           "version": "1.0.2",
           "date": "26 Sep",
