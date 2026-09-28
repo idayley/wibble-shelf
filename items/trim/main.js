@@ -1505,10 +1505,13 @@ export async function activate(wibble) {
     // live candidate (plan() won't park or withdraw it again) and a later
     // read of its target is charged as a re-read, same as any other drop.
     const coldAppliedIds = result.cold && Array.isArray(result.coldApplied) ? result.coldApplied : [];
+    // Only ids this thread still had parked stop "waiting": after an
+    // eviction nothing here counted them, so nothing is taken back.
+    const stillParked = thread ? coldAppliedIds.filter((id) => thread.coldPending.has(id)).length : 0;
     if (thread && coldAppliedIds.length) markDropped(thread, coldAppliedIds.filter((id) => thread.items.has(id)));
     const coldApplied = coldAppliedIds.length;
     // Applied free: it just stopped waiting, the same as one cut outright.
-    if (coldApplied) adjustSkipped(result.sessionId, -coldApplied);
+    if (stillParked) adjustSkipped(result.sessionId, -stillParked);
     const newlyRemoved = typeof result.newlyRemoved === "number" ? result.newlyRemoved : 0;
     const cuts = Math.max(0, newlyRemoved - coldApplied);
 
