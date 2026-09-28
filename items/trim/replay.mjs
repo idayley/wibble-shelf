@@ -302,6 +302,14 @@ export function replayThread(th, mode, r, tot) {
       const [i, rd, w5, w1] = q.billed;
       tot.billedUsd += i * prices.input + rd * prices.cacheRead + w5 * prices.write5m + w1 * prices.write1h;
     }
+    // plan() below must see this request's prompt the way activate() really
+    // would: onResult only ever sets thread.promptTokens/write1h from the
+    // PREVIOUS request's own result, so onSeen's plan() call always plans
+    // against that, never this request's own just-computed P. Snapshot
+    // `prev` (still the previous request's own {t, tier1h, P}) before it's
+    // overwritten below with this request's.
+    const prevP = prev ? prev.P : null;
+    const prevWrite1h = prev ? prev.tier1h : false;
     prev = { t: q.t, tier1h, P };
     if (mode === "none") continue;
 
@@ -329,9 +337,11 @@ export function replayThread(th, mode, r, tot) {
     track(state, seen, q.t * 1000);
     const t = state.threads[key];
     t.r = r;
-    t.promptTokens = P;
-    // As onResult: a request that wrote nothing keeps the last answer.
-    if (q.billed && q.billed[2] + q.billed[3] > 0) t.write1h = q.write1h;
+    // A fresh thread's first request: leave both unset, same as real
+    // activate() with no prior onResult, so plan()'s own fallback
+    // (thread.promptTokens ?? seen.totalChars * r) applies.
+    if (prevP != null) t.promptTokens = prevP;
+    if (prevP != null) t.write1h = prevWrite1h;
     const out = plan(t, seen, mode === "v2" ? prices : null);
     pending = out.now;
   }

@@ -120,7 +120,7 @@ keep$ = chars × r × cacheRead $ × left(calls)
 
 where `notNeeded'` is the judge's score mapped to a real probability. The
 judge's raw scores are not probabilities (it separates needed from not
-needed 76% of the time); `calibrate.py` already holds 337 labeled, scored
+needed 76% of the time); `calibrate.py` already holds 150 labeled, scored
 items and gains `--curve`, which fits the mapping (isotonic, 10 bins) and
 writes it into `main.js` as a constant. The same file gives the base rate
 for unjudged items.
@@ -174,8 +174,8 @@ Judge           on  |  off — using the age rule
 
 ## 4. What stays the same
 
-Batches every 20 calls, age > 5, sticky drops, the judge only ever keeps,
-never-wait, local judge on `127.0.0.1:8791`, no settings.
+Batches every 20 calls, age > 5, sticky drops, never-wait, local judge on
+`127.0.0.1:8791`, no settings.
 
 ## 5. On an older Wibble
 

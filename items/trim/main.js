@@ -55,7 +55,7 @@ export function v1Line(calls) {
  *   { calls, lastRelease, lastSeenAt, format, items: Map(id -> {
  *       tool, target, chars, at, age, head, verdict: null|{notNeeded}, asked
  *     }), dropped: Set(id), droppedTargets: Map(target -> chars),
- *     coldPending: Set(id), stats: { cuts, freeCuts, skipped } }
+ *     coldPending: Set(id) }
  *
  * `at` is the item's offset in the request, in chars; an older Wibble
  * doesn't send it, and the item keeps whatever it had (or none). onResult
@@ -81,7 +81,6 @@ export function track(state, seen, now = Date.now()) {
       dropped: new Set(),
       droppedTargets: new Map(),
       coldPending: new Set(), // parked for a cold cache (plan()'s `cold`)
-      stats: { cuts: 0, freeCuts: 0, skipped: 0 },
     };
     state.threads[key] = thread;
   }
@@ -666,7 +665,6 @@ export function plan(thread, seen, prices, cal = CALIBRATION) {
   markDropped(thread, now);
   for (const id of cold) thread.coldPending.add(id);
   for (const id of withdraw) thread.coldPending.delete(id);
-  thread.stats.skipped += cold.length;
 
   return { now, cold, withdraw, net: bestNet };
 }
@@ -690,8 +688,12 @@ const CAP_HEAD = 1200;
 const TOTALS_KEY = "totals";
 const PRICES_KEY = "prices";
 const PRICES_URL = "https://openrouter.ai/api/v1/models/";
-const PRICE_FRESH_MS = 24 * 60 * 60 * 1000; // "fetched once per model per day"
-const PRICE_RETRY_MS = 60 * 60 * 1000; // a failed fetch waits an hour
+// "fetched once per model per day" -- a failed fetch waits exactly the
+// same, not sooner: a model openrouter.ai simply doesn't list (an
+// OpenCode `ollama/...` id, say) 404s every time, and a shorter retry
+// window would turn that into a GET every hour, forever, instead of once
+// a day like everything else.
+const PRICE_FRESH_MS = 24 * 60 * 60 * 1000;
 
 const TOTALS_KEEP_DAYS = 14;
 const PERSIST_INTERVAL_MS = 5000; // "at most every 5 s"
@@ -837,10 +839,19 @@ function modelDisplayName(slug) {
   return rest;
 }
 
-/** Dollars per token -> dollars per million tokens, for the Prices row. */
+/**
+ * Dollars per token -> dollars per million tokens, for the Prices row.
+ * `toFixed(2)` alone rounds the wrong way on a value like $0.175 (stored
+ * as 0.174999999999999989..., so `toFixed` truncates it down to "0.17"):
+ * show up to 3 significant digits instead, then trim whatever trailing-
+ * zero noise that leaves ("0.500" -> "0.5"). An integer (a $5 price) is
+ * left exactly as it was.
+ */
 function perMillion(price) {
   const v = price * 1e6;
-  return Number.isInteger(v) ? String(v) : v.toFixed(2);
+  if (Number.isInteger(v)) return String(v);
+  const s = v.toPrecision(3);
+  return s.includes(".") ? s.replace(/0+$/, "").replace(/\.$/, "") : s;
 }
 
 /** The footer's prices line: `model`'s display name and its per-million-token prices. */
@@ -876,12 +887,17 @@ function pricesUpdatedText(source, at, now) {
  */
 function chatNetValue(chat) {
   const shown = chat.usd ? { saved: chat.saved, actual: chat.actual } : { saved: chat.units.saved, actual: chat.units.actual };
-  const dollarPart =
-    chat.billing === "plan"
+  // chat.usd false means at least one of this chat's own results had no
+  // known price -- chat.saved/actual is then only a partial dollar figure
+  // (whichever results WERE priced), never a real total, so a plan-billed
+  // chat must fall back to units exactly the way the API branch already
+  // does, rather than running that partial figure through
+  // formatPlanDollarPhrase().
+  const dollarPart = !chat.usd
+    ? formatCompactNumber(chat.units.saved) + " units saved"
+    : chat.billing === "plan"
       ? formatPlanDollarPhrase(chat.saved)
-      : chat.usd
-        ? dollarPhrase(chat.saved)
-        : formatCompactNumber(chat.units.saved) + " units saved";
+      : dollarPhrase(chat.saved);
   return formatPercentLabel(shown) + " · " + dollarPart;
 }
 
@@ -993,6 +1009,11 @@ export async function activate(wibble) {
   const state = { threads: {} };
   const pendingRereads = {}; // key (sessionId:thread) -> {chars, count} stashed for the next onResult
   const chats = {}; // sessionId -> noteChat()'s figures, in memory only
+  // withdraw() comes with cold drops, so a Wibble without it has neither:
+  // nothing here is ever actually handed over as a cold drop, so nothing
+  // ever reads as "waiting" on the card either (onSeen/onResult below both
+  // read this same flag, computed once).
+  const knowsCold = typeof wibble.trim.withdraw === "function";
   let totals = (await wibble.storage.get(TOTALS_KEY)) || {};
   for (const day of Object.values(totals)) normalizeDay(day);
   pruneOldDays();
@@ -1132,15 +1153,17 @@ export async function activate(wibble) {
   /**
    * Fetch `model`'s prices from openrouter.ai unless a fetch under a day
    * old is on file, one is already in flight, or its last one failed under
-   * an hour ago. Only the model's slug goes out: a plain GET, no body, no
-   * headers. A failure changes nothing; priceFor() keeps using what it had.
+   * a day ago -- the same wait as a fresh success, so a model openrouter.ai
+   * never lists doesn't get GET-ed every hour forever. Only the model's
+   * slug goes out: a plain GET, no body, no headers. A failure changes
+   * nothing; priceFor() keeps using what it had.
    */
   function refreshPrices(model, now) {
     const slug = slugOf(model);
     if (!slug || priceFetching) return;
     const hit = fetchedPrices[slug];
     if (hit && now - hit.at < PRICE_FRESH_MS) return;
-    if (slug in priceFailedAt && now - priceFailedAt[slug] < PRICE_RETRY_MS) return;
+    if (slug in priceFailedAt && now - priceFailedAt[slug] < PRICE_FRESH_MS) return;
 
     priceFetching = true;
     const url = PRICES_URL + slug.split("/").map(encodeURIComponent).join("/") + "/endpoints";
@@ -1175,6 +1198,24 @@ export async function activate(wibble) {
     while (keys.length > TOTALS_KEEP_DAYS) {
       delete totals[keys.shift()];
     }
+  }
+
+  /**
+   * Move today's day, and `sid`'s chat, "waiting" count by `delta` --
+   * positive when a batch newly parks candidates for a cold cache,
+   * negative when one of those is later applied free, withdrawn, or cut
+   * outright, so it stops waiting. Clamped at 0 either way: a decrement
+   * can land on a day that only just started (past midnight, the charge
+   * it's undoing was parked on yesterday's), with nothing left on today's
+   * day to take it out of.
+   */
+  function adjustSkipped(sid, delta) {
+    if (!delta) return;
+    const day = todaysDay();
+    day.skipped = Math.max(0, day.skipped + delta);
+    const chat = chats[sid];
+    if (chat) chat.skipped = Math.max(0, chat.skipped + delta);
+    schedulePersist();
   }
 
   /**
@@ -1376,12 +1417,25 @@ export async function activate(wibble) {
     // No prices for the model (unknown, or an older Wibble that sends no
     // model): v1's release, exactly.
     const priced = priceFor(seen.model, fetchedPrices);
+    // plan() mutates thread.coldPending itself (markDropped(), the cold/
+    // withdraw loops below it) -- snapshot who was parked BEFORE it runs,
+    // so a `now` id that was parked coming in can be told apart from one
+    // that never was.
+    const wasColdPending = new Set(thread.coldPending);
     const { now: cutIds, cold, withdraw } = plan(thread, seen, priced ? priced.prices : null);
     const sid = seen.sessionId;
-    // withdraw() came with cold drops, so a Wibble without it has neither.
-    const knowsCold = typeof wibble.trim.withdraw === "function";
 
     if (cutIds.length) {
+      // Any of these that was parked cold just stopped waiting -- it's cut,
+      // not parked, now (§2.5's "an item stops being a candidate ... not
+      // only on a changed verdict" cuts both ways). plan() already took it
+      // out of thread.coldPending synchronously; this only keeps the
+      // day/chat count in step with that, so it's charged regardless of
+      // whether the drop() call below actually succeeds.
+      if (knowsCold) {
+        const unparked = cutIds.filter((id) => wasColdPending.has(id)).length;
+        if (unparked) adjustSkipped(sid, -unparked);
+      }
       // If this fails (the session just ended, say), un-mark the ids so the
       // next batch offers them again, and a later read of them isn't
       // charged as a re-read of something that was never dropped.
@@ -1395,32 +1449,32 @@ export async function activate(wibble) {
         }
       });
     }
-    if (cold.length) {
-      todaysDay().skipped += cold.length;
-      noteChat(chats, sid, { skipped: cold.length }, now);
-      schedulePersist();
-      // On an older Wibble they stay parked here, and each batch weighs
-      // them again: cut when they pay back, withdrawn when they stop being
-      // candidates (only in this thread's own bookkeeping).
-      if (knowsCold) {
-        // Refused: un-park them, so the next batch offers them again -- and
-        // undo the skipped count charged above, since Wibble never actually
-        // parked anything. Without this, coldPending losing these ids let a
-        // later batch park the very same still-pending candidates again,
-        // double-counting one ongoing skip as two (review round 1, minor 3).
-        Promise.resolve(wibble.trim.drop(sid, cold, { when: "cold" })).catch(() => {
-          const t = state.threads[key];
-          if (t) for (const id of cold) t.coldPending.delete(id);
-          todaysDay().skipped -= cold.length;
-          noteChat(chats, sid, { skipped: -cold.length }, Date.now());
-          schedulePersist();
-        });
-      }
+    if (cold.length && knowsCold) {
+      // Only a Wibble that can hold a cold drop (and later hand it back via
+      // withdraw or coldApplied) ever actually parks one. On an older
+      // Wibble these stay parked here only in this thread's own
+      // bookkeeping (see plan()'s own doc) -- never handed over, so they
+      // never read as "waiting" on the card either.
+      adjustSkipped(sid, cold.length);
+      // Refused: un-park them, so the next batch offers them again -- and
+      // undo the skipped count charged above, since Wibble never actually
+      // parked anything. Without this, coldPending losing these ids let a
+      // later batch park the very same still-pending candidates again,
+      // double-counting one ongoing skip as two (review round 1, minor 3).
+      Promise.resolve(wibble.trim.drop(sid, cold, { when: "cold" })).catch(() => {
+        const t = state.threads[key];
+        if (t) for (const id of cold) t.coldPending.delete(id);
+        adjustSkipped(sid, -cold.length);
+      });
     }
     if (withdraw.length && knowsCold) {
-      // A failed withdraw leaves a cold drop that may yet apply; it's a cut
-      // the judge would have kept, the same risk as any cut.
-      Promise.resolve(wibble.trim.withdraw(sid, withdraw)).catch(() => {});
+      // A failed withdraw leaves a cold drop that may yet apply -- Wibble
+      // may still be holding it, so it's left counted as waiting until we
+      // know otherwise; it's a cut the judge would have kept, the same
+      // risk as any cut. Only a successful withdraw stops it waiting.
+      Promise.resolve(wibble.trim.withdraw(sid, withdraw))
+        .then(() => adjustSkipped(sid, -withdraw.length))
+        .catch(() => {});
     }
   }
 
@@ -1453,6 +1507,8 @@ export async function activate(wibble) {
     const coldAppliedIds = result.cold && Array.isArray(result.coldApplied) ? result.coldApplied : [];
     if (thread && coldAppliedIds.length) markDropped(thread, coldAppliedIds.filter((id) => thread.items.has(id)));
     const coldApplied = coldAppliedIds.length;
+    // Applied free: it just stopped waiting, the same as one cut outright.
+    if (coldApplied) adjustSkipped(result.sessionId, -coldApplied);
     const newlyRemoved = typeof result.newlyRemoved === "number" ? result.newlyRemoved : 0;
     const cuts = Math.max(0, newlyRemoved - coldApplied);
 

@@ -59,8 +59,10 @@ test("replay: a short thread where v2 skips and v1 loses", () => {
   // req 20 reads 1,100 and writes 10,000 x 20 = 201,100; req 21 reads
   // 11,100. Total 255,100.
   closeTo(tot.none.usd, 255100 * U, "none");
-  // v2 at request 20: a0 is a candidate (p x 100 x 1 x left(20)=210 =
-  // 13,581 >= (1-p) x (100 x 20 + 11,100) = 4,628) but the rewrite from it,
+  // v2 at request 20: plan() sees request 19's P (1,100 -- the request
+  // before this one, same as activate() only ever having the previous
+  // result's size). a0 is a candidate (p x 100 x 1 x left(20)=210 =
+  // 13,581 >= (1-p) x (100 x 20 + 1,100) = 1,095) but the rewrite from it,
   // 10,100 x 19 = 191,900, sinks it: parked for a cold cache, which never
   // comes. So v2 is no trimming.
   closeTo(tot.v2.usd, 255100 * U, "v2");
@@ -92,8 +94,9 @@ test("replay: three threads' totals (short: v1 loses; long: both save; paused: v
   // C, v1: cut applied at 21 = 1,000 + 10,000 x 12.5 = 126,000; reqs 22-24
   // = 33,000; req 25 = 11,000 x 12.5 = 137,500; reqs 26-29 = 44,000. With
   // reqs 0-20 (160,750): 501,250.
-  // C, v2: c0 parked at 20 (13,581 gain vs 0.3533 x (1,250 + 11,100) =
-  // 4,363 risk, but 10,100 x 11.5 = 116,150 rewrite), applied free at 25:
+  // C, v2: c0 parked at 20 (13,581 gain vs 0.3533 x (1,250 + 1,100) = 830
+  // risk, using request 19's P as plan() does, but 10,100 x 11.5 = 116,150
+  // rewrite), applied free at 25:
   // reqs 0-24 as none = 205,150; req 25 = 137,500; reqs 26-29 = 44,000.
   // Total 386,650.
   //
@@ -130,6 +133,32 @@ test("replay: a later call naming a dropped item's target is charged as a re-rea
   closeTo(out.runs.v2.usd, 482550 * U, "v2");
   assert.strictEqual(out.runs.v1.rereads, 1);
   closeTo(out.runs.v1.rereadUsd, 2050 * U, "re-read charge");
+});
+
+test("replayThread: plan() sees the PREVIOUS request's prompt size, not this one's own growth, same as activate()", () => {
+  // Like A (a0, 100 chars, at request 0), but request 20's OWN prompt
+  // jumps (tool schemas grew, say) instead of its chars: S = prompt - r x
+  // chars picks that jump up, while totalChars -- and so the rewrite --
+  // stays tiny. Wrongly feeding plan() THIS request's own P (51,100) makes
+  // a0 look too risky to touch at all (0.3533 x (2,000 + 51,100) = 18,760
+  // > the 13,581 gain: not even a candidate). Fed the PREVIOUS request's P
+  // (1,100 -- request 19's, the only one onResult would actually have had
+  // in hand), it clears easily (0.3533 x (2,000 + 1,100) = 1,095) and pays
+  // back a 100 x 19 = 1,900 rewrite: cut now, applied at request 21.
+  const messages = [];
+  const requests = [];
+  for (let n = 0; n < 22; n++) {
+    const items = n === 0 ? [{ id: "x0", tool: "Read", target: "", chars: 100 }] : [];
+    messages.push({ role: "user", chars: n === 0 ? 100 : 0, items });
+    const prompt = n === 20 ? 1000 + 100 + 50000 : 1000 + 100;
+    requests.push({ t: n, model: MODEL, prompt, write1h: true, billed: [0, 0, 0, 1], nMsgs: messages.length });
+    messages.push({ role: "assistant", chars: 0, items: [] });
+  }
+  const D = { name: "D", messages, requests };
+
+  const tot = { usd: 0, billedUsd: 0, requests: 0, cuts: 0, freeCuts: 0, rereads: 0, rereadUsd: 0 };
+  replayThread(D, "v2", 1, tot);
+  assert.strictEqual(tot.cuts, 1, "x0 is cut and applied, not left untouched by an inflated risk figure");
 });
 
 test("transcriptReader: one message per id, duplicates skipped, a new thread at compaction", () => {

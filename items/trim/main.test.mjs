@@ -79,7 +79,7 @@ test("track: keeps head once seen, and offers only aged/unverdicted/unasked/undr
 // --- plan(), prices null: v1's release, unchanged ----------------------
 
 function makeThread(itemEntries) {
-  return { calls: 0, lastRelease: 0, items: new Map(itemEntries), dropped: new Set(), droppedTargets: new Map(), coldPending: new Set(), stats: { cuts: 0, freeCuts: 0, skipped: 0 } };
+  return { calls: 0, lastRelease: 0, items: new Map(itemEntries), dropped: new Set(), droppedTargets: new Map(), coldPending: new Set() };
 }
 
 const NO_SEEN = { totalChars: 0, items: [] };
@@ -209,7 +209,6 @@ test("plan: a 40,000-char item near the start costs more to rewrite than it save
   assert.strictEqual(thread.lastRelease, BATCH, "a due batch always moves lastRelease on");
   assert.strictEqual(thread.dropped.size, 0);
   assert.deepStrictEqual([...thread.coldPending], ["a"]);
-  assert.strictEqual(thread.stats.skipped, 1);
 });
 
 test("plan: the same item near the end pays back, so it is cut now", () => {
@@ -224,7 +223,6 @@ test("plan: the same item near the end pays back, so it is cut now", () => {
   assert.deepStrictEqual([...thread.dropped], ["a"]);
   assert.strictEqual(thread.droppedTargets.get("a.txt"), 40000);
   assert.strictEqual(thread.coldPending.size, 0);
-  assert.strictEqual(thread.stats.skipped, 0);
 });
 
 test("plan: the best cut point skips a small early item and takes the big late one", () => {
@@ -265,7 +263,6 @@ test("plan: a parked item is not parked twice, and is withdrawn once its verdict
   assert.deepStrictEqual(out.now, []);
   assert.deepStrictEqual(out.cold, []);
   assert.deepStrictEqual(out.withdraw, []);
-  assert.strictEqual(thread.stats.skipped, 1);
 
   // The judge now says it's needed: p = 0.001 -> 0.001*keep < 0.999*reread.
   thread.lastRelease = 0;
@@ -296,7 +293,6 @@ test("plan: not due -> nothing returned, nothing changed", () => {
   assert.strictEqual(thread.lastRelease, 0);
   assert.strictEqual(thread.dropped.size, 0);
   assert.strictEqual(thread.coldPending.size, 0);
-  assert.strictEqual(thread.stats.skipped, 0);
 });
 
 test("plan: items without `at` sit at the earliest known position (0 when none is known)", () => {
@@ -340,13 +336,12 @@ test("track: the judge is asked at any thread length; the thread records when it
   assert.strictEqual(s26.threads["s:t"].format, "responses");
 });
 
-test("track: every thread starts with an empty parked set and zeroed stats, and keeps each item's latest `at`", () => {
+test("track: every thread starts with an empty parked set, and keeps each item's latest `at`", () => {
   const state = {};
   const seen = (calls, at) => ({ sessionId: "s", thread: "t", calls, items: [{ id: "a", tool: "Read", target: "f.txt", chars: 10, age: 0, head: null, at }] });
   track(state, seen(1, 500));
   const thread = state.threads["s:t"];
   assert.ok(thread.coldPending instanceof Set && thread.coldPending.size === 0);
-  assert.deepStrictEqual(thread.stats, { cuts: 0, freeCuts: 0, skipped: 0 });
   assert.strictEqual(thread.items.get("a").at, 500);
   track(state, seen(2, 300)); // something before it was cut: it moved up
   assert.strictEqual(thread.items.get("a").at, 300);
@@ -905,7 +900,7 @@ test("detailNode: the design doc's worked example, node for node", () => {
         kind: "stack",
         gap: 2,
         children: [
-          { kind: "text", content: "Opus 5.5 · $4/M input · cache read $0.20 · write $5", tone: "faint" },
+          { kind: "text", content: "Opus 5.5 · $4/M input · cache read $0.2 · write $5", tone: "faint" },
           { kind: "text", content: "Updated today from openrouter.ai", tone: "faint" },
           { kind: "text", content: "Judge on", tone: "faint" },
         ],
@@ -943,6 +938,18 @@ test("detailNode: a plan-billed chat that cost more says so, still as an API-pri
   view.chat = { ...view.chat, billing: "plan", saved: -view.chat.saved };
   const node = detailNode(view, Date.now());
   assert.deepStrictEqual(findRow(node, "Net"), { kind: "row", label: "Net", value: "+82% · ≈ $3.10 more at API prices" });
+});
+
+test("detailNode: a plan-billed chat with unknown dollars falls back to units, not a partial dollar figure", () => {
+  // chat.usd false means at least one of this chat's results had no known
+  // price -- chat.saved/actual is then only a partial dollar figure (the
+  // priced results' own share), not a real total. The API branch already
+  // falls back to units in that case; the plan branch must too, instead of
+  // running that partial figure through formatPlanDollarPhrase().
+  const view = baseView(Date.now());
+  view.chat = { ...view.chat, billing: "plan", usd: false, saved: 3.1, actual: 6.9, units: { saved: 500000, actual: 1500000 } };
+  const node = detailNode(view, Date.now());
+  assert.deepStrictEqual(findRow(node, "Net"), { kind: "row", label: "Net", value: "−25% · 500K units saved" });
 });
 
 test("detailNode: the week heading reads an API-price estimate when plan requests are the majority", () => {
@@ -1028,11 +1035,25 @@ test("detailNode: model display names -- GPT family, and the fallback to the slu
   view.chat = { ...view.chat, model: "gpt-5.5" };
   view.prices = { input: 5e-6, cacheRead: 5e-7, write5m: 5e-6, write1h: 5e-6, output: 3e-5, context: 1050000 };
   let node = detailNode(view, now);
-  assert.strictEqual(footer(node)[0], "GPT-5.5 · $5/M input · cache read $0.50 · write $5");
+  assert.strictEqual(footer(node)[0], "GPT-5.5 · $5/M input · cache read $0.5 · write $5");
 
   view = baseView(now);
   view.chat = { ...view.chat, model: "deepseek/deepseek-v3" };
   view.prices = { input: 2.7e-7, cacheRead: 2.7e-8, write5m: 2.7e-7, write1h: 2.7e-7, output: 1.1e-6, context: 128000 };
   node = detailNode(view, now);
-  assert.strictEqual(footer(node)[0], "deepseek-v3 · $0.27/M input · cache read $0.03 · write $0.27");
+  assert.strictEqual(footer(node)[0], "deepseek-v3 · $0.27/M input · cache read $0.027 · write $0.27");
+});
+
+test("detailNode: prices show up to 3 significant digits, not toFixed(2)'s float rounding", () => {
+  // 1.75e-7 * 1e6 = 0.175: toFixed(2) shows this as "$0.17" (0.175 is
+  // stored as 0.174999999999999989..., and toFixed truncates toward it),
+  // throwing away real precision. perMillion() must show all 3 sig figs
+  // instead, with no trailing-zero noise on top (a round fraction like the
+  // cache-read price below reads "$0.2", not "$0.20").
+  const now = Date.now();
+  const view = baseView(now);
+  view.chat = { ...view.chat, model: "claude-opus-5-5" };
+  view.prices = { input: 4e-6, cacheRead: 1.75e-7, write5m: 5e-6, write1h: 8e-6, output: 2e-5, context: 1000000 };
+  const node = detailNode(view, now);
+  assert.strictEqual(footer(node)[0], "Opus 5.5 · $4/M input · cache read $0.175 · write $5");
 });

@@ -682,7 +682,10 @@ test("activate: a model's prices are fetched once (a GET with nothing but the sl
   assert.strictEqual(h.panelCalls[h.panelCalls.length - 1].node.label, "−50% · $10 saved");
 });
 
-test("activate: a failed price fetch stores nothing and is not retried for an hour", async (t) => {
+test("activate: a failed price fetch stores nothing and is not retried until it's fresh again, not sooner", async (t) => {
+  // A model openrouter.ai simply doesn't list (an OpenCode `ollama/...` id,
+  // say) 404s every time -- it must wait the same day a successful fetch
+  // does, not get hit again every hour, or it's a GET every hour forever.
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval", "Date"] });
   const flush = () => new Promise((resolve) => setImmediate(resolve));
   const h = makeWibble({ health: "up" }); // openrouter.ai answers 404
@@ -693,15 +696,15 @@ test("activate: a failed price fetch stores nothing and is not retried for an ho
   assert.strictEqual(h.priceFetches.length, 1);
   assert.strictEqual(h.store.get("prices"), undefined);
 
-  t.mock.timers.tick(59 * 60 * 1000);
+  t.mock.timers.tick(24 * 60 * 60 * 1000 - 1000);
   h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 2, items: [] }));
   await flush();
-  assert.strictEqual(h.priceFetches.length, 1, "59 minutes after the failure: not yet");
+  assert.strictEqual(h.priceFetches.length, 1, "just under a day after the failure: not yet");
 
-  t.mock.timers.tick(60 * 1000);
+  t.mock.timers.tick(1000);
   h.fireSeen(seenEvent({ model: "claude-opus-5-5", calls: 3, items: [] }));
   await flush();
-  assert.strictEqual(h.priceFetches.length, 2, "an hour after the failure: tried again");
+  assert.strictEqual(h.priceFetches.length, 2, "a day after the failure: tried again");
 });
 
 test("activate: stored prices are loaded on start, and fetched again once they are a day old", async (t) => {
@@ -843,9 +846,10 @@ test("activate: an item that only fails on the rewrite is dropped cold, and with
   await wait(20);
   assert.deepStrictEqual(h.withdrawCalls, [{ sessionId: "s1", ids: ["big"] }]);
   assert.strictEqual(h.dropCalls.length, 1);
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 0, "withdrawn: no longer waiting");
 });
 
-test("activate: a Wibble without cold drops is never sent one", async () => {
+test("activate: a Wibble without cold drops is never sent one, and nothing it parks only in its own bookkeeping ever counts as waiting", async () => {
   const h = makeWibble({ health: "down" }); // no trim.withdraw
   await activate(h.wibble);
 
@@ -853,6 +857,44 @@ test("activate: a Wibble without cold drops is never sent one", async () => {
   h.fireSeen(bigEarly(40));
   await wait(20);
   assert.deepStrictEqual(h.dropCalls, []);
+  // Nothing was ever handed to Wibble as a cold drop, so nothing was ever
+  // counted as "waiting" either -- the day/chat totals were never touched
+  // at all (no fireResult happened, and cold parks never touch them here).
+  assert.strictEqual(h.store.get("totals"), undefined, "an older Wibble's parked candidates never show up on the card");
+});
+
+test("activate: a cold drop applied free lowers the day's waiting count", async () => {
+  const h = makeWibble({ health: "up", ask: "up", notNeeded: 0.01 }, { cold: true });
+  await activate(h.wibble);
+
+  h.fireSeen(bigEarly(20));
+  await wait(20); // parked cold; the judge's 0.01 verdict lands after planning
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 1, "parked: one waiting");
+
+  h.fireResult(opusResult({ sessionId: "s1", model: "claude-sonnet-5", cold: true, coldApplied: ["big"], newlyRemoved: 1 }));
+  await wait(20);
+
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 0, "applied free: no longer waiting");
+});
+
+test("activate: a parked cold drop that later pays back outright is cut now, and stops counting as waiting", async () => {
+  const h = makeWibble({ health: "down" }, { cold: true }); // judge never answers: p stays the base rate throughout
+  await activate(h.wibble);
+
+  h.fireSeen(bigEarly(20));
+  await wait(20);
+  assert.deepStrictEqual(h.dropCalls, [{ sessionId: "s1", ids: ["big"], opts: { when: "cold" } }]);
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 1);
+
+  // Everything ahead of "big" got cut in the meantime, so it now sits much
+  // further into the (still 1,000,000-char) prompt -- the rewrite it would
+  // force shrinks enough that the same base-rate odds pay it back outright,
+  // instead of only clearing the candidate bar.
+  h.fireSeen(seenEvent({ model: "claude-sonnet-5", totalChars: 1000000, calls: 40, items: [{ id: "big", tool: "Read", target: "big.txt", chars: 10000, at: 990000, age: 26 }] }));
+  await wait(20);
+
+  assert.deepStrictEqual(h.dropCalls[1], { sessionId: "s1", ids: ["big"] }, "cut now, not parked cold again");
+  assert.strictEqual(Object.values(h.store.get("totals"))[0].skipped, 0, "cut outright: no longer waiting");
 });
 
 test("activate: a rejected cold drop is offered again at the next batch", async () => {
