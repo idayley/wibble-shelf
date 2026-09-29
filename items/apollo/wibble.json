@@ -1,0 +1,43 @@
+{
+  "id": "apollo",
+  "name": "Apollo",
+  "description": "Find people in Apollo by title, place and company size for free, then reveal work emails only when you say so. Shows your credit balance.",
+  "version": "1.0.0",
+  "author": "idayley",
+  "main": "main.js",
+  "api": 1,
+  "capabilities": ["net.fetch", "confirm", "agent.tools", "page.calls"],
+  "hosts": ["api.apollo.io"],
+  "secrets": [
+    {
+      "name": "api-key",
+      "label": "Apollo API key",
+      "host": "api.apollo.io",
+      "help": "In Apollo: Settings → Integrations → API. A master key also lets Wibble show your credit balance."
+    }
+  ],
+  "tools": [
+    {
+      "name": "search",
+      "description": "Search Apollo for people. Free: spends no credits and returns no emails. All filters are optional; page starts at 1 and each page holds up to 100 people.",
+      "input": {
+        "type": "object",
+        "properties": {
+          "titles": { "type": "array", "items": { "type": "string" }, "description": "Job titles, e.g. [\"founder\", \"head of talent\"]." },
+          "seniorities": { "type": "array", "items": { "type": "string" }, "description": "e.g. [\"owner\", \"founder\", \"c_suite\", \"vp\", \"director\"]." },
+          "person_locations": { "type": "array", "items": { "type": "string" }, "description": "Where the person lives, e.g. [\"United States\"]." },
+          "org_locations": { "type": "array", "items": { "type": "string" }, "description": "Where the company is based." },
+          "employee_ranges": { "type": "array", "items": { "type": "string" }, "description": "Company size as \"min,max\", e.g. [\"2,200\"]." },
+          "keywords": { "type": "array", "items": { "type": "string" }, "description": "Company keyword tags, e.g. [\"recruiting\"]." },
+          "page": { "type": "integer", "minimum": 1, "description": "Page number, from 1." }
+        }
+      }
+    },
+    {
+      "name": "credits",
+      "description": "Read the Apollo credit balance and when it resets. Free. Needs a master API key.",
+      "input": { "type": "object", "properties": {} }
+    }
+  ],
+  "pageCalls": ["credits", "reveal", "search"]
+}
