@@ -154,6 +154,23 @@
           "note": "First version."
         }
       ]
+    },
+    {
+      "kind": "extension",
+      "id": "apollo",
+      "name": "Apollo",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "56851eafb10d5ac44bb390e4197eb6dba52c9343",
+      "path": "items/apollo",
+      "version": "1.0.0",
+      "description": "Find people in Apollo by title, place and company size for free, then reveal work emails only when you say so. Shows your credit balance.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "29 Sep",
+          "note": "First version."
+        }
+      ]
     }
   ]
 }
