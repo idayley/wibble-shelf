@@ -18,10 +18,10 @@
       }
     },
     {
-      "key": "outreach", "name": "Outreach", "dx": 2464, "dy": 0, "w": 600,
+      "key": "outreach", "name": "Outreach", "shows": "board", "dx": 2464, "dy": 0, "w": 600, "h": 880,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "outreach-asker" }, "into": "send" }
     },
-    { "key": "send", "name": "To send", "dx": 3104, "dy": 0, "w": 600 }
+    { "key": "send", "name": "To send", "shows": "board", "dx": 3104, "dy": 0, "w": 600, "h": 880 }
   ],
   "pages": [
     { "zone": "who", "title": "Start here", "file": "note-start.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
