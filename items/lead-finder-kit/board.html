@@ -1,0 +1,530 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Lead board</title>
+<!--
+  THE LEAD BOARD. One page per canvas, placed by the Lead finder kit in its
+  Leads zone. Everything it knows lives in the pin's own store
+  (window.wibble), one key per record, so the operator and the agents never
+  overwrite each other:
+
+    request        Lead scout: { text, source, list?, at }
+    filters        Lead scout: { chips: [{label, value}], apollo?: {...}, saved?: true }
+    person:<id>    Lead scout adds; the operator sets channels here.
+                   { name, title, company, why, linkedin?, email?, phone?,
+                     phoneNote?, source, apolloId?, channels: {email, call, linkedin},
+                     revealed, revealFailed? }
+    settings       this page: { sentKey, sentAt }
+
+  Never a forced channel: Email / Call / LinkedIn start off. A person with
+  none on is skipped.
+
+  Never a spend without the operator: revealing goes through the Apollo
+  extension (wibble.call("apollo", "reveal", ...)), which asks in a dialog
+  the app draws. This page cannot draw or answer that dialog.
+
+  Send to Outreach lands a Picks card in Outreach (wibble.land). Wibble
+  never sends, calls or messages anyone.
+
+  The rules are in the first script block, which has no DOM in it so
+  board.test.mjs can run it under node.
+
+  Classes start with lf- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,system-ui,sans-serif);color:var(--text,#ddd)}
+.lf-wrap{display:grid;gap:14px}
+.lf-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:4px 8px}
+.lf-title{font-size:15px;font-weight:600;line-height:1.3}
+.lf-muted{color:var(--muted,#999);font-size:12.5px}
+.lf-grow{margin-left:auto}
+.lf-cap{font:700 11px/1.2 var(--mono,ui-monospace,monospace);letter-spacing:.06em;color:var(--muted,#999)}
+.lf-chips{display:flex;flex-wrap:wrap;gap:6px}
+.lf-chip{padding:4px 9px;border-radius:8px;background:var(--edge,#333);font-size:12px;white-space:nowrap}
+.lf-chip b{font-weight:600;color:var(--muted,#999);margin-right:5px}
+.lf-person{display:flex;align-items:center;gap:10px;padding:8px 0;border-top:1px solid var(--hair,rgba(255,255,255,.08))}
+.lf-av{flex:none;width:32px;height:32px;border-radius:16px;background:var(--edge,#333);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;color:var(--muted,#ccc)}
+.lf-who{flex:1;min-width:0}
+.lf-who.lf-dim{opacity:.5}
+.lf-name{font-size:13.5px;font-weight:600}
+.lf-name a{font-size:11.5px;font-weight:500;margin-left:4px;color:var(--hue-1,#f3a0aa)}
+.lf-sub{font-size:12px;color:var(--muted,#b3b3b3)}
+.lf-why{font-size:11.5px;color:var(--faint,#8a8a8a)}
+.lf-bits{font-size:11.5px;color:var(--muted,#b3b3b3);overflow-wrap:anywhere}
+.lf-pills{display:flex;gap:5px;flex:none}
+.lf-pill{min-height:30px;padding:4px 10px;border:1px solid var(--edge,rgba(255,255,255,.14));border-radius:999px;background:transparent;color:var(--muted,#cfcfcf);font-family:inherit;font-size:12px;font-weight:500;cursor:pointer}
+.lf-pill[aria-pressed="true"]{background:var(--hue-1,#f06a7a);border-color:var(--hue-1,#f06a7a);color:#111}
+.lf-pill:disabled{cursor:default;opacity:.5}
+.lf-btn{min-height:40px;padding:8px 14px;border:0;border-radius:8px;background:var(--edge,#333);color:var(--text,#fff);font-family:inherit;font-size:13.5px;font-weight:600;cursor:pointer}
+.lf-btn.lf-go{background:var(--hue-1,#f06a7a);color:#111}
+.lf-btn:disabled{cursor:default;background:transparent;color:var(--faint,#777);box-shadow:inset 0 0 0 1px var(--edge,rgba(255,255,255,.12))}
+.lf-link{padding:0;border:0;background:none;color:var(--muted,#999);font:inherit;font-size:12px;cursor:pointer;text-decoration:underline}
+.lf-pill:focus-visible,.lf-btn:focus-visible,.lf-link:focus-visible{outline:2px solid var(--hue-1,var(--text,#ddd));outline-offset:2px}
+.lf-spend{display:grid;gap:10px;padding:14px;border-radius:10px;background:var(--win,rgba(255,255,255,.04));box-shadow:inset 0 0 0 1px var(--edge,rgba(255,255,255,.1))}
+.lf-tag{margin-left:auto;padding:3px 9px;border-radius:999px;font-size:11px;font-weight:600;white-space:nowrap}
+.lf-tag.lf-paid{background:rgba(240,106,122,.16);color:#f6a3ad}
+.lf-tag.lf-free{background:rgba(120,200,160,.14);color:#9fdcbc}
+.lf-bar{display:flex;height:6px;border-radius:3px;background:var(--edge,#333);overflow:hidden}
+.lf-bar i{display:block;height:100%}
+.lf-line{display:flex;gap:8px;font-size:13px}
+.lf-mono{margin-left:auto;font-family:var(--mono,ui-monospace,monospace)}
+.lf-msg{font-size:12.5px;padding:8px 10px;border-radius:8px;background:rgba(120,200,160,.1);color:#bfe6d0}
+.lf-msg.lf-bad{background:rgba(240,106,122,.12);color:#f6a3ad}
+.lf-empty{padding:22px;border:1px dashed var(--edge,rgba(255,255,255,.14));border-radius:12px;text-align:center;color:var(--muted,#8a8a8a)}
+.lf-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+</style>
+</head>
+<body>
+<div class="lf-wrap" id="board"></div>
+
+<script id="logic">
+/* THE RULES. Pure functions, no DOM, no window: the test file pulls this
+   block out of the page and runs it under node. */
+
+var CHANNELS = [
+  { id: "email", label: "Email" },
+  { id: "call", label: "Call" },
+  { id: "linkedin", label: "LinkedIn" }
+];
+var REVEAL_CAP = 100;
+var SOURCE_NAMES = { apollo: "Apollo", web: "Web search", list: "My list" };
+
+function str(v) { return typeof v === "string" ? v.trim() : ""; }
+
+function num(n) { return Number(n).toLocaleString("en-US"); }
+
+function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+
+/* The channels the operator switched on, in a fixed order. */
+function channelsOn(p) {
+  var c = (p && p.channels) || {};
+  return CHANNELS.filter(function (ch) { return c[ch.id] === true; }).map(function (ch) { return ch.id; });
+}
+
+function isPicked(p) { return channelsOn(p).length > 0; }
+
+/* Email and LinkedIn come from Apollo's reveal, at one credit a person
+   whichever of the two (or both) is picked. Call never costs: a phone
+   number comes from a public page Lead scout found, not from Apollo. */
+function needsReveal(p) {
+  if (!p || p.source !== "apollo" || !p.apolloId || p.revealed || p.revealFailed) return false;
+  var on = channelsOn(p);
+  return on.indexOf("email") >= 0 || on.indexOf("linkedin") >= 0;
+}
+
+/* Apollo ids to reveal: once each, at most REVEAL_CAP (the extension's own cap). */
+function allRevealIds(people) {
+  var seen = {}, out = [];
+  (people || []).forEach(function (p) {
+    if (needsReveal(p) && !seen[p.apolloId]) { seen[p.apolloId] = true; out.push(p.apolloId); }
+  });
+  return out;
+}
+function revealIds(people) { return allRevealIds(people).slice(0, REVEAL_CAP); }
+function creditsNeeded(people) { return allRevealIds(people).length; }
+
+/* Apollo when any person on the board came from it; otherwise there is
+   nothing to spend. */
+function spendMode(people) {
+  return (people || []).some(function (p) { return p && p.source === "apollo"; }) ? "apollo" : "free";
+}
+
+function balanceAfter(left, n) {
+  if (left === null || left === undefined || isNaN(Number(left))) return null;
+  return Math.max(0, Number(left) - n);
+}
+
+function shortDate(iso) {
+  var m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(iso || ""));
+  if (!m) return "";
+  var months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var mo = Number(m[2]);
+  return mo >= 1 && mo <= 12 ? Number(m[3]) + " " + months[mo - 1] : "";
+}
+
+/* The one line under the cost: what it is, what is left, when it resets.
+   Apollo charges only for people it finds, so it is "up to". */
+function spendLine(n, bal) {
+  var head = "Up to " + plural(n, "credit");
+  if (!bal || bal.left === null || bal.left === undefined) {
+    return head + ". Balance unavailable: your key can't read credit usage.";
+  }
+  var line = head + ": " + num(bal.left) + " now, " + num(balanceAfter(bal.left, n)) + " after.";
+  var d = shortDate(bal.resets);
+  return d ? line + " Credits reset " + d + "." : line;
+}
+
+/* ---- the same person, found again -------------------------------------- */
+
+function linkedinKey(u) {
+  var s = str(u).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+  return s;
+}
+
+function words(s) { return str(s).toLowerCase().replace(/\s+/g, " "); }
+
+/* Apollo id first, then LinkedIn, then name and company. The scout uses
+   the same order when it decides whether to add someone. */
+function dedupeKey(p) {
+  if (p && p.apolloId) return "a:" + p.apolloId;
+  var li = linkedinKey(p && p.linkedin);
+  if (li) return "l:" + li;
+  return "n:" + words(p && p.name) + "|" + words(p && p.company);
+}
+
+/* One of each person, keeping the one the operator has already worked on
+   (revealed, then picked), else the first. Order of first appearance. */
+function uniquePeople(list) {
+  var best = {}, order = [];
+  (list || []).forEach(function (p) {
+    var k = dedupeKey(p);
+    var score = (p.revealed ? 2 : 0) + (isPicked(p) ? 1 : 0);
+    if (!(k in best)) { best[k] = { p: p, score: score }; order.push(k); }
+    else if (score > best[k].score) best[k] = { p: p, score: score };
+  });
+  return order.map(function (k) { return best[k].p; });
+}
+
+/* Records out of the store. */
+function records(data) {
+  var out = { request: {}, filters: {}, people: [], settings: {} };
+  var d = data || {};
+  if (d.request && typeof d.request === "object") out.request = d.request;
+  if (d.filters && typeof d.filters === "object") out.filters = d.filters;
+  if (d.settings && typeof d.settings === "object") out.settings = d.settings;
+  for (var k in d) {
+    var v = d[k];
+    if (k.indexOf("person:") === 0 && v && typeof v === "object") out.people.push(Object.assign({}, v, { id: k.slice(7) }));
+  }
+  return out;
+}
+
+/* A re-search adds only who isn't on the board. */
+function newPeople(data, incoming) {
+  var have = {};
+  records(data).people.forEach(function (p) { have[dedupeKey(p)] = true; });
+  var add = [];
+  (incoming || []).forEach(function (p) {
+    var k = dedupeKey(p);
+    if (have[k]) return;
+    have[k] = true;
+    add.push(p);
+  });
+  return { add: add, skipped: (incoming || []).length - add.length };
+}
+
+/* ---- a reveal's answer ---------------------------------------------------- */
+
+/* What the extension returned ({people, requested, stopped?}) applied to
+   the people who were asked about. People Apollo had no match for are
+   marked, so they stop blocking Send. When Apollo stopped partway the rest
+   were never tried, so they stay waiting. */
+function applyReveal(people, asked, result) {
+  var out = { updates: {}, revealed: 0, failed: [], line: "" };
+  if (!result || !Array.isArray(result.people)) return out;
+  var got = {};
+  result.people.forEach(function (r) { if (r && r.id) got[r.id] = r; });
+  var stopped = str(result.stopped);
+  var askedSet = {};
+  (asked || []).forEach(function (id) { askedSet[id] = true; });
+  var revealedIds = {};
+  (people || []).forEach(function (p) {
+    if (!p || !p.apolloId || !askedSet[p.apolloId] || p.revealed || p.revealFailed) return;
+    var r = got[p.apolloId];
+    if (r) {
+      var next = Object.assign({}, p, { revealed: true });
+      ["name", "title", "company", "email", "linkedin"].forEach(function (f) { if (str(r[f])) next[f] = str(r[f]); });
+      out.updates[p.id] = next;
+      revealedIds[p.apolloId] = true;
+    } else if (!stopped) {
+      out.updates[p.id] = Object.assign({}, p, { revealFailed: true });
+      out.failed.push(p.id);
+    }
+  });
+  out.revealed = Object.keys(revealedIds).length;
+  var requested = Number(result.requested) > 0 ? Number(result.requested) : (asked || []).length;
+  var missing = Math.max(0, requested - out.revealed);
+  out.line = "Revealed " + out.revealed + " of " + requested + ".";
+  if (stopped) out.line += " " + stopped;
+  else if (missing > 0) out.line += " Apollo had no match for " + missing + ".";
+  return out;
+}
+
+/* ---- Send to Outreach ------------------------------------------------------ */
+
+/* Picked, and nothing left to reveal for them. */
+function readyPeople(people) {
+  return (people || []).filter(function (p) { return isPicked(p) && !needsReveal(p) && !p.revealFailed; });
+}
+
+function labelOf(id) {
+  for (var i = 0; i < CHANNELS.length; i++) if (CHANNELS[i].id === id) return CHANNELS[i].label;
+  return id;
+}
+
+/* The Picks card Outreach asker reads: each picked person, how the
+   operator wants to reach them, and everything known. */
+function sendPayload(people, request) {
+  var ready = readyPeople(people);
+  var req = request || {};
+  var lines = [];
+  if (str(req.text)) lines.push("Request: " + str(req.text));
+  if (SOURCE_NAMES[req.source]) lines.push("Where to look: " + SOURCE_NAMES[req.source]);
+  ready.forEach(function (p) {
+    lines.push("");
+    lines.push("## " + (str(p.name) || "Unnamed"));
+    var who = [str(p.title), str(p.company)].filter(Boolean).join(", ");
+    if (who) lines.push(who);
+    lines.push("Reach by: " + channelsOn(p).map(labelOf).join(", "));
+    if (str(p.email)) lines.push("Email: " + str(p.email));
+    if (str(p.linkedin)) lines.push("LinkedIn: " + str(p.linkedin));
+    if (str(p.phone)) lines.push("Phone: " + str(p.phone) + (str(p.phoneNote) ? " (" + str(p.phoneNote) + ")" : ""));
+    if (str(p.why)) lines.push("Why: " + str(p.why));
+  });
+  return { zone: "Outreach", title: "Picks: " + plural(ready.length, "person", "people"), text: lines.join("\n").replace(/^\n+/, "") };
+}
+
+function sentKeyOf(payload) {
+  var s = payload.title + "\n" + payload.text, h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/* Whether Send to Outreach is on, and if not why. */
+function sendState(people, sentKey, request) {
+  var need = creditsNeeded(people);
+  var ready = readyPeople(people);
+  if (need > 0) return { enabled: false, count: ready.length, why: "Spend " + plural(need, "credit") + " first, or turn Email and LinkedIn off for those people." };
+  if (ready.length === 0) return { enabled: false, count: 0, why: "Pick Email, Call or LinkedIn for at least one person." };
+  if (sentKey && sentKey === sentKeyOf(sendPayload(people, request))) {
+    return { enabled: false, count: ready.length, sent: true, why: "Already sent. Change a pick to send again." };
+  }
+  return { enabled: true, count: ready.length, why: "" };
+}
+
+/* Filter chips from what Lead scout wrote: a list of {label, value}, or
+   a plain label -> value(s) map. */
+function chipsOf(filters) {
+  var f = filters || {};
+  var raw = Array.isArray(f.chips) ? f.chips : [];
+  return raw.map(function (c) {
+    var v = Array.isArray(c && c.value) ? c.value.join(", ") : c && c.value;
+    return { label: str(c && c.label), value: str(v) };
+  }).filter(function (c) { return c.value; });
+}
+
+function initials(name) {
+  var parts = str(name).replace(/[^A-Za-zÀ-ɏ\s'-]/g, "").split(/\s+/).filter(Boolean);
+  if (!parts.length) return "?";
+  return (parts[0][0] + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
+}
+</script>
+
+<script>
+/* THE PAGE. Draws from the store and writes back one record at a time. */
+(function () {
+  var store = window.wibble || (function () {
+    // Outside wibble (a plain browser): a store that forgets on reload, a
+    // demo board, and an Apollo that answers like a connected one.
+    var d = {
+      request: { text: "CEOs of small recruiting and staffing firms that are growing. US only.", source: "apollo" },
+      filters: { chips: [{ label: "Title", value: "CEO, Founder" }, { label: "Industry", value: "Recruiting, Staffing" }, { label: "Where", value: "US" }] },
+      "person:ap1": { name: "Dana R.", title: "CEO", company: "Harbor Talent", why: "Grew from 30 to 42 people since spring", source: "apollo", apolloId: "ap1", channels: { email: false, call: false, linkedin: false }, revealed: false },
+      "person:ap2": { name: "Marcus W.", title: "Founder", company: "Ridgeline Recruiting", why: "Just opened a second office", source: "apollo", apolloId: "ap2", channels: { email: false, call: false, linkedin: false }, revealed: false },
+      "person:ap3": { name: "Priya S.", title: "CEO", company: "Brightpath Staffing", why: "Posts weekly about hiring speed", source: "apollo", apolloId: "ap3", channels: { email: false, call: false, linkedin: false }, revealed: false },
+    };
+    var fs = [];
+    function c(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+    return {
+      get: function (k) { return c(d[k]); },
+      all: function () { return c(d); },
+      set: function (k, v) { var p = {}; if (k && typeof k === "object") p = c(k); else p[k] = v === undefined ? null : c(v);
+        for (var x in p) { if (p[x] === null) delete d[x]; else d[x] = p[x]; } fs.forEach(function (f) { f(c(d)); }); },
+      subscribe: function (f) { fs.push(f); f(c(d)); return function () {}; },
+      call: function (ext, name, value) {
+        if (ext !== "apollo") return Promise.reject(new Error("Not available outside Wibble."));
+        if (name === "credits") return Promise.resolve({ limit: 1200, consumed: 42, left: 1158, resets: "2026-10-15T00:00:00.000Z" });
+        if (name === "reveal") {
+          var ids = (value && value.ids) || [];
+          return new Promise(function (ok) {
+            setTimeout(function () {
+              ok({ requested: ids.length, people: ids.map(function (id, i) { return { id: id, name: "Person " + (i + 1) + " (demo)", email: "person" + (i + 1) + "@example.com", linkedin: "https://www.linkedin.com/in/demo-" + id, title: "CEO", company: "Demo Co" }; }) });
+            }, 600);
+          });
+        }
+        return Promise.reject(new Error("Not available outside Wibble."));
+      },
+      land: function (card) { console.log("land", card); return Promise.resolve(); },
+    };
+  })();
+
+  var root = document.getElementById("board");
+  var SHOWN = 8;
+  var ui = { all: false, bal: null, balChecked: false, busy: "", msg: "", bad: false, data: {} };
+
+  function esc(s) {
+    return String(s === undefined || s === null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function safeUrl(u) {
+    var s = String(u || "").trim();
+    if (/^https?:\/\//i.test(s)) return s;
+    if (/^(www\.)?linkedin\.com\//i.test(s)) return "https://" + s;
+    return "";
+  }
+
+  function row(p) {
+    var on = channelsOn(p);
+    var url = safeUrl(p.linkedin);
+    var bits = [];
+    if (str(p.email)) bits.push(esc(p.email));
+    if (str(p.phone)) bits.push(esc(p.phone) + (str(p.phoneNote) ? " (" + esc(p.phoneNote) + ")" : ""));
+    var state = p.revealFailed ? "Apollo had no match for this one." : p.revealed ? "Revealed" : "";
+    var pills = CHANNELS.map(function (ch) {
+      var isOn = on.indexOf(ch.id) >= 0;
+      return '<button type="button" class="lf-pill" data-k="' + esc(p.id + ":" + ch.id) + '" data-person="' + esc(p.id) + '" data-channel="' + ch.id +
+        '" aria-pressed="' + isOn + '"' + (p.revealFailed && ch.id !== "call" ? " disabled" : "") + ">" + ch.label + "</button>";
+    }).join("");
+    return '<div class="lf-person">' +
+      '<div class="lf-av" aria-hidden="true">' + esc(initials(p.name)) + "</div>" +
+      '<div class="lf-who' + (on.length ? "" : " lf-dim") + '">' +
+      '<div class="lf-name">' + esc(p.name || "Unnamed") + (url ? ' <a href="' + esc(url) + '" target="_blank" rel="noopener noreferrer">LinkedIn</a>' : "") + "</div>" +
+      '<div class="lf-sub">' + esc([p.title, p.company].filter(Boolean).join(" · ")) + "</div>" +
+      (str(p.why) ? '<div class="lf-why">' + esc(p.why) + "</div>" : "") +
+      (bits.length ? '<div class="lf-bits">' + bits.join(" · ") + "</div>" : "") +
+      (state ? '<div class="lf-why">' + esc(state) + "</div>" : "") +
+      "</div>" +
+      '<div class="lf-pills" role="group" aria-label="How to reach ' + esc(p.name || "this person") + '">' + pills + "</div>" +
+      "</div>";
+  }
+
+  function spendCard(people, rec, mode) {
+    var st = sendState(people, (rec.settings || {}).sentKey, rec.request);
+    var need = creditsNeeded(people);
+    var batch = Math.min(need, REVEAL_CAP);
+    var h = '<div class="lf-spend"><div class="lf-row"><div class="lf-title">Spend check</div>' +
+      '<span class="lf-tag ' + (mode === "apollo" ? "lf-paid" : "lf-free") + '">' + (mode === "apollo" ? "Costs credits" : "Free") + "</span></div>";
+    if (mode === "apollo") {
+      var b = ui.bal;
+      h += '<div class="lf-line"><span>' + plural(need, "person", "people") + " to reveal</span><span class=\"lf-mono\">" + plural(need, "credit") + "</span></div>";
+      if (b && b.limit > 0) {
+        var keep = Math.max(0, Math.min(100, (balanceAfter(b.left, need) / b.limit) * 100));
+        var spend = Math.max(0, Math.min(100 - keep, (Math.min(need, b.left) / b.limit) * 100));
+        h += '<div class="lf-bar" aria-hidden="true"><i style="width:' + keep.toFixed(1) + '%;background:#9a9a9a"></i><i style="width:' + spend.toFixed(1) + "%;min-width:" + (need ? 3 : 0) + 'px;background:#f06a7a"></i></div>';
+      }
+      h += '<div class="lf-muted">' + esc(spendLine(need, b)) + "</div>";
+      h += '<div class="lf-muted">Email and LinkedIn cost one credit a person. Apollo phone numbers aren’t supported yet: Call uses a public number Lead scout finds on the web.</div>';
+      if (need > batch) h += '<div class="lf-muted">' + batch + " at a time. Press Spend again for the rest.</div>";
+      h += '<div class="lf-row"><button type="button" class="lf-btn lf-go" id="spend"' + (need === 0 || ui.busy ? " disabled" : "") + ">" +
+        (ui.busy === "spend" ? "Waiting for you in Wibble..." : need ? "Spend " + plural(batch, "credit") : "Nothing to spend") + "</button></div>";
+    } else {
+      h += '<div class="lf-muted">Nothing to spend. ' + (rec.request && rec.request.source === "list"
+        ? "Your list needs no credits."
+        : "Web search is free. Where Lead scout couldn’t find an email or number, that person gets a LinkedIn note instead.") + "</div>";
+    }
+    h += '<div class="lf-row"><button type="button" class="lf-btn' + (mode === "apollo" ? "" : " lf-go") + '" id="send"' + (st.enabled && !ui.busy ? "" : " disabled") + ">" +
+      (ui.busy === "send" ? "Sending..." : "Send to Outreach" + (st.count ? " (" + st.count + ")" : "")) + "</button></div>";
+    if (!st.enabled && st.why) h += '<div class="lf-muted">' + esc(st.why) + "</div>";
+    if (ui.msg) h += '<div class="lf-msg' + (ui.bad ? " lf-bad" : "") + '" role="status">' + esc(ui.msg) + "</div>";
+    return h + "</div>";
+  }
+
+  function draw() {
+    var focus = document.activeElement && document.activeElement.getAttribute && document.activeElement.getAttribute("data-k");
+    var focusId = document.activeElement && document.activeElement.id;
+    var rec = records(ui.data);
+    var people = uniquePeople(rec.people);
+    var mode = spendMode(people);
+    var picked = people.filter(isPicked).length;
+    var req = rec.request || {};
+    var chips = chipsOf(rec.filters);
+    var h = "";
+    if (!people.length) {
+      h = '<div class="lf-head"><div class="lf-title">' + esc(str(req.text) || "No search yet") + "</div></div>" +
+        (chips.length ? '<div class="lf-chips">' + chips.map(function (c) { return '<span class="lf-chip"><b>' + esc(c.label) + "</b>" + esc(c.value) + "</span>"; }).join("") + "</div>" : "") +
+        '<div class="lf-empty">No people yet. Ask in Who to find, and Lead scout adds them here.</div>';
+    } else {
+      var shown = ui.all ? people : people.slice(0, SHOWN);
+      h = '<div class="lf-head"><div class="lf-title">' + esc(str(req.text) || "Leads") + "</div>" +
+        '<span class="lf-muted">' + people.length + " found" + (shown.length < people.length ? " · " + shown.length + " shown" : "") + '</span><span class="lf-muted lf-grow">' + picked + " picked</span></div>";
+      if (chips.length) h += '<div class="lf-chips">' + chips.map(function (c) { return '<span class="lf-chip"><b>' + esc(c.label) + "</b>" + esc(c.value) + "</span>"; }).join("") + "</div>";
+      h += '<div id="people">' + shown.map(row).join("") + "</div>";
+      if (people.length > SHOWN) h += '<div><button type="button" class="lf-link" id="all">' + (ui.all ? "Show fewer" : "Show all " + people.length) + "</button></div>";
+      h += spendCard(people, rec, mode);
+    }
+    root.innerHTML = h;
+    var again = focus ? root.querySelector('[data-k="' + focus.replace(/"/g, "") + '"]') : focusId ? document.getElementById(focusId) : null;
+    if (again && typeof again.focus === "function") again.focus();
+  }
+
+  function say(msg, bad) { ui.msg = msg || ""; ui.bad = !!bad; }
+
+  function loadBalance() {
+    if (typeof store.call !== "function") return;
+    ui.balChecked = true;
+    Promise.resolve().then(function () { return store.call("apollo", "credits", null); })
+      .then(function (b) { ui.bal = b && typeof b === "object" ? b : null; }, function () { ui.bal = null; })
+      .then(draw);
+  }
+
+  root.addEventListener("click", function (ev) {
+    var t = ev.target && ev.target.closest ? ev.target.closest("button") : null;
+    if (!t || t.disabled) return;
+    var rec = records(ui.data);
+    if (t.hasAttribute("data-channel")) {
+      var id = t.getAttribute("data-person"), ch = t.getAttribute("data-channel");
+      var stored = store.get("person:" + id);
+      if (!stored) return;
+      var channels = Object.assign({ email: false, call: false, linkedin: false }, stored.channels || {});
+      channels[ch] = !channels[ch];
+      say("");
+      store.set("person:" + id, Object.assign({}, stored, { channels: channels }));
+      return;
+    }
+    if (t.id === "all") { ui.all = !ui.all; draw(); return; }
+    var people = uniquePeople(rec.people);
+    if (t.id === "spend") {
+      var ids = revealIds(people);
+      if (!ids.length || ui.busy) return;
+      ui.busy = "spend"; say(""); draw();
+      Promise.resolve().then(function () { return store.call("apollo", "reveal", { ids: ids }); })
+        .then(function (result) {
+          var r = applyReveal(people, ids, result);
+          var patch = {};
+          Object.keys(r.updates).forEach(function (pid) { var u = Object.assign({}, r.updates[pid]); delete u.id; patch["person:" + pid] = u; });
+          if (Object.keys(patch).length) store.set(patch);
+          say(r.line || "Apollo sent nothing back.", r.revealed === 0);
+        }, function (e) {
+          var m = (e && e.message) || "That did not work.";
+          say(m, !/cancelled/i.test(m));
+        })
+        .then(function () { ui.busy = ""; loadBalance(); draw(); });
+      return;
+    }
+    if (t.id === "send") {
+      var state = sendState(people, (rec.settings || {}).sentKey, rec.request);
+      if (!state.enabled || ui.busy) return;
+      var card = sendPayload(people, rec.request);
+      ui.busy = "send"; say(""); draw();
+      Promise.resolve().then(function () { return store.land({ zone: card.zone, title: card.title, text: card.text }); })
+        .then(function () {
+          store.set("settings", Object.assign({}, rec.settings || {}, { sentKey: sentKeyOf(card), sentAt: new Date().toISOString() }));
+          say("Sent " + plural(state.count, "person", "people") + " to Outreach. Outreach asker is writing the drafts.");
+        }, function (e) { say((e && e.message) || "That did not land.", true); })
+        .then(function () { ui.busy = ""; draw(); });
+    }
+  });
+
+  store.subscribe(function (data) {
+    ui.data = data || {};
+    if (!ui.balChecked && spendMode(records(ui.data).people) === "apollo") loadBalance();
+    draw();
+  });
+})();
+</script>
+</body>
+</html>

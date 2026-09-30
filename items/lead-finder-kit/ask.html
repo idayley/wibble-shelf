@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Who do you want to reach?</title>
+<!--
+  THE ASK PAGE. Placed by the Lead finder kit in Who to find. It only
+  writes a card: pressing Find people lands one in Who to find holding the
+  request and where to look, and that landing runs Lead scout. Nothing here
+  searches, spends or contacts anyone.
+
+  Apollo is optional. The page asks the Apollo extension for its balance
+  (wibble.call("apollo", "credits")) only to learn whether it is there and
+  has a key; if not, that source is greyed with how to add it, and Web
+  search and My list work as they are.
+
+  The rules are in the first script block, which has no DOM in it so
+  board.test.mjs can run it under node.
+
+  Classes start with lf- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,system-ui,sans-serif);color:var(--text,#ddd)}
+.lf-wrap{display:grid;gap:12px}
+.lf-title{font-size:15px;font-weight:600;line-height:1.3}
+.lf-cap{font:700 11px/1.2 var(--mono,ui-monospace,monospace);letter-spacing:.06em;color:var(--muted,#999)}
+.lf-in{box-sizing:border-box;width:100%;padding:8px 10px;border:0;border-radius:6px;background:var(--win,#1d1d1d);box-shadow:inset 0 0 0 1px var(--edge,rgba(255,255,255,.12));font:inherit;color:inherit;resize:vertical;line-height:1.45}
+textarea.lf-in{min-height:64px}
+.lf-in:focus-visible,.lf-seg:focus-visible,.lf-btn:focus-visible{outline:2px solid var(--hue-1,var(--text,#ddd));outline-offset:2px}
+.lf-segs{display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--win,#1d1d1d)}
+.lf-seg{flex:1;min-height:32px;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted,#999);font-family:inherit;font-size:12.5px;font-weight:500;line-height:1.2;cursor:pointer}
+.lf-seg[aria-pressed="true"]{background:var(--edge,#333);color:var(--text,#fff)}
+.lf-seg:disabled{cursor:default;opacity:.55}
+.lf-seg small{display:block;font-size:10.5px;font-weight:400;margin-top:2px}
+.lf-note{margin:0;font-size:12.5px;color:var(--muted,#999)}
+.lf-row{display:flex;align-items:center;gap:10px}
+.lf-btn{min-height:40px;padding:8px 16px;border:0;border-radius:8px;background:var(--hue-1,#4fb3a9);color:#111;font-family:inherit;font-size:13.5px;font-weight:600;line-height:1.2;cursor:pointer}
+.lf-btn:disabled{cursor:default;background:transparent;color:var(--faint,#777);box-shadow:inset 0 0 0 1px var(--edge,rgba(255,255,255,.12))}
+.lf-status{font-size:12.5px;color:var(--muted,#999)}
+.lf-status.lf-bad{color:#f6a3ad}
+.lf-hair{height:1px;background:var(--hair,rgba(255,255,255,.08))}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="lf-wrap">
+  <div class="lf-title">Who do you want to reach?</div>
+  <textarea class="lf-in" id="text" rows="3" aria-label="Who do you want to reach?" placeholder="CEOs of small recruiting and staffing firms that are growing. US only."></textarea>
+  <div class="lf-hair"></div>
+  <div class="lf-cap">WHERE TO LOOK</div>
+  <div class="lf-segs" id="segs" role="group" aria-label="Where to look"></div>
+  <p class="lf-note" id="source-note"></p>
+  <div id="list-wrap" hidden>
+    <textarea class="lf-in" id="list" rows="5" aria-label="My list" placeholder="One person per line, e.g. Dana Ruiz, Harbor Talent"></textarea>
+  </div>
+  <div class="lf-row">
+    <button class="lf-btn" id="find" type="button">Find people</button>
+    <span class="lf-status" id="status" role="status"></span>
+  </div>
+</div>
+
+<script id="logic">
+/* THE RULES. Pure functions, no DOM, no window: the test file pulls this
+   block out of the page and runs it under node. */
+
+var ZONE = "Who to find";
+var SOURCES = [
+  { id: "apollo", label: "Apollo", note: "Your Apollo account. Searching is free. Emails cost credits, and you approve that on the lead board." },
+  { id: "web", label: "Web search", note: "No account needed. Lead scout searches public pages itself. Some people will be missing an email or number." },
+  { id: "list", label: "My list", note: "Paste names below. Lead scout fills in what it can find on public pages." }
+];
+
+function sourceLabel(id) {
+  for (var i = 0; i < SOURCES.length; i++) if (SOURCES[i].id === id) return SOURCES[i].label;
+  return "";
+}
+
+/* What the credits call tells us about Apollo. Only "not installed" and
+   "no key" grey the source: a key that can't read the balance still
+   searches, and a hiccup shouldn't lock the operator out of it. */
+function apolloState(res) {
+  var err = res && !res.ok ? String(res.error || "") : "";
+  if (/isn't (running|installed)|not (running|installed)/i.test(err)) return { state: "missing", note: "Install Apollo from the shelf" };
+  if (/isn't set|Connections/i.test(err)) return { state: "nokey", note: "Add your Apollo key in Settings → Agents → Connections" };
+  return { state: "ready", note: "" };
+}
+
+function parseList(text) {
+  return String(text || "").split(/\r?\n/).map(function (l) { return l.trim(); }).filter(Boolean);
+}
+
+function canFind(d) {
+  if (!d || !String(d.text || "").trim()) return false;
+  if (!sourceLabel(d.source)) return false;
+  if (d.source === "list" && parseList(d.list).length === 0) return false;
+  return true;
+}
+
+/* The card that lands in Who to find. That landing is what runs Lead scout,
+   so it says everything the scout needs: the words, the source, the list. */
+function askCard(d) {
+  var text = String(d.text || "").trim();
+  var one = text.replace(/\s+/g, " ");
+  var title = one.length > 80 ? one.slice(0, 77).trimEnd() + "..." : one;
+  var body = text + "\n\nWhere to look: " + sourceLabel(d.source);
+  if (d.source === "list") body += "\n\nMy list:\n" + parseList(d.list).join("\n");
+  return { zone: ZONE, title: title, text: body };
+}
+</script>
+
+<script>
+(function () {
+  var store = window.wibble || (function () {
+    // Outside wibble (a plain browser): a store that forgets on reload, an
+    // Apollo that answers like a connected one, and a land that only says so.
+    var d = {}, fs = [];
+    function c(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
+    return {
+      get: function (k) { return c(d[k]); },
+      all: function () { return c(d); },
+      set: function (k, v) { var p = {}; if (k && typeof k === "object") p = c(k); else p[k] = v === undefined ? null : c(v);
+        for (var x in p) { if (p[x] === null) delete d[x]; else d[x] = p[x]; } fs.forEach(function (f) { f(c(d)); }); },
+      subscribe: function (f) { fs.push(f); f(c(d)); return function () {}; },
+      call: function (ext, name) {
+        if (ext === "apollo" && name === "credits") return Promise.resolve({ limit: 1200, consumed: 42, left: 1158, resets: "2026-10-15T00:00:00.000Z" });
+        return Promise.reject(new Error("Not available outside Wibble."));
+      },
+      land: function (card) { console.log("land", card); return Promise.resolve(); },
+    };
+  })();
+
+  var $ = function (id) { return document.getElementById(id); };
+  var draft = { text: "", source: "", list: "" };
+  var apollo = { state: "checking", note: "" };
+  var finding = false;
+
+  try {
+    var saved = store.get("draft");
+    if (saved && typeof saved === "object") draft = { text: String(saved.text || ""), source: String(saved.source || ""), list: String(saved.list || "") };
+  } catch (_) {}
+
+  function keep() { try { store.set("draft", draft); } catch (_) {} }
+
+  function say(msg, bad) {
+    var el = $("status");
+    el.textContent = msg || "";
+    el.className = "lf-status" + (bad ? " lf-bad" : "");
+  }
+
+  function usable(id) { return id !== "apollo" || apollo.state === "ready"; }
+
+  function render() {
+    if (apollo.state !== "checking" && (!draft.source || !usable(draft.source))) draft.source = apollo.state === "ready" ? "apollo" : "web";
+    var segs = $("segs");
+    segs.textContent = "";
+    SOURCES.forEach(function (s) {
+      var b = document.createElement("button");
+      b.type = "button";
+      b.className = "lf-seg";
+      b.setAttribute("aria-pressed", String(draft.source === s.id));
+      var off = s.id === "apollo" && (apollo.state === "missing" || apollo.state === "nokey");
+      b.disabled = off;
+      b.appendChild(document.createTextNode(s.label));
+      if (off) { var sm = document.createElement("small"); sm.textContent = apollo.note; b.appendChild(sm); }
+      b.onclick = function () { draft.source = s.id; keep(); render(); };
+      segs.appendChild(b);
+    });
+    var note = "";
+    SOURCES.forEach(function (s) { if (s.id === draft.source) note = s.note; });
+    $("source-note").textContent = note;
+    $("list-wrap").hidden = draft.source !== "list";
+    $("find").disabled = finding || !canFind(draft);
+  }
+
+  $("text").value = draft.text;
+  $("list").value = draft.list;
+  $("text").addEventListener("input", function () { draft.text = this.value; keep(); render(); });
+  $("list").addEventListener("input", function () { draft.list = this.value; keep(); render(); });
+
+  $("find").addEventListener("click", function () {
+    if (finding || !canFind(draft)) return;
+    finding = true;
+    render();
+    say("Sending...");
+    var card = askCard(draft);
+    Promise.resolve()
+      .then(function () { return store.land(card); })
+      .then(function () { say("Landed in Who to find. Lead scout is on it, and the people it finds land in Leads."); })
+      .catch(function (e) { say((e && e.message) || "That did not land.", true); })
+      .then(function () { finding = false; render(); });
+  });
+
+  render();
+  var ask = typeof store.call === "function"
+    ? Promise.resolve().then(function () { return store.call("apollo", "credits", null); })
+    : Promise.reject(new Error(""));
+  ask.then(function () { return { ok: true }; }, function (e) { return { ok: false, error: (e && e.message) || "" }; })
+    .then(function (res) { apollo = apolloState(res); render(); });
+})();
+</script>
+</body>
+</html>

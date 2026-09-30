@@ -1,0 +1,35 @@
+{
+  "items": [
+    { "kind": "agent", "id": "lead-scout" },
+    { "kind": "agent", "id": "outreach-asker" }
+  ],
+  "zones": [
+    {
+      "key": "who", "name": "Who to find", "shows": "board", "dx": 0, "dy": 0, "w": 600,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "lead-scout" }, "into": "leads" }
+    },
+    {
+      "key": "leads", "name": "Leads", "shows": "board", "dx": 640, "dy": 0, "w": 620,
+      "rule": {
+        "when": { "kind": "clock", "clock": { "repeat": "weekly", "days": ["mon"], "time": "08:00" } },
+        "run": { "agent": "lead-scout", "note": "Monday re-run. Search only: re-run the saved searches on the lead board and add only people who are not on it yet. Never reveal or spend." },
+        "into": "leads",
+        "missed": "skip"
+      }
+    },
+    {
+      "key": "outreach", "name": "Outreach", "dx": 1300, "dy": 0, "w": 600,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "outreach-asker" }, "into": "send" }
+    },
+    { "key": "send", "name": "To send", "dx": 1940, "dy": 0, "w": 600 }
+  ],
+  "pages": [
+    { "zone": "who", "title": "Start here", "file": "note-start.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
+    { "zone": "who", "title": "Who do you want to reach?", "file": "ask.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
+    { "zone": "who", "title": "What happens in Who to find", "file": "note-who.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
+    { "zone": "leads", "title": "Lead board", "file": "board.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
+    { "zone": "leads", "title": "What happens in Leads", "file": "note-leads.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
+    { "zone": "outreach", "title": "What happens in Outreach", "file": "note-outreach.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true },
+    { "zone": "send", "title": "What happens in To send", "file": "note-send.html", "dx": 16, "dy": 48, "width": "card", "stayOut": true }
+  ]
+}
