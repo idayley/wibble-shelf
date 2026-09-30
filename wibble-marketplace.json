@@ -216,11 +216,16 @@
       "id": "lead-finder-kit",
       "name": "Lead finder kit",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "dd50fc1fbce6477b2a622baad9211a1fcfd6e1de",
+      "ref": "5440e41b1c07b855ea9839d83291ac4cc57feae6",
       "path": "items/lead-finder-kit/kit.json",
-      "version": "1.0.3",
+      "version": "1.0.4",
       "description": "Find people to reach, pick how to reach each one, and get drafts to send. Works with Apollo (free search, credits only when you say so), web search or your own list.",
       "history": [
+        {
+          "version": "1.0.4",
+          "date": "29 Sep",
+          "note": "All four zones stand at one height and scroll inside, so the kit stays one even row as drafts arrive."
+        },
         {
           "version": "1.0.3",
           "date": "29 Sep",
