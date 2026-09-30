@@ -160,11 +160,16 @@
       "id": "apollo",
       "name": "Apollo",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "56851eafb10d5ac44bb390e4197eb6dba52c9343",
+      "ref": "9b5fa49faa63bcf832e040170dd29b7b1695f130",
       "path": "items/apollo",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Find people in Apollo by title, place and company size for free, then reveal work emails only when you say so. Shows your credit balance.",
       "history": [
+        {
+          "version": "1.0.1",
+          "date": "29 Sep",
+          "note": "A slow reveal stops in time to hand back what it paid for; people Apollo couldn't reach stay retryable; clearer key errors."
+        },
         {
           "version": "1.0.0",
           "date": "29 Sep",
@@ -211,11 +216,16 @@
       "id": "lead-finder-kit",
       "name": "Lead finder kit",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "00a017fdf20962713eb7d01e5c87be1e9263ea22",
+      "ref": "96e59dd9f876fb45597d6da733f28d245efecf8e",
       "path": "items/lead-finder-kit/kit.json",
-      "version": "1.0.1",
+      "version": "1.0.2",
       "description": "Find people to reach, pick how to reach each one, and get drafts to send. Works with Apollo (free search, credits only when you say so), web search or your own list.",
       "history": [
+        {
+          "version": "1.0.2",
+          "date": "29 Sep",
+          "note": "Picks always go to this kit's own zones, even when another zone has the same name."
+        },
         {
           "version": "1.0.1",
           "date": "29 Sep",
