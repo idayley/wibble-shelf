@@ -2,7 +2,7 @@
   "id": "apollo",
   "name": "Apollo",
   "description": "Find people in Apollo by title, place and company size for free, then reveal work emails only when you say so. Shows your credit balance.",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "idayley",
   "main": "main.js",
   "api": 1,
