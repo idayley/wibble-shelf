@@ -5,11 +5,11 @@
   ],
   "zones": [
     {
-      "key": "who", "name": "Who to find", "shows": "board", "dx": 0, "dy": 0, "w": 1192,
+      "key": "who", "name": "Who to find", "shows": "board", "dx": 0, "dy": 0, "w": 1192, "h": 880,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "lead-scout" }, "into": "leads" }
     },
     {
-      "key": "leads", "name": "Leads", "shows": "board", "dx": 1232, "dy": 0, "w": 1192,
+      "key": "leads", "name": "Leads", "shows": "board", "dx": 1232, "dy": 0, "w": 1192, "h": 880,
       "rule": {
         "when": { "kind": "clock", "clock": { "repeat": "weekly", "days": ["mon"], "time": "08:00" } },
         "run": { "agent": "lead-scout", "note": "Monday re-run. Search only: re-run the saved searches on the lead board and add only people who are not on it yet. Never reveal or spend." },
