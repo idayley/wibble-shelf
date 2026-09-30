@@ -171,6 +171,57 @@
           "note": "First version."
         }
       ]
+    },
+    {
+      "kind": "agent",
+      "id": "lead-scout",
+      "name": "Lead scout",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "351900f30c5445e751238c53ceed3663a572ea7c",
+      "path": "items/lead-scout/lead-scout.md",
+      "version": "1.0.0",
+      "description": "Turns a note about who you want to reach into filters, finds people who fit, and adds them to your lead board. Never spends credits or contacts anyone.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "29 Sep",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "agent",
+      "id": "outreach-asker",
+      "name": "Outreach asker",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "351900f30c5445e751238c53ceed3663a572ea7c",
+      "path": "items/outreach-asker/outreach-asker.md",
+      "version": "1.0.0",
+      "description": "Writes one email, call sheet or LinkedIn note per person for the ways you chose to reach them; you send every message.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "29 Sep",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "bundle",
+      "id": "lead-finder-kit",
+      "name": "Lead finder kit",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "351900f30c5445e751238c53ceed3663a572ea7c",
+      "path": "items/lead-finder-kit/kit.json",
+      "version": "1.0.0",
+      "description": "Find people to reach, pick how to reach each one, and get drafts to send. Works with Apollo (free search, credits only when you say so), web search or your own list.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "29 Sep",
+          "note": "First version."
+        }
+      ]
     }
   ]
 }
