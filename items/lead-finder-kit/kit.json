@@ -5,11 +5,11 @@
   ],
   "zones": [
     {
-      "key": "who", "name": "Who to find", "shows": "board", "dx": 0, "dy": 0, "w": 900, "h": 820,
+      "key": "who", "name": "Who to find", "color": "blue", "shows": "board", "dx": 0, "dy": 0, "w": 900, "h": 860,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "lead-scout" }, "into": "leads" }
     },
     {
-      "key": "leads", "name": "Leads", "shows": "board", "dx": 940, "dy": 0, "w": 1020, "h": 820,
+      "key": "leads", "name": "Leads", "color": "orange", "shows": "board", "dx": 980, "dy": 0, "w": 1320, "h": 860,
       "rule": {
         "when": { "kind": "clock", "clock": { "repeat": "weekly", "days": ["mon"], "time": "08:00" } },
         "run": { "agent": "lead-scout", "note": "Monday re-run. Search only: re-run the saved searches on the lead board and add only people who are not on it yet. Never reveal or spend." },
@@ -18,10 +18,10 @@
       }
     },
     {
-      "key": "outreach", "name": "Outreach", "shows": "board", "dx": 0, "dy": 900, "w": 900, "h": 600,
+      "key": "outreach", "name": "Outreach", "color": "green", "shows": "board", "dx": 0, "dy": 960, "w": 900, "h": 620,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "outreach-asker" }, "into": "send" }
     },
-    { "key": "send", "name": "To send", "shows": "board", "dx": 940, "dy": 900, "w": 1020, "h": 600 }
+    { "key": "send", "name": "To send", "color": "pink", "shows": "board", "dx": 980, "dy": 960, "w": 1320, "h": 620 }
   ],
   "pages": [
     { "zone": "who", "title": "Who do you want to reach?", "file": "ask.html", "width": "card", "size": "m", "stayOut": true },
