@@ -227,6 +227,8 @@ function applyReveal(people, asked, result) {
   var got = {};
   result.people.forEach(function (r) { if (r && r.id) got[r.id] = r; });
   var stopped = str(result.stopped);
+  var skipped = {};
+  (Array.isArray(result.skipped) ? result.skipped : []).forEach(function (id) { skipped[id] = true; });
   var askedSet = {};
   (asked || []).forEach(function (id) { askedSet[id] = true; });
   var revealedIds = {};
@@ -238,17 +240,19 @@ function applyReveal(people, asked, result) {
       ["name", "title", "company", "email", "linkedin"].forEach(function (f) { if (str(r[f])) next[f] = str(r[f]); });
       out.updates[p.id] = next;
       revealedIds[p.apolloId] = true;
-    } else if (!stopped) {
+    } else if (!stopped && !skipped[p.apolloId]) {
       out.updates[p.id] = Object.assign({}, p, { revealFailed: true });
       out.failed.push(p.id);
     }
   });
   out.revealed = Object.keys(revealedIds).length;
   var requested = Number(result.requested) > 0 ? Number(result.requested) : (asked || []).length;
-  var missing = Math.max(0, requested - out.revealed);
+  var held = Object.keys(skipped).length;
+  var missing = Math.max(0, requested - out.revealed - held);
   out.line = "Revealed " + out.revealed + " of " + requested + ".";
   if (stopped) out.line += " " + stopped;
   else if (missing > 0) out.line += " Apollo had no match for " + missing + ".";
+  if (held > 0) out.line += " Apollo could not answer for " + held + ". Press Spend again to retry.";
   return out;
 }
 
@@ -284,6 +288,15 @@ function sendPayload(people, request) {
     if (str(p.why)) lines.push("Why: " + str(p.why));
   });
   return { zone: "Outreach", title: "Picks: " + plural(ready.length, "person", "people"), text: lines.join("\n").replace(/^\n+/, "") };
+}
+
+/* Where a card goes. The app writes each kit page a map of the kit's zone
+   keys to the zones it placed ("kitZones"), so a renamed zone, or a second
+   placing, still lands here. Without it (a plain browser, an old placing)
+   the zone's plain name stands. */
+function zoneFor(zones, key, name) {
+  var id = zones && typeof zones === "object" ? zones[key] : "";
+  return typeof id === "string" && id ? id : name;
 }
 
 function sentKeyOf(payload) {
@@ -510,7 +523,7 @@ function initials(name) {
       if (!state.enabled || ui.busy) return;
       var card = sendPayload(people, rec.request);
       ui.busy = "send"; say(""); draw();
-      Promise.resolve().then(function () { return store.land({ zone: card.zone, title: card.title, text: card.text }); })
+      Promise.resolve().then(function () { return store.land({ zone: zoneFor(store.get("kitZones"), "outreach", card.zone), title: card.title, text: card.text }); })
         .then(function () {
           store.set("settings", Object.assign({}, rec.settings || {}, { sentKey: sentKeyOf(card), sentAt: new Date().toISOString() }));
           say("Sent " + plural(state.count, "person", "people") + " to Outreach. Outreach asker is writing the drafts.");

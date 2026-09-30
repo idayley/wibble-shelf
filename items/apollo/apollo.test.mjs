@@ -189,6 +189,32 @@ test("reveal: stops on 401; a person with no match is skipped, not fatal", async
   assert.match(r.stopped, /key/);
 });
 
+test("reveal: a person Apollo errored on is listed as skipped, not left to look unmatched", async () => {
+  const w = fake({ match: (id, n) => (n === 1 ? { status: 500, body: {} } : { status: 200, body: MATCH(id) }) });
+  const r = await reveal(w, ["a", "b"]);
+  assert.deepEqual(r.people.map((p) => p.id), ["b"]);
+  assert.deepEqual(r.skipped, ["a"]);
+});
+
+test("reveal: past its budget it stops and says so, keeping what it revealed", async () => {
+  const w = fake({ match: (id) => ({ status: 200, body: MATCH(id) }) });
+  const slow = w.net.fetch;
+  w.net.fetch = async (url, init) => {
+    if (url === MATCH_URL) await new Promise((r) => setTimeout(r, 30));
+    return slow(url, init);
+  };
+  const r = await reveal(w, ["a", "b", "c", "d"], 50);
+  assert.ok(r.people.length >= 1 && r.people.length < 4);
+  assert.match(r.stopped, /Took too long/);
+});
+
+test("a key sentence from the app passes through instead of 'no key yet'", async () => {
+  const w = fake();
+  await activate(w);
+  w.net.fetch = async () => { throw new Error("Apollo API key was connected for X. Reconnect it in Settings → Connections."); };
+  await assert.rejects(w.handlers["tool:search"]({}), /was connected for X/);
+});
+
 test("reveal: a second reveal while one waits is refused, then allowed after", async () => {
   let release;
   const gate = new Promise((res) => (release = res));

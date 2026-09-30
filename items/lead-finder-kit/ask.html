@@ -71,6 +71,15 @@ var SOURCES = [
   { id: "list", label: "My list", note: "Paste names below. Lead scout fills in what it can find on public pages." }
 ];
 
+/* Where a card goes. The app writes each kit page a map of the kit's zone
+   keys to the zones it placed ("kitZones"), so a renamed zone, or a second
+   placing, still lands here. Without it (a plain browser, an old placing)
+   the zone's plain name stands. */
+function zoneFor(zones, key, name) {
+  var id = zones && typeof zones === "object" ? zones[key] : "";
+  return typeof id === "string" && id ? id : name;
+}
+
 function sourceLabel(id) {
   for (var i = 0; i < SOURCES.length; i++) if (SOURCES[i].id === id) return SOURCES[i].label;
   return "";
@@ -99,13 +108,13 @@ function canFind(d) {
 
 /* The card that lands in Who to find. That landing is what runs Lead scout,
    so it says everything the scout needs: the words, the source, the list. */
-function askCard(d) {
+function askCard(d, zones) {
   var text = String(d.text || "").trim();
   var one = text.replace(/\s+/g, " ");
   var title = one.length > 80 ? one.slice(0, 77).trimEnd() + "..." : one;
   var body = text + "\n\nWhere to look: " + sourceLabel(d.source);
   if (d.source === "list") body += "\n\nMy list:\n" + parseList(d.list).join("\n");
-  return { zone: ZONE, title: title, text: body };
+  return { zone: zoneFor(zones, "who", ZONE), title: title, text: body };
 }
 </script>
 
@@ -183,7 +192,7 @@ function askCard(d) {
     finding = true;
     render();
     say("Sending...");
-    var card = askCard(draft);
+    var card = askCard(draft, store.get("kitZones"));
     Promise.resolve()
       .then(function () { return store.land(card); })
       .then(function () { say("Landed in Who to find. Lead scout is on it, and the people it finds land in Leads."); })

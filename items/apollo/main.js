@@ -190,6 +190,8 @@ async function post(wibble, url, body) {
     });
   } catch (e) {
     const msg = e && e.message ? String(e.message) : "";
+    // The app's own sentence ("Reconnect it in Connections") is already right.
+    if (/Connections/.test(msg)) throw new ApolloError(401, msg);
     if (/secret|key/i.test(msg)) {
       throw new ApolloError(401, "No Apollo API key yet. Add one in Settings → Agents → Connections.");
     }
@@ -215,8 +217,14 @@ export async function credits(wibble) {
 
 let revealing = false;
 
+/** How long a reveal may keep spending after the yes. The app lets a page
+ * call run 20 minutes: up to 1 for the balance, 9 on the dialog, this, and
+ * one last request. Past it the rest waits for another press, so credits
+ * spent are always reported back. */
+export const REVEAL_BUDGET_MS = 5 * 60 * 1000;
+
 /** Reveal work emails. Spends credits, so it never runs without a yes. */
-export async function reveal(wibble, ids) {
+export async function reveal(wibble, ids, budgetMs = REVEAL_BUDGET_MS) {
   if (revealing) throw new Error("A reveal is already waiting on you.");
   revealing = true;
   try {
@@ -231,8 +239,14 @@ export async function reveal(wibble, ids) {
     const yes = await wibble.confirm(confirmOptions(list.length, bal));
     if (yes !== true) throw new Error("You cancelled the spend.");
     const people = [];
+    const skipped = [];
     let stopped;
+    const began = Date.now();
     for (const id of list) {
+      if (Date.now() - began >= budgetMs) {
+        stopped = "Took too long. Press Spend again for the rest.";
+        break;
+      }
       let body;
       try {
         body = await post(wibble, MATCH_URL, matchBody(id));
@@ -246,12 +260,18 @@ export async function reveal(wibble, ids) {
           stopped = why;
           break;
         }
-        continue; // one person Apollo couldn't answer for: move on
+        skipped.push(id); // one person Apollo couldn't answer for: move on, and say so
+        continue;
       }
       const p = parseMatch(body);
       if (p) people.push({ ...p, id: p.id || id });
     }
-    return stopped ? { people, requested: list.length, stopped } : { people, requested: list.length };
+    return {
+      people,
+      requested: list.length,
+      ...(skipped.length ? { skipped } : {}),
+      ...(stopped ? { stopped } : {}),
+    };
   } finally {
     revealing = false;
   }

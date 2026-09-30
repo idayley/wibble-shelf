@@ -17,9 +17,9 @@ function logic(file, names) {
 const B = logic("board.html", [
   "channelsOn", "isPicked", "needsReveal", "creditsNeeded", "revealIds", "spendMode", "balanceAfter",
   "dedupeKey", "uniquePeople", "newPeople", "readyPeople", "sendState", "sendPayload", "sentKeyOf",
-  "applyReveal", "records", "spendLine", "REVEAL_CAP",
+  "applyReveal", "records", "spendLine", "REVEAL_CAP", "zoneFor",
 ]);
-const A = logic("ask.html", ["apolloState", "askCard", "canFind", "parseList", "SOURCES"]);
+const A = logic("ask.html", ["apolloState", "askCard", "canFind", "parseList", "SOURCES", "zoneFor"]);
 
 const ch = (email, call, linkedin) => ({ email: !!email, call: !!call, linkedin: !!linkedin });
 const person = (id, over = {}) => ({
@@ -291,4 +291,24 @@ test("the card Find people lands holds the request, the source, and only a list 
 test("a pasted list becomes lines, no blanks", () => {
   assert.deepEqual(A.parseList("Dana Ruiz, Harbor\n\n  Marcus Webb  \n"), ["Dana Ruiz, Harbor", "Marcus Webb"]);
   assert.deepEqual(A.parseList(""), []);
+});
+
+test("a card goes to the zone the kit placed, by id, and to the plain name without one", () => {
+  const zones = { who: "z-77", outreach: "z-88" };
+  assert.equal(A.askCard({ text: "CEOs", source: "web", list: "" }, zones).zone, "z-77");
+  assert.equal(A.askCard({ text: "CEOs", source: "web", list: "" }).zone, "Who to find");
+  assert.equal(B.zoneFor(zones, "outreach", "Outreach"), "z-88");
+  assert.equal(B.zoneFor(zones, "nope", "Outreach"), "Outreach");
+  assert.equal(B.zoneFor(undefined, "outreach", "Outreach"), "Outreach");
+  assert.equal(B.zoneFor({ outreach: 5 }, "outreach", "Outreach"), "Outreach");
+});
+
+test("people Apollo could not answer for stay waiting, not marked as no match", () => {
+  const people = [person("a"), person("b"), person("c")];
+  const r = B.applyReveal(people, ["ap-a", "ap-b", "ap-c"], {
+    people: [{ id: "ap-a", email: "a@x.co" }], requested: 3, skipped: ["ap-b"],
+  });
+  assert.deepEqual(r.failed, ["c"]);
+  assert.equal(r.updates.b, undefined);
+  assert.match(r.line, /could not answer for 1/);
 });
