@@ -218,9 +218,14 @@
       "repo": "https://github.com/idayley/wibble-shelf",
       "ref": "5440e41b1c07b855ea9839d83291ac4cc57feae6",
       "path": "items/lead-finder-kit/kit.json",
-      "version": "1.0.4",
+      "version": "1.0.5",
       "description": "Find people to reach, pick how to reach each one, and get drafts to send. Works with Apollo (free search, credits only when you say so), web search or your own list.",
       "history": [
+        {
+          "version": "1.0.5",
+          "date": "29 Sep",
+          "note": "Cards now have their own widths and sit in two even rows, with the lead board wide and the notes narrow."
+        },
         {
           "version": "1.0.4",
           "date": "29 Sep",
