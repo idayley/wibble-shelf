@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sprout · plant care</title>
+<!--
+  A small app to rehearse on: a sign-up, a pick-your-plants grid, a reminder
+  setting, and a voice note that listens through the microphone. `node
+  serve.mjs` serves it at http://127.0.0.1:4317. The signed-in address
+  (dana.real@example.com) is there to be masked.
+-->
+<style>
+  :root { --bg: #f6f5f0; --card: #fff; --ink: #1d2a22; --mute: #6b766f; --line: #e3e1d8; --acc: #2f7d4f; --acc2: #e8f3ec; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 16px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif; color: var(--ink); background: var(--bg); }
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 32px; background: var(--card); border-bottom: 1px solid var(--line); }
+  .brand { font-weight: 700; font-size: 20px; display: flex; gap: 10px; align-items: center; }
+  .brand i { width: 26px; height: 26px; border-radius: 8px; background: var(--acc); display: inline-block; }
+  .who { font-size: 14px; color: var(--mute); }
+  nav a { margin-left: 20px; color: var(--mute); text-decoration: none; font-size: 15px; }
+  nav a.on { color: var(--ink); font-weight: 600; }
+  main { max-width: 980px; margin: 0 auto; padding: 40px 32px; }
+  h1 { font-size: 34px; margin: 0 0 6px; letter-spacing: -.01em; }
+  .lede { color: var(--mute); margin: 0 0 28px; }
+  .panel { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 28px; }
+  label.f { display: block; font-size: 14px; font-weight: 600; margin: 0 0 6px; }
+  input[type=text], input[type=email], select, textarea { width: 100%; font: inherit; padding: 11px 13px; border: 1px solid var(--line); border-radius: 10px; background: #fff; margin-bottom: 18px; }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  button { font: inherit; font-weight: 600; border: 0; border-radius: 10px; padding: 12px 20px; background: var(--acc); color: #fff; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--acc); padding: 12px 6px; }
+  .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 24px; }
+  .plant { border: 1px solid var(--line); border-radius: 14px; padding: 18px; background: #fff; cursor: pointer; display: flex; gap: 14px; align-items: center; }
+  .plant.on { border-color: var(--acc); background: var(--acc2); }
+  .plant .dot { width: 44px; height: 44px; border-radius: 50%; flex: none; }
+  .plant b { display: block; }
+  .plant small { color: var(--mute); }
+  .check { display: flex; gap: 10px; align-items: center; font-size: 15px; margin: 4px 0 22px; }
+  .meter { height: 56px; display: flex; gap: 4px; align-items: center; margin: 18px 0; }
+  .meter span { width: 6px; border-radius: 3px; background: var(--acc); height: 4px; transition: height .08s; }
+  .note { padding: 14px 16px; background: var(--acc2); border-radius: 10px; margin-top: 12px; }
+  .toast { position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%); background: var(--ink); color: #fff; padding: 12px 18px; border-radius: 10px; font-size: 15px; opacity: 0; transition: opacity .3s; }
+  .toast.on { opacity: 1; }
+  .hide { display: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand"><i></i>Sprout</div>
+  <nav><a href="#start" data-r="start">Start</a><a href="#plants" data-r="plants">My plants</a><a href="#journal" data-r="journal">Journal</a></nav>
+  <div class="who">Signed in as <span id="email">dana.real@example.com</span></div>
+</header>
+<main>
+  <section id="start">
+    <h1>Let's set up your windowsill</h1>
+    <p class="lede">Tell us a little about you and we'll build a watering plan.</p>
+    <div class="panel">
+      <div class="row">
+        <div><label class="f" for="name">Your first name</label><input id="name" type="text" placeholder="e.g. Sam"></div>
+        <div><label class="f" for="city">City</label><input id="city" type="text" placeholder="For the light and the weather"></div>
+      </div>
+      <label class="f" for="light">How much light does your spot get?</label>
+      <select id="light"><option value="">Choose one</option><option>Bright, direct sun</option><option>Bright, indirect</option><option>Low light</option></select>
+      <button id="go">Continue</button>
+    </div>
+  </section>
+
+  <section id="plants" class="hide">
+    <h1 id="hi">Pick your plants</h1>
+    <p class="lede">Choose the ones on your windowsill. You can add more later.</p>
+    <div class="grid" id="grid"></div>
+    <div class="panel">
+      <label class="f" for="when">Remind me to water</label>
+      <select id="when"><option>In the morning</option><option>At lunchtime</option><option>In the evening</option></select>
+      <label class="check"><input type="checkbox" id="weekly"> Send me a weekly summary</label>
+      <button id="save">Save my plan</button>
+    </div>
+  </section>
+
+  <section id="journal" class="hide">
+    <h1>Plant journal</h1>
+    <p class="lede">Say how your plants are doing. Sprout listens and keeps a note.</p>
+    <div class="panel">
+      <button id="rec">Record a voice note</button>
+      <div class="meter" id="meter"></div>
+      <div id="status" class="lede" style="margin:0">Not recording.</div>
+      <div id="notes"></div>
+    </div>
+  </section>
+</main>
+<div class="toast" id="toast"></div>
+<script>
+const $ = s => document.querySelector(s);
+const PLANTS = [["Monstera", "Every 7 days", "#5f9e6e"], ["Snake plant", "Every 14 days", "#7a9a4a"], ["Pothos", "Every 5 days", "#3f8f7a"],
+  ["Fiddle leaf fig", "Every 7 days", "#4c7d4a"], ["Peace lily", "Every 4 days", "#8cb59a"], ["Calathea", "Every 3 days", "#6f8e5c"]];
+$("#grid").innerHTML = PLANTS.map(([n, w, c]) => `<div class="plant" tabindex="0" role="checkbox" aria-checked="false"><span class="dot" style="background:${c}"></span><div><b>${n}</b><small>${w}</small></div></div>`).join("");
+document.querySelectorAll(".plant").forEach(p => p.addEventListener("click", () => { p.classList.toggle("on"); p.setAttribute("aria-checked", p.classList.contains("on")); }));
+const toast = t => { $("#toast").textContent = t; $("#toast").classList.add("on"); setTimeout(() => $("#toast").classList.remove("on"), 2200); };
+function route() {
+  const r = (location.hash || "#start").slice(1);
+  for (const s of document.querySelectorAll("main section")) s.classList.toggle("hide", s.id !== r);
+  for (const a of document.querySelectorAll("nav a")) a.classList.toggle("on", a.dataset.r === r);
+  window.scrollTo(0, 0);
+}
+addEventListener("hashchange", route); route();
+$("#go").onclick = () => {
+  const n = $("#name").value.trim();
+  if (n) $("#hi").textContent = `Pick your plants, ${n}`;
+  setTimeout(() => (location.hash = "plants"), 600); // a pretend server round-trip
+};
+$("#save").onclick = () => {
+  const k = document.querySelectorAll(".plant.on").length;
+  $("#save").textContent = "Saving…";
+  setTimeout(() => { $("#save").textContent = "Save my plan"; toast(`Saved. ${k} plant${k === 1 ? "" : "s"}, reminders ${$("#when").value.toLowerCase()}.`); }, 2600);
+};
+// The voice note: a level meter from the microphone, and how long it heard.
+$("#meter").innerHTML = "<span></span>".repeat(48);
+let stream = null;
+$("#rec").onclick = async () => {
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; return; }
+  stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  $("#rec").textContent = "Stop";
+  $("#status").textContent = "Listening…";
+  const ctx = new AudioContext(), an = ctx.createAnalyser(); an.fftSize = 512;
+  ctx.createMediaStreamSource(stream).connect(an);
+  const bars = [...document.querySelectorAll("#meter span")], buf = new Uint8Array(an.fftSize);
+  let heard = 0, last = performance.now();
+  const tick = now => {
+    an.getByteTimeDomainData(buf);
+    let peak = 0; for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    if (peak > 6) heard += now - last;
+    last = now;
+    bars.shift().style.height = Math.max(4, Math.min(56, peak * 1.1)) + "px";
+    const b = $("#meter").appendChild($("#meter").firstElementChild); bars.push(b);
+    if (stream) requestAnimationFrame(tick);
+    else {
+      ctx.close(); $("#rec").textContent = "Record a voice note"; $("#status").textContent = "Not recording.";
+      $("#notes").insertAdjacentHTML("afterbegin", `<div class="note">Voice note · ${(heard / 1000).toFixed(1)}s · saved to today</div>`);
+    }
+  };
+  requestAnimationFrame(tick);
+};
+</script>
+</body>
+</html>

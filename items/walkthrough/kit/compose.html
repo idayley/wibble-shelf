@@ -1,0 +1,157 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Walkthrough film</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Geist+Mono:wght@500&family=Noto+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+<!--
+  The film's one frame. compose.mjs decides everything (which recorded frame,
+  the camera, the pointer, the caption) and calls show(state) once per frame;
+  this page only draws it. Look A, "lower third": the app in a window on a
+  dark stage, a glass caption with a step number, a chapter strip below.
+-->
+<style>
+  :root { --acc: oklch(64% 0.21 22); --ink: #efeef4; --mute: #8e8c9c; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; background: #0d0d10; }
+  body { font-family: "Noto Sans", system-ui, sans-serif; color: var(--ink); -webkit-font-smoothing: antialiased; }
+  #stage { position: absolute; inset: 0; background: radial-gradient(120% 90% at 50% 0%, #1c1b22 0%, #0d0d10 70%); }
+  #win { position: absolute; border-radius: 18px; overflow: hidden; background: #fff; box-shadow: 0 0 0 1px rgba(255,255,255,.09), 0 50px 100px -50px #000; }
+  #cam { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+  #cam img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
+  #cur { position: absolute; left: 0; top: 0; transform-origin: 2px 2px; filter: drop-shadow(0 3px 6px rgba(0,0,0,.35)); will-change: transform; }
+  .ring { position: absolute; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 3px var(--acc), 0 6px 18px rgba(0,0,0,.25); }
+  #cap { position: absolute; display: flex; pointer-events: none; }
+  #cap .glass { display: flex; align-items: center; gap: 16px; padding: 15px 26px 15px 16px; border-radius: 16px; max-width: 100%; box-sizing: border-box;
+    background: rgba(18,16,24,.8); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 18px 40px -16px rgba(0,0,0,.6); }
+  #cap .n { flex: none; font: 500 15px/1 "Geist Mono", ui-monospace, monospace; color: #fff; background: var(--acc); padding: 7px 9px; border-radius: 8px; }
+  #cap .t { font: 500 26px/1.3 "Noto Sans", system-ui, sans-serif; color: #fff; }
+  #card { position: absolute; display: flex; flex-direction: column; justify-content: center; padding-left: 120px; background: #141218; }
+  #card .in { display: flex; flex-direction: column; gap: 18px; max-width: 1300px; }
+  #card .k { font: 500 17px/1 "Geist Mono", ui-monospace, monospace; color: var(--acc); letter-spacing: .08em; text-transform: uppercase; }
+  #card .h { font: 700 76px/1.05 "Noto Sans", system-ui, sans-serif; color: #fff; letter-spacing: -.02em; }
+  #card .s { font: 400 30px/1.35 "Noto Sans", system-ui, sans-serif; color: #b9b6c8; }
+  #card .f { margin-top: 26px; font: 500 16px/1.5 "Geist Mono", ui-monospace, monospace; color: var(--mute); }
+  #card .toc { margin-top: 16px; display: grid; grid-template-columns: auto auto 1fr; gap: 12px 22px; font: 500 24px/1.25 "Noto Sans", system-ui, sans-serif; color: #dcd9e8; }
+  #card .toc span:nth-child(3n+1), #card .toc span:nth-child(3n+2) { font: 500 18px/1.6 "Geist Mono", ui-monospace, monospace; color: var(--mute); }
+  #bar { position: absolute; height: 40px; display: flex; align-items: center; gap: 18px; font: 500 15px/1 "Geist Mono", ui-monospace, monospace; color: var(--mute); }
+  #bar .track { position: relative; flex-grow: 1; height: 4px; border-radius: 2px; background: rgba(255,255,255,.13); }
+  #bar .fill { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 2px; background: var(--acc); }
+  #bar .tick { position: absolute; top: -4px; bottom: -4px; width: 2px; background: #0d0d10; }
+  #bar .ch { flex: none; font: 600 16px/1 "Noto Sans", system-ui, sans-serif; color: var(--ink); max-width: 520px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="win">
+    <div id="cam"><img id="a" alt=""><img id="b" alt=""></div>
+    <div id="rings"></div>
+    <div id="cur"><svg width="27" height="38" viewBox="0 0 24 34" style="display:block;overflow:visible"><path d="M2 2 L2 26 L8.2 20.4 L12.4 30.2 L16.6 28.4 L12.5 18.8 L20.8 18.8 Z" fill="#fff" stroke="#16141c" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
+    <div id="cap"><div class="glass"><span class="n"></span><span class="t"></span></div></div>
+  </div>
+  <div id="card"><div class="in"></div></div>
+  <div id="bar"><span class="time"></span><div class="track"><div class="fill"></div></div><span class="ch"></span></div>
+</div>
+<script>
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let L = null;
+
+// The stage layout, once: where the app's window sits and how big it draws.
+function layout(o) {
+  const [vw, vh] = o.view, k = Math.min(o.box[2] / vw, o.box[3] / vh);
+  const w = Math.round(vw * k), h = Math.round(vh * k), x = Math.round((1920 - w) / 2), y = o.box[1];
+  L = { ...o, k, w, h, x, y };
+  Object.assign($("#win").style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px" });
+  Object.assign($("#cam").style, { width: w + "px", height: h + "px" });
+  Object.assign($("#card").style, { left: x + "px", top: y + "px", width: w + "px", height: h + "px", borderRadius: "18px" });
+  Object.assign($("#bar").style, { left: x + "px", width: w + "px", top: y + h + Math.round((1080 - y - h - 40) / 2) + "px" });
+  $("#bar .track").insertAdjacentHTML("beforeend", (o.ticks || []).map(p => `<div class="tick" style="left:${(p * 100).toFixed(2)}%"></div>`).join(""));
+  return L;
+}
+
+const loaded = new Map();
+async function setImg(img, url) {
+  if (!url) { img.style.opacity = 0; return; }
+  if (img.dataset.src !== url) {
+    img.src = url; img.dataset.src = url;
+    try { await img.decode(); } catch {}
+  }
+}
+
+// One frame of the film.
+async function show(s) {
+  const k = L.k;
+  await Promise.all([setImg($("#a"), s.a), setImg($("#b"), s.b?.url)]);
+  $("#a").style.opacity = s.a ? 1 : 0;
+  $("#b").style.opacity = s.b ? s.b.alpha : 0;
+  const z = s.cam;
+  $("#cam").style.transform = `translate(${(z.fx * k * (1 - z.s)).toFixed(2)}px,${(z.fy * k * (1 - z.s)).toFixed(2)}px) scale(${z.s.toFixed(4)})`;
+
+  const cur = $("#cur");
+  if (s.cursor) {
+    cur.style.opacity = s.cursor.alpha;
+    cur.style.transform = `translate(${(s.cursor.x * k).toFixed(1)}px,${(s.cursor.y * k).toFixed(1)}px) scale(${s.cursor.press.toFixed(3)})`;
+  } else cur.style.opacity = 0;
+  $("#rings").innerHTML = (s.rings || []).map(r => `<div class="ring" style="left:${(r.x * k).toFixed(1)}px;top:${(r.y * k).toFixed(1)}px;opacity:${r.alpha.toFixed(3)};transform:scale(${r.scale.toFixed(3)})"></div>`).join("");
+
+  const cap = $("#cap");
+  if (s.cap && s.cap.alpha > 0.001) {
+    if (cap.dataset.key !== s.cap.key) {
+      cap.dataset.key = s.cap.key;
+      cap.querySelector(".n").textContent = String(s.cap.num).padStart(2, "0");
+      cap.querySelector(".t").textContent = s.cap.text;
+    }
+    placeCap(cap, s.cap.band);
+    cap.style.opacity = s.cap.alpha;
+    cap.querySelector(".glass").style.transform = `translateY(${s.cap.dy.toFixed(2)}px)`;
+  } else cap.style.opacity = 0;
+
+  const card = $("#card");
+  if (s.card) {
+    if (card.dataset.key !== s.card.key) { card.dataset.key = s.card.key; card.querySelector(".in").innerHTML = cardHtml(s.card); }
+    card.style.opacity = s.card.alpha;
+    card.querySelector(".in").style.transform = `translateY(${s.card.dy.toFixed(2)}px)`;
+  } else card.style.opacity = 0;
+
+  $("#bar .fill").style.width = (s.bar.fill * 100).toFixed(3) + "%";
+  $("#bar .time").textContent = s.bar.time;
+  $("#bar .ch").textContent = s.bar.chapter;
+  return true;
+}
+
+// Caption bands, in the window's own space: the same names plan.mjs picks from.
+function placeCap(cap, band) {
+  if (cap.dataset.band === band) return;
+  cap.dataset.band = band;
+  const m = 26, st = cap.style;
+  st.left = st.right = st.top = st.bottom = "";
+  const [v, hz] = band.includes("-") ? band.split("-") : [band, "center"];
+  st[v] = (v === "top" ? 20 : m) + "px";
+  if (hz === "center") { st.left = "11%"; st.right = "11%"; st.justifyContent = "center"; }
+  else if (hz === "left") { st.left = m + "px"; st.right = "48%"; st.justifyContent = "flex-start"; }
+  else { st.right = m + "px"; st.left = "48%"; st.justifyContent = "flex-end"; }
+}
+
+function cardHtml(c) {
+  if (c.type === "title") return `<div class="k">Walkthrough${c.app ? " · " + esc(c.app) : ""}</div><div class="h">${esc(c.title)}</div>${c.persona ? `<div class="s">${esc(c.persona)}</div>` : ""}<div class="f">${esc(c.note || "")}</div>`;
+  if (c.type === "chapter") return `<div class="k">Chapter ${c.index + 1}</div><div class="h">${esc(c.title)}</div>${c.sub ? `<div class="s">${esc(c.sub)}</div>` : ""}`;
+  return `<div class="k">End of walkthrough</div><div class="h">${esc(c.title || "That's the flow.")}</div>${(c.toc || []).length ? `<div class="toc">${c.toc.map(r => `<span>${esc(r.at)}</span><span>${esc(r.num)}</span><span>${esc(r.title)}</span>`).join("")}</div>` : ""}<div class="f">${esc(c.note || "")}</div>`;
+}
+
+// Luminance of a recorded frame on a gw x gh grid, for placing captions.
+async function grid(url, gw, gh) {
+  const img = new Image(); img.src = url; await img.decode();
+  const c = document.createElement("canvas"); c.width = gw; c.height = gh;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(img, 0, 0, gw, gh);
+  const d = g.getImageData(0, 0, gw, gh).data, out = [];
+  for (let i = 0; i < d.length; i += 4) out.push((0.2126 * d[i] + 0.7152 * d[i + 1] + 0.0722 * d[i + 2]) / 255);
+  return out;
+}
+
+const fontsReady = document.fonts.ready;
+window.film = { layout, show, grid, ready: () => fontsReady.then(() => true) };
+</script>
+</body>
+</html>
