@@ -182,7 +182,7 @@ var WHY_THEY_ASK = [
 
 /* Which field note each investor step, draft kind and reading opens. */
 var STEP_NOTE = { 0: "p3", 1: "p6", 2: "m2", 3: "m3", 4: "m5", 5: "m7", 6: "c2", 7: "c3", 8: "c5", quiet: "m8", passed: "b1" };
-var DRAFT_NOTE = { intro: "p6", cold: "p7", reply: "m2", followup: "m5", prep: "m4", checkin: "m8", update: "p1" };
+var DRAFT_NOTE = { intro: "p6", cold: "p7", direct: "p2", reply: "m2", followup: "m5", prep: "m4", checkin: "m8", update: "p1" };
 var READING_NOTE = { next: "m9", maybe: "m6", pass: "b2", intro: "m3" };
 
 /* ---- dates --------------------------------------------------------------- */
@@ -506,7 +506,7 @@ function zoneFor(zones, key) {
 
 /* What each kind of draft is called, in To send's chips and in the title of
    the card that asks for it. The asker picks the draft from that title. */
-var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
+var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", direct: "Note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
 </script>
 
 <script id="logic">
@@ -574,12 +574,13 @@ function nextView(inv, now) {
 
 /* The kind of draft the investor's step calls for, or null. Quiet comes
    first. A step 0 note to someone you know is a short direct note, so it
-   is a cold-note kind; only a warm path asks for an intro. */
+   is kind "direct"; only a warm path asks for an intro, only a cold
+   one gets a cold note. */
 function draftKind(inv, now) {
   if (inv.passed) return null;
   if (quietDays(inv, now) !== null) return "checkin";
   var s = stepOf(inv);
-  if (s === 0) return howOf(inv) === "warm" ? "intro" : "cold";
+  if (s === 0) return howOf(inv) === "warm" ? "intro" : howOf(inv) === "cold" ? "cold" : "direct";
   if (s === 2) return "reply";
   if (s === 3) return "prep";
   if (s === 4) return "followup";
@@ -588,7 +589,8 @@ function draftKind(inv, now) {
 
 function draftLabel(inv, kind) {
   if (kind === "intro") { var c = connectorOf(inv); return "Draft intro request" + (c ? " to " + c : ""); }
-  if (kind === "cold") return howOf(inv) === "know" ? "Draft a note to " + String(inv.name || "them").split(" ")[0] : "Draft a cold note";
+  if (kind === "direct") return "Draft a note to " + String(inv.name || "them").split(" ")[0];
+  if (kind === "cold") return "Draft a cold note";
   if (kind === "reply") return "Draft a reply with times";
   if (kind === "prep") return "Draft a prep sheet";
   if (kind === "followup") return "Draft the follow-up";

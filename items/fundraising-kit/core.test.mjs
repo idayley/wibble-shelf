@@ -146,6 +146,7 @@ test("every field note shows somewhere, and each phase has three This week notes
   const shown = new Set([...Object.values(STEP_NOTE), ...Object.values(DRAFT_NOTE), ...Object.values(READING_NOTE), "p4", "p5", "p2"]);
   for (let ph = 0; ph < 4; ph++) assert.equal(weekNotes(ph).length, 3);
   for (const g of GUIDE) assert.ok(shown.has(g.id) || g.week, g.id);
+  assert.equal(DRAFT_NOTE.direct, "p2");
   for (const g of GUIDE) assert.ok(/^Paraphrasing /.test(g.src) || g.id === "b4", g.id);
   assert.deepEqual(new Set(GUIDE.map((g) => g.id)).size, 25);
   for (const id of [...Object.values(STEP_NOTE), ...Object.values(DRAFT_NOTE), ...Object.values(READING_NOTE)]) assert.ok(GUIDE.some((g) => g.id === id), id);

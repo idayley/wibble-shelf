@@ -132,7 +132,7 @@ var WHY_THEY_ASK = [
 
 /* Which field note each investor step, draft kind and reading opens. */
 var STEP_NOTE = { 0: "p3", 1: "p6", 2: "m2", 3: "m3", 4: "m5", 5: "m7", 6: "c2", 7: "c3", 8: "c5", quiet: "m8", passed: "b1" };
-var DRAFT_NOTE = { intro: "p6", cold: "p7", reply: "m2", followup: "m5", prep: "m4", checkin: "m8", update: "p1" };
+var DRAFT_NOTE = { intro: "p6", cold: "p7", direct: "p2", reply: "m2", followup: "m5", prep: "m4", checkin: "m8", update: "p1" };
 var READING_NOTE = { next: "m9", maybe: "m6", pass: "b2", intro: "m3" };
 
 /* ---- dates --------------------------------------------------------------- */
@@ -456,7 +456,7 @@ function zoneFor(zones, key) {
 
 /* What each kind of draft is called, in To send's chips and in the title of
    the card that asks for it. The asker picks the draft from that title. */
-var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
+var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", direct: "Note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
 </script>
 
 <script id="logic">

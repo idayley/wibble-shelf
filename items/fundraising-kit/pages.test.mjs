@@ -340,7 +340,7 @@ test("investors: the draft kind follows the step and how; quiet comes first", ()
   const k = (o) => IV.draftKind(inv(o), NOW);
   assert.equal(k({ step: 0, how: "warm" }), "intro");
   assert.equal(k({ step: 0, how: "cold" }), "cold");
-  assert.equal(k({ step: 0, how: "know" }), "cold");
+  assert.equal(k({ step: 0, how: "know" }), "direct");
   assert.equal(k({ step: 1 }), null);
   assert.equal(k({ step: 2 }), "reply");
   assert.equal(k({ step: 3 }), "prep");
@@ -349,7 +349,7 @@ test("investors: the draft kind follows the step and how; quiet comes first", ()
   assert.equal(k({ step: 4, lastContact: "2026-10-01" }), "checkin");
   assert.equal(k({ step: 3, passed: true }), null);
   assert.equal(IV.draftLabel(inv({ how: "warm", next: { text: "Ask Jon Park for the intro", due: "2026-10-14" } }), "intro"), "Draft intro request to Jon Park");
-  assert.equal(IV.draftLabel(inv({}), "cold"), "Draft a note to Dana");
+  assert.equal(IV.draftLabel(inv({}), "direct"), "Draft a note to Dana");
   assert.equal(IV.draftLabel(inv({ how: "cold" }), "cold"), "Draft a cold note");
   assert.equal(IV.draftLabel(inv({}), "prep"), "Draft a prep sheet");
 });
@@ -463,6 +463,9 @@ test("to send: drafts come newest first, a follow-up request first of all, with 
 test("to send: a draft with no note id falls back to its kind's note, and empty has its text", () => {
   const v = TS.draftsView(TS.records({ "draft:x": { kind: "cold", text: "hi", status: "new" } }));
   assert.equal(v.items[0].note.id, "p7");
+  const dn = TS.draftsView(TS.records({ "draft:y": { kind: "direct", text: "hi", status: "new" } }));
+  assert.equal(dn.items[0].note.id, "p2");
+  assert.equal(dn.items[0].label, "Note");
   const e = TS.draftsView(TS.records({}));
   assert.equal(e.empty, true);
   assert.equal(e.text, "Drafts land here: intro requests, follow-ups, prep sheets and your monthly update.");
