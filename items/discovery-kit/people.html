@@ -1,0 +1,566 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>People</title>
+<!--
+  THE PEOPLE PAGE. Placed by the Discovery kit in 2 · People. Scout fills it
+  with real people for the active market. You tap Email, LinkedIn or Call
+  for each one you want to ask, then press Ask for a call. That lands a card
+  here, which runs Asker, and marks those people asked. Nothing here sends
+  anything: you send every ask yourself.
+
+  Everything it knows lives in the kit store (window.wibble.kit): person:<id>
+  records, one per person, and settings.active for the market shown.
+
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  pages.test.mjs can run them under node.
+
+  Classes start with dk- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,system-ui,sans-serif);color:var(--text,#ddd)}
+.dk-wrap{display:grid;grid-template-columns:minmax(0,1fr) 260px;gap:16px;align-items:start}
+.dk-col{display:grid;gap:16px;min-width:0}
+.dk-card{display:grid;gap:8px;min-width:0}
+.dk-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.dk-ttl{font-size:15px;font-weight:600;line-height:1.3}
+.dk-muted{color:var(--muted,#999);font-size:12.5px}
+.dk-grow{margin-left:auto}
+.dk-list{display:flex;flex-direction:column}
+.dk-person{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid var(--hair,rgba(255,255,255,.07))}
+.dk-av{flex:none;width:32px;height:32px;border-radius:16px;background:var(--edge,#333);font-size:11.5px;font-weight:600;display:flex;align-items:center;justify-content:center;color:var(--muted,#ccc)}
+.dk-who{flex:1;min-width:0}
+.dk-who.dk-dim{opacity:.45}
+.dk-name{font-size:13.5px;font-weight:600}
+.dk-role{font-size:12px;color:var(--muted,#b3b3b3)}
+.dk-why{font-size:11.5px;color:var(--faint,#8a8a8a)}
+.dk-why span{color:var(--faint,#6f6f6f)}
+.dk-chs{display:flex;gap:5px;flex:none}
+.dk-pill{min-height:30px;padding:4px 10px;border:1px solid var(--edge,rgba(255,255,255,.12));border-radius:999px;background:transparent;color:var(--muted,#cfcfcf);font-family:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center}
+.dk-pill[aria-pressed="true"]{background:#e0a060;border-color:#e0a060;color:#1f160c}
+.dk-tag{flex:none;font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap;background:color-mix(in oklab,var(--text,#fff) 8%,transparent);color:var(--muted,#d6d6d6)}
+.dk-tag.dk-hot{background:rgba(107,157,240,.16);color:#bcd2f7}
+.dk-empty{padding:40px 22px;border:1px dashed var(--edge,rgba(255,255,255,.14));border-radius:12px;font-size:13px;color:var(--faint,#8a8a8a);text-align:center;line-height:1.5}
+.dk-empty b{color:var(--text,#ddd);font-weight:600}
+.dk-sub{margin:0;font-size:12.5px;color:var(--muted,#b3b3b3);line-height:1.45}
+.dk-line{font-size:13px;line-height:1.5;color:var(--text,#d6d6d6)}
+.dk-btn{min-height:44px;padding:10px 14px;border:0;border-radius:10px;background:#e0a060;color:#1f160c;font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.dk-btn:disabled{cursor:default;background:transparent;color:var(--faint,#777);box-shadow:inset 0 0 0 1px var(--edge,rgba(255,255,255,.12))}
+.dk-btn:focus-visible,.dk-pill:focus-visible{outline:2px solid #e0a060;outline-offset:2px}
+.dk-done{display:flex;align-items:center;gap:8px;background:rgba(120,200,160,.1);border-radius:10px;padding:10px 12px;font-size:12.5px;color:#bfe6d0}
+.dk-bars{display:grid;gap:10px}
+.dk-bar{display:flex;align-items:center;gap:10px;font-size:12.5px}
+.dk-bar > span:first-child{width:62px;color:var(--text,#ccc)}
+.dk-track{flex:1;height:8px;border-radius:3px;background:var(--edge,#2e2e2e);overflow:hidden}
+.dk-fill{height:100%;background:#e0a060;border-radius:3px}
+.dk-n{width:22px;text-align:right;font:12px var(--mono,ui-monospace,monospace)}
+.dk-yes{display:grid;gap:2px;font-size:12.5px}
+.dk-yes b{font-weight:600}
+[hidden]{display:none!important}
+@media (max-width:560px){.dk-wrap{grid-template-columns:minmax(0,1fr)}.dk-person{flex-wrap:wrap}.dk-who{flex-basis:calc(100% - 50px)}.dk-chs,.dk-tag{margin-left:42px}}
+</style>
+</head>
+<body>
+<div class="dk-wrap" id="app"></div>
+<script id="core">
+/* THE DISCOVERY KIT'S SHARED RULES. Every page needs the same count of
+   calls, the same verdict and the same "what's next", or the strip, the
+   Markets page and the agents drift apart. Pure functions, no DOM, no
+   window. This file is the only copy: sync-core.mjs pastes it into each
+   page's <script id="core">, and core.test.mjs runs it under node. */
+
+var DAY = 24 * 60 * 60 * 1000;
+var LAPSE_DAYS = 14;
+var EXTENDED_CALLS = 15;
+var DEFAULT_LINE = { calls: 10, hits: 3, commitments: 1 };
+var VERDICTS = ["Persevere", "Pivot", "Keep talking"];
+var BUYERS = ["budget holder", "decision maker"];
+
+function toMs(t) {
+  if (t == null || t === "") return NaN;
+  if (typeof t === "number") return t;
+  if (t instanceof Date) return t.getTime();
+  return Date.parse(t);
+}
+
+/* People arrive as a map (id -> person) or a list; either works. */
+function peopleIndex(people) {
+  if (!people) return {};
+  if (Array.isArray(people)) {
+    var out = {};
+    for (var i = 0; i < people.length; i++) if (people[i] && people[i].id) out[people[i].id] = people[i];
+    return out;
+  }
+  return people;
+}
+
+/* The pass line, with the kit's default filling anything left out. The
+   store spells it {hits, of, commits}; the older spelling {calls, hits,
+   commitments} still reads. */
+function lineOf(market) {
+  var p = (market && market.passLine) || {};
+  function n(v, d) { v = Number(v); return isFinite(v) && v >= 0 ? Math.floor(v) : d; }
+  var calls = n(p.of != null ? p.of : p.calls, DEFAULT_LINE.calls) || DEFAULT_LINE.calls;
+  return {
+    calls: calls,
+    hits: n(p.hits, DEFAULT_LINE.hits),
+    commitments: n(p.commits != null ? p.commits : p.commitments, DEFAULT_LINE.commitments),
+  };
+}
+
+function targetOf(market) {
+  var line = lineOf(market);
+  return market && market.extended ? Math.max(EXTENDED_CALLS, line.calls) : line.calls;
+}
+
+function speakerAmbiguous(call) {
+  return call.speakerAmbiguous === true || call.speaker === "ambiguous";
+}
+
+/* A call that could count, before each person is taken once: in the
+   segment, not tainted by a pitch, not a friend or family member, and not
+   a low-confidence call where we can't tell who said what. A call with no
+   person on the board can't be checked, so it doesn't count. */
+function eligible(call, byId) {
+  if (!call || !call.person) return false;
+  var person = byId[call.person];
+  if (call.inSegment === false) return false;
+  if (call.tainted) return false;
+  if (person && person.relationship === "friend-family") return false;
+  if (call.confidence === "low" && speakerAmbiguous(call)) return false;
+  return true;
+}
+
+function callTime(call) {
+  var t = toMs(call.date);
+  if (isNaN(t)) t = toMs(call.at);
+  return isNaN(t) ? 0 : t;
+}
+
+/* A call counts for bet v when it says so, else when it was made under
+   that bet. A sharper bet carries over the calls that already described
+   its pain; the rest stay with the version they were made under. */
+function countsFor(call, v) {
+  return call.counts && typeof call.counts[v] === "boolean" ? call.counts[v] : call.betV === v;
+}
+
+/* The calls that count toward the pass line: eligible, and each person
+   once, their latest call. */
+function counted(calls, people) {
+  var byId = peopleIndex(people);
+  var latest = {};
+  var order = [];
+  for (var i = 0; i < (calls || []).length; i++) {
+    var c = calls[i];
+    if (!eligible(c, byId)) continue;
+    var prev = latest[c.person];
+    if (!prev) { order.push(c.person); latest[c.person] = c; }
+    else if (callTime(c) >= callTime(prev)) latest[c.person] = c;
+  }
+  return order.map(function (p) { return latest[p]; });
+}
+
+/* A commitment is live when it was offered or kept and hasn't lapsed. An
+   unkept one lapses 14 days after its due date. */
+function commitmentLapsed(commitment, now) {
+  if (!commitment) return true;
+  var s = commitment.status;
+  if (s === "fulfilled" || s === "kept") return false;
+  if (s === "lapsed" || s === "declined" || s === "withdrawn") return true;
+  var due = toMs(commitment.due);
+  if (isNaN(due)) return false;
+  return due + LAPSE_DAYS * DAY < toMs(now);
+}
+
+function orgKey(call, person) {
+  var o = (call.org || (person && person.org) || "").trim().toLowerCase();
+  return o || null;
+}
+
+function marketCalls(market, calls) {
+  var id = market && market.id;
+  return (calls || []).filter(function (c) { return c && c.market === id; });
+}
+
+/* The version of the bet a market is on now. */
+function betV(market) {
+  var v = market && market.bet && market.bet.v;
+  return typeof v === "number" ? v : 1;
+}
+
+/* Everything the verdict needs, for one market, from the calls that count
+   for its current bet. Commitments come from any eligible call (a
+   follow-up call without one doesn't erase an earlier one), one per
+   person. Organisations are counted among the hits only. */
+function tally(market, calls, people, now) {
+  var byId = peopleIndex(people);
+  var v = betV(market);
+  var mine = marketCalls(market, calls).filter(function (c) { return countsFor(c, v); });
+  var cs = counted(mine, byId);
+  var line = lineOf(market);
+  var ladder = [0, 0, 0, 0, 0, 0];
+  var hits = 0, orgs = {}, buyers = 0;
+  for (var i = 0; i < cs.length; i++) {
+    var c = cs[i], lv = Math.max(0, Math.min(5, Math.round(Number(c.level) || 0)));
+    ladder[lv]++;
+    if (lv >= 4) {
+      hits++;
+      var p = byId[c.person];
+      var k = orgKey(c, p);
+      if (k) orgs[k] = true;
+      if (p && BUYERS.indexOf(p.buyingRole) >= 0) buyers++;
+    }
+  }
+  var live = {}, commitments = [];
+  for (var j = 0; j < mine.length; j++) {
+    var cc = mine[j];
+    if (!cc.commitment || !eligible(cc, byId)) continue;
+    var lapsed = commitmentLapsed(cc.commitment, now);
+    commitments.push({ call: cc.id, person: cc.person, what: cc.commitment.what, currency: cc.commitment.currency, due: cc.commitment.due, status: cc.commitment.status, lapsed: lapsed });
+    if (!lapsed) live[cc.person] = true;
+  }
+  return {
+    n: cs.length,
+    hits: hits,
+    commits: Object.keys(live).length,
+    orgs: Object.keys(orgs).length,
+    buyers: buyers,
+    target: targetOf(market),
+    line: line,
+    ladder: ladder,
+    commitments: commitments,
+    notCounted: mine.length - cs.length,
+  };
+}
+
+/* The pass line may be edited only until the first call is counted. Any
+   bet's calls lock it: a sharper bet doesn't reopen the line. */
+function lineLocked(market, calls, people) {
+  return counted(marketCalls(market, calls), people).length > 0;
+}
+
+/* The founder's override wins, and is shown beside the automatic
+   verdict, never instead of it. */
+function verdict(market, t) {
+  var line = t.line || lineOf(market);
+  var persevere = t.hits >= line.hits && t.commits >= line.commitments && t.orgs >= 2 && t.buyers >= 1;
+  var cantMeet = t.hits + (t.target - t.n) < line.hits;
+  var auto = persevere ? "Persevere" : (t.n >= t.target || cantMeet) ? "Pivot" : "Keep talking";
+  var closeMiss = auto === "Pivot" && t.hits === line.hits - 1 && t.commits >= 1 && !(market && market.extended);
+  var override = market && market.override && VERDICTS.indexOf(market.override.verdict) >= 0 ? market.override : null;
+  var out = { auto: auto, closeMiss: closeMiss, shown: override ? override.verdict : auto };
+  if (override) out.override = override;
+  return out;
+}
+
+function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+
+/* What a tab or the verdict line calls the verdict: a market with no
+   counted calls hasn't started. */
+function verdictLabel(v, t) {
+  return t.n === 0 && !v.override ? "Not started" : v.shown;
+}
+
+/* The verdict in one sentence, with counts and never a percentage. */
+function verdictLine(market, t, v) {
+  var line = t.line;
+  if (v.shown === "Persevere") return "Persevere. You can hand this market to Lead finder.";
+  if (v.shown === "Pivot") {
+    if (v.closeMiss) {
+      return "Close miss: " + t.hits + " of " + line.hits + " hair-on-fire, with a commitment. Extend to 15 calls before deciding?";
+    }
+    return "The pass line was not met. Sharpen the bet or try another market.";
+  }
+  if (t.n === 0) return "No calls yet. You can still change the pass line.";
+  var need = line.hits - t.hits, left = t.target - t.n;
+  if (need > 0) {
+    return (need === 1 ? "One more hair-on-fire call" : plural(need, "more hair-on-fire call")) +
+      " in the next " + left + " makes it Persevere. At Persevere you can hand this market to Lead finder.";
+  }
+  var lack = [];
+  if (t.commits < line.commitments) lack.push("a commitment");
+  if (t.orgs < 2) lack.push("a hit from a second organisation");
+  if (t.buyers < 1) lack.push("a budget holder or decision maker");
+  return "The hits are in. Still missing: " + lack.join(", ") + ".";
+}
+
+/* Records out of the store, by kind. */
+function records(data) {
+  var out = { markets: [], people: {}, calls: [], waves: [], drafts: [], suggest: {}, settings: (data && data.settings) || {} };
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("market:") === 0) out.markets.push(Object.assign({ id: k.slice(7) }, v));
+    else if (k.indexOf("person:") === 0) out.people[v.id || k.slice(7)] = Object.assign({ id: k.slice(7) }, v);
+    else if (k.indexOf("call:") === 0) out.calls.push(Object.assign({ id: k.slice(5) }, v));
+    else if (k.indexOf("draft:") === 0) out.drafts.push(Object.assign({ id: k.slice(6) }, v));
+    else if (k.indexOf("suggest:") === 0) out.suggest[k.slice(8)] = v;
+    else if (k.indexOf("wave:") === 0) out.waves.push(Object.assign({ key: k }, v));
+  }
+  out.markets.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+  return out;
+}
+
+/* The market the strip and the pages show: the chosen one, else the first. */
+function activeOf(r) {
+  var id = r.settings && r.settings.active;
+  for (var i = 0; i < r.markets.length; i++) if (r.markets[i].id === id) return r.markets[i];
+  return r.markets[0] || null;
+}
+
+function peopleOf(r, market) {
+  var id = market && market.id;
+  return Object.keys(r.people).map(function (k) { return r.people[k]; }).filter(function (p) { return p.market === id; });
+}
+
+function isPicked(p) {
+  var c = p.channels || {};
+  return !!(c.email || c.li || c.call);
+}
+
+/* The funnel for one market, as counts: found, asked, booked, called, and
+   how many of the counted calls were hair-on-fire (level 4 or 5). */
+function funnel(market, people, calls) {
+  var mine = peopleOf({ people: peopleIndex(people) }, market);
+  function n(statuses) { return mine.filter(function (p) { return statuses.indexOf(p.status) >= 0; }).length; }
+  var t = tally(market, calls, people, 0);
+  return [
+    ["Found", mine.length],
+    ["Asked", n(["asked", "booked", "called"])],
+    ["Booked", n(["booked", "called"])],
+    ["Called", n(["called"])],
+    ["Hair on fire", t.hits],
+  ];
+}
+
+/* What the founder does next, for the active market, as the strip and the
+   zone badge say it. zone is one of the kit's zone keys; step is which of
+   the four steps in the strip is current. */
+function nextStep(r, now) {
+  var m = activeOf(r);
+  function out(zone, text, why, step) {
+    var o = { zone: zone, text: text, why: why, step: step };
+    if (m && r.suggest && r.suggest[m.id] && r.suggest[m.id].status === "open") o.also = "a sharper bet, suggested in Calls";
+    return o;
+  }
+  if (!m || !m.bet) return out("markets", "Write your first bet", "So you know what to listen for. Do it in 1 · Markets.", 0);
+  var mine = peopleOf(r, m);
+  if (!mine.length) return out("markets", "Press Find people", "Scout looks for people already showing this pain. It is in 1 · Markets.", 1);
+  var touched = mine.some(function (p) { return isPicked(p) || p.status === "asked" || p.status === "booked" || p.status === "called"; });
+  if (!touched) return out("people", "Pick who to ask", "In 2 · People, then press Draft asks.", 1);
+  var unsent = (r.drafts || []).filter(function (d) { return d.market === m.id && d.status === "draft"; });
+  if (unsent.length) return out("send", "Send your asks", "Send the " + unsent.length + " from 3 · To send yourself, then press Sent on each.", 2);
+  var booked = mine.some(function (p) { return p.status === "booked"; });
+  var scored = marketCalls(m, r.calls).length;
+  if (booked && !scored) return out("calls", "Drop the recording after your call", "Debrief scores it in 4 · Calls.", 3);
+  var t = tally(m, r.calls, r.people, now == null ? Date.now() : now);
+  return out("calls", verdictLine(m, t, verdict(m, t)), "", 3);
+}
+</script>
+<script id="logic">
+/* THIS PAGE'S RULES. Pure functions, no DOM, no window: pages.test.mjs
+   pulls this block out of the page, after core, and runs it under node. */
+var CHANNELS = [["email", "Email"], ["li", "LinkedIn"], ["call", "Call"]];
+var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/* Where a card goes. The app writes each kit page a map of the kit's zone
+   keys to the zones it placed ("kitZones"), so a renamed zone, or a second
+   placing, still lands here. Without it the zone's plain name stands. */
+function zoneFor(zones, key, name) {
+  var id = zones && typeof zones === "object" ? zones[key] : "";
+  return typeof id === "string" && id ? id : name;
+}
+function initials(name) {
+  var w = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if (!w.length) return "?";
+  return (w[0][0] + (w.length > 1 ? w[w.length - 1][0] : "")).toUpperCase();
+}
+/* "Thu 2 PM", in the founder's own time zone. */
+function whenLabel(iso) {
+  var ms = toMs(iso);
+  if (isNaN(ms)) return "";
+  var d = new Date(ms), h = d.getHours(), m = d.getMinutes();
+  return DAYS[d.getDay()] + " " + (h % 12 || 12) + (m ? ":" + (m < 10 ? "0" : "") + m : "") + " " + (h < 12 ? "AM" : "PM");
+}
+/* A person's channels with one flipped, the others kept. */
+function toggled(p, ch) {
+  var c = p.channels || {};
+  var out = { email: !!c.email, li: !!c.li, call: !!c.call };
+  out[ch] = !out[ch];
+  return out;
+}
+/* The mix of what you picked: "2 emails, 1 LinkedIn note, 1 cold call". */
+function pickSummary(people) {
+  var e = 0, l = 0, c = 0;
+  (people || []).forEach(function (p) {
+    var ch = p.channels || {};
+    if (ch.email) e++;
+    if (ch.li) l++;
+    if (ch.call) c++;
+  });
+  var out = [];
+  if (e) out.push(plural(e, "email"));
+  if (l) out.push(plural(l, "LinkedIn note"));
+  if (c) out.push(plural(c, "cold call"));
+  return out.join(", ");
+}
+/* The card that lands in People. That landing is what runs Asker, so it
+   lists every picked person by id with the ways to reach them. */
+function askCard(picked, zones) {
+  var names = { email: "email", li: "LinkedIn", call: "call" };
+  var lines = (picked || []).map(function (p) {
+    var ch = p.channels || {};
+    var how = ["email", "li", "call"].filter(function (k) { return ch[k]; }).map(function (k) { return names[k]; });
+    return "person: " + p.id + " | " + p.name + " | " + how.join(", ");
+  });
+  var market = picked && picked[0] && picked[0].market;
+  var text = "Write one short ask for each person, one per way picked." + (market ? "\nMarket: " + market : "") + "\n\n" + lines.join("\n");
+  return { zone: zoneFor(zones, "people", "2 · People"), title: "Ask: " + plural((picked || []).length, "person", "people"), text: text };
+}
+/* What a person's row says once they are past picking. */
+function statusLabel(p, calls) {
+  if (p.status === "asked") return "Asked";
+  if (p.status === "skipped") return "Skipped";
+  if (p.status === "booked") return p.bookedFor ? "Booked · " + whenLabel(p.bookedFor) : "Booked";
+  if (p.status === "called") {
+    var best = null;
+    (calls || []).forEach(function (c) {
+      if (c.person === p.id && (!best || toMs(c.at) >= toMs(best.at) || isNaN(toMs(best.at)))) best = c;
+    });
+    return best && typeof best.level === "number" ? "Called · level " + best.level : "Called";
+  }
+  return "";
+}
+var STATUS_ORDER = { called: 0, booked: 1, asked: 2, "new": 3, skipped: 4 };
+/* Everything the page draws, from the kit store's data. */
+function peopleModel(data) {
+  var r = records(data);
+  var m = activeOf(r);
+  var model = { empty: !m, market: m, rows: [], picked: [], summary: "", canAsk: false, foundLine: "", funnel: [], yes: [] };
+  if (!m) return model;
+  var mine = peopleOf(r, m);
+  mine.sort(function (a, b) {
+    var d = (STATUS_ORDER[a.status || "new"] || 0) - (STATUS_ORDER[b.status || "new"] || 0);
+    return d || (a.wave || 0) - (b.wave || 0) || String(a.name).localeCompare(String(b.name));
+  });
+  model.rows = mine.map(function (p) {
+    var isNew = !p.status || p.status === "new";
+    var ch = p.channels || {};
+    var st = isNew ? "" : statusLabel(p, r.calls);
+    return {
+      id: p.id, name: p.name || "Unnamed", initials: initials(p.name),
+      role: [p.role, p.org].filter(Boolean).join(" · "), why: p.why || "", found: p.where || "",
+      toggles: isNew, channels: { email: !!ch.email, li: !!ch.li, call: !!ch.call }, picked: isNew && isPicked(p),
+      status: st, hot: p.status === "called" && /level [45]/.test(st)
+    };
+  });
+  model.picked = mine.filter(function (p) { return (!p.status || p.status === "new") && isPicked(p); });
+  model.summary = pickSummary(model.picked);
+  model.canAsk = model.picked.length > 0;
+  model.foundLine = mine.length ? mine.length + " found" : "";
+  var f = funnel(m, r.people, r.calls);
+  var found = f[0][1] || 0;
+  model.funnel = f.slice(1, 4).map(function (x) { return { label: x[0], n: x[1], pct: found ? Math.round(100 * x[1] / found) : 0 }; });
+  model.yes = mine.filter(function (p) { return p.status === "booked"; }).map(function (p) {
+    return { id: p.id, name: p.name, when: p.bookedFor ? whenLabel(p.bookedFor) : "" };
+  });
+  return model;
+}
+</script>
+<script>
+(function () {
+  var app = document.getElementById("app");
+  var kit = window.wibble && window.wibble.kit;
+  var data = {};
+  // What the founder has done on this page, kept across redraws.
+  var ui = { status: "", busy: false };
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function row(p) {
+    var right = "";
+    if (p.toggles) {
+      right = '<div class="dk-chs" role="group" aria-label="How to ask ' + esc(p.name) + '">' + CHANNELS.map(function (c) {
+        return '<button class="dk-pill" type="button" data-person="' + esc(p.id) + '" data-ch="' + c[0] + '" aria-pressed="' + p.channels[c[0]] + '">' + c[1] + "</button>";
+      }).join("") + "</div>";
+    } else if (p.status) right = '<div class="dk-tag' + (p.hot ? " dk-hot" : "") + '">' + esc(p.status) + "</div>";
+    return '<div class="dk-person"><div class="dk-av" aria-hidden="true">' + esc(p.initials) + "</div>" +
+      '<div class="dk-who' + (p.toggles && !p.picked ? " dk-dim" : "") + '"><div class="dk-name">' + esc(p.name) + "</div>" +
+      '<div class="dk-role">' + esc(p.role) + "</div>" +
+      '<div class="dk-why">' + esc(p.why) + (p.found ? " <span>· " + esc(p.found) + "</span>" : "") + "</div></div>" + right + "</div>";
+  }
+  function render() {
+    if (!kit) return;
+    var s = peopleModel(data);
+    if (s.empty) {
+      app.innerHTML = '<div class="dk-card"><div class="dk-empty">Nothing to show yet.<br>Write a bet in <b>Markets</b> first.</div></div>';
+      return;
+    }
+    var list = s.rows.length
+      ? '<div class="dk-list">' + s.rows.map(row).join("") + "</div>"
+      : '<div class="dk-empty">No one yet.<br>Press <b>Find people</b> in Markets.</div>';
+    var ask;
+    if (s.canAsk) {
+      ask = '<div class="dk-line">' + esc(plural(s.picked.length, "person", "people")) + " · " + esc(s.summary) + "</div>" +
+        '<button class="dk-btn" type="button" data-act="ask"' + (ui.busy ? " disabled" : "") + ">Draft " + esc(plural(s.picked.length, "ask")) + "</button>";
+    } else ask = '<p class="dk-sub">Pick at least one person.</p>';
+    var bars = s.funnel.map(function (f) {
+      return '<div class="dk-bar"><span>' + esc(f.label) + '</span><div class="dk-track"><div class="dk-fill" style="width:' + f.pct + '%"></div></div><span class="dk-n">' + f.n + "</span></div>";
+    }).join("");
+    var yes = s.yes.map(function (y) {
+      return '<div class="dk-yes"><b>' + esc(y.name) + "</b>" + (y.when ? '<span class="dk-muted">' + esc(y.when) + "</span>" : "") + "</div>";
+    }).join("");
+    var picked = s.picked.length ? s.picked.length + " picked" : "";
+    app.innerHTML =
+      '<div class="dk-card"><div class="dk-head"><div class="dk-ttl">' + esc(s.market.name || "Unnamed market") + '</div><span class="dk-muted">' + esc(s.foundLine) + '</span><span class="dk-muted dk-grow">' + esc(picked) + "</span></div>" + list + "</div>" +
+      '<div class="dk-col"><div class="dk-card"><div class="dk-ttl">Ask for a call</div>' + ask +
+      (ui.status ? '<div class="dk-done" role="status">' + esc(ui.status) + "</div>" : "") +
+      '<p class="dk-sub">Nothing is sent. You send every ask yourself.</p></div>' +
+      '<div class="dk-card"><div class="dk-ttl">Who said yes</div><div class="dk-bars">' + bars + "</div>" + yes +
+      '<p class="dk-sub">' + (s.yes.length ? "Booked people are in To send." : "Fills in as you send asks and mark them booked.") + "</p></div></div>";
+  }
+  function person(id) {
+    var p = records(data).people[id];
+    return p;
+  }
+  function put(p) { kit.set("person:" + p.id, p); }
+  function ask() {
+    var s = peopleModel(data);
+    if (!s.canAsk || ui.busy) return;
+    var picked = s.picked;
+    ui.busy = true; ui.status = ""; render();
+    Promise.resolve().then(function () { return window.wibble.land(askCard(picked, window.wibble.get("kitZones"))); })
+      .then(function () {
+        var batch = {};
+        picked.forEach(function (p) { batch["person:" + p.id] = Object.assign({}, p, { status: "asked" }); });
+        ui.busy = false;
+        ui.status = "Sent to Asker. Your asks land in To send.";
+        kit.set(batch);
+      })
+      .catch(function () { ui.busy = false; ui.status = "Couldn't send that to Asker. Try again."; render(); });
+  }
+  if (!kit) {
+    app.innerHTML = '<p class="dk-sub">Place this kit from the zone menu.</p>';
+    return;
+  }
+  app.addEventListener("click", function (e) {
+    var t = e.target.closest ? e.target : null;
+    if (!t) return;
+    var ch = t.closest("[data-ch]"), a = t.closest("[data-act]");
+    if (ch) {
+      var p = person(ch.getAttribute("data-person"));
+      if (p) { ui.status = ""; put(Object.assign({}, p, { channels: toggled(p, ch.getAttribute("data-ch")) })); }
+    } else if (a && a.getAttribute("data-act") === "ask") ask();
+  });
+  kit.subscribe(function (d) {
+    data = d || {};
+    render();
+  });
+})();
+</script>
+</body>
+</html>

@@ -159,3 +159,147 @@ test("markets: the model carries the bet version, the lock and the verdict rows"
   assert.equal(fresh.locked, false);
   assert.equal(fresh.verdictLabel, "Not started");
 });
+
+// ---- the People page -------------------------------------------------------
+
+const P = logic("people.html", ["pickSummary", "askCard", "peopleModel", "statusLabel", "initials", "toggled", "zoneFor"]);
+const person = (id, name, channels = {}, over = {}) => ({
+  id, market: "rest", name, role: "Owner", org: "Org " + id, where: "r/x", why: "Posts about it", wave: 1, status: "new",
+  channels: { email: false, li: false, call: false, ...channels }, ...over,
+});
+
+test("people: the summary says what you picked, in the mockup's words", () => {
+  assert.equal(P.pickSummary([]), "");
+  assert.equal(P.pickSummary([person("a", "A")]), "");
+  assert.equal(P.pickSummary([person("a", "A", { email: true })]), "1 email");
+  assert.equal(P.pickSummary([person("a", "A", { call: true })]), "1 cold call");
+  assert.equal(P.pickSummary([person("a", "A", { li: true })]), "1 LinkedIn note");
+  assert.equal(
+    P.pickSummary([person("a", "A", { email: true }), person("b", "B", { email: true, call: true }), person("c", "C", { li: true }), person("d", "D", { li: true })]),
+    "2 emails, 2 LinkedIn notes, 1 cold call");
+});
+
+test("people: the ask card lists each picked person's id, name and channels", () => {
+  const picked = [person("ak", "Aisha Khan", { email: true, li: true }), person("bt", "Ben Tran", { call: true })];
+  const c = P.askCard(picked, { people: "zone-9" });
+  assert.equal(c.zone, "zone-9");
+  assert.equal(c.title, "Ask: 2 people");
+  assert.match(c.text, /person: ak \| Aisha Khan \| email, LinkedIn/);
+  assert.match(c.text, /person: bt \| Ben Tran \| call/);
+  assert.equal(P.askCard([picked[0]], {}).title, "Ask: 1 person");
+  assert.equal(P.askCard([picked[0]], {}).zone, "2 · People");
+});
+
+test("people: toggling one channel keeps the others", () => {
+  const p = person("a", "A", { email: true });
+  assert.deepEqual(P.toggled(p, "li"), { email: true, li: true, call: false });
+  assert.deepEqual(P.toggled(p, "email"), { email: false, li: false, call: false });
+});
+
+test("people: the model shows the active market's people, picks and statuses", () => {
+  const data = {
+    settings: { active: "rest" },
+    "market:rest": mk(), "market:gym": mk({ name: "Gyms", order: 1 }),
+    "person:a": person("a", "Aisha Khan", { email: true }),
+    "person:b": person("b", "Ben Tran", { call: true }),
+    "person:c": person("c", "Maria Chen", {}, { status: "called" }),
+    "person:d": person("d", "James Ortiz", {}, { status: "booked", bookedFor: new Date(2026, 8, 30, 14).toISOString() }),
+    "person:g": person("g", "Rosa Klein", {}, { market: "gym" }),
+    "call:c1": { id: "c1", person: "c", market: "rest", at: "2026-09-20T00:00:00Z", level: 4, betV: 1 },
+  };
+  const m = P.peopleModel(data, NOW);
+  assert.equal(m.empty, false);
+  assert.equal(m.rows.length, 4);
+  assert.deepEqual(m.rows.map((r) => r.id), ["c", "d", "a", "b"]);
+  assert.equal(m.rows[0].status, "Called · level 4");
+  assert.equal(m.rows[1].status, "Booked · Wed 2 PM");
+  assert.deepEqual(m.rows.slice(2).map((r) => r.toggles), [true, true]);
+  assert.equal(m.rows[2].initials, "AK");
+  assert.equal(m.picked.length, 2);
+  assert.equal(m.summary, "1 email, 1 cold call");
+  assert.equal(m.canAsk, true);
+  assert.equal(m.foundLine, "4 found");
+  assert.deepEqual(m.yes.map((y) => y.name), ["James Ortiz"]);
+  assert.deepEqual(m.funnel.map((f) => [f.label, f.n]), [["Asked", 2], ["Booked", 2], ["Called", 1]]);
+});
+
+test("people: with no market or no people there is an empty state and no ask", () => {
+  assert.equal(P.peopleModel({}, NOW).empty, true);
+  const m = P.peopleModel({ "market:rest": mk() }, NOW);
+  assert.equal(m.rows.length, 0);
+  assert.equal(m.canAsk, false);
+  assert.equal(m.foundLine, "");
+});
+
+test("people: asked and booked people are not offered as picks", () => {
+  const data = { "market:rest": mk(), "person:a": person("a", "A", { email: true }, { status: "asked" }) };
+  const m = P.peopleModel(data, NOW);
+  assert.equal(m.picked.length, 0);
+  assert.equal(m.rows[0].status, "Asked");
+});
+
+// ---- the To send page ------------------------------------------------------
+
+const T = logic("send.html", ["records", "draftsFor", "isStale", "sendModel", "kindLabel", "bookedCard", "redraftCard", "copyText"]);
+const draft = (id, over = {}) => ({ id, person: "a", market: "rest", kind: "ask", channel: "email", body: "Hi " + id, betV: 1, status: "draft", at: "2026-09-25T10:00:00Z", ...over });
+
+test("send: stale means written for an older bet than the market's now", () => {
+  assert.equal(T.isStale(draft("x", { betV: 1 }), mk({ bet: { ...bet, v: 2 } })), true);
+  assert.equal(T.isStale(draft("x", { betV: 2 }), mk({ bet: { ...bet, v: 2 } })), false);
+  assert.equal(T.isStale(draft("x", { betV: undefined }), mk()), false);
+  assert.equal(T.isStale(draft("x", { betV: undefined }), mk({ bet: { ...bet, v: 2 } })), true);
+});
+
+test("send: drafts for the active market, newest first", () => {
+  const data = {
+    "market:rest": mk(),
+    "draft:old": draft("old", { at: "2026-09-20T10:00:00Z" }),
+    "draft:new": draft("new", { at: "2026-09-28T10:00:00Z" }),
+    "draft:mid": draft("mid", { at: "2026-09-24T10:00:00Z" }),
+    "draft:other": draft("other", { market: "gym" }),
+  };
+  const r = T.records(data);
+  assert.deepEqual(T.draftsFor(r, r.markets[0]).map((d) => d.id), ["new", "mid", "old"]);
+  assert.deepEqual(T.draftsFor(r, null), []);
+});
+
+test("send: labels, actions and the stale tag follow the draft's kind and person", () => {
+  const data = {
+    settings: { active: "rest" },
+    "market:rest": mk({ bet: { ...bet, v: 2 } }),
+    "person:a": person("a", "Aisha Khan", {}, { status: "asked" }),
+    "person:j": person("j", "James Ortiz", {}, { status: "booked", bookedFor: new Date(2026, 8, 30, 14).toISOString() }),
+    "person:m": person("m", "Maria Chen", {}, { status: "called" }),
+    "draft:1": draft("1", { at: "2026-09-29T10:00:00Z" }),
+    "draft:2": draft("2", { person: "j", kind: "sheet", channel: undefined, betV: 2, at: "2026-09-28T10:00:00Z", body: "Open: x" }),
+    "draft:3": draft("3", { person: "m", kind: "followup", channel: undefined, betV: 2, status: "sent", at: "2026-09-27T10:00:00Z" }),
+    "call:c1": { id: "c1", person: "m", market: "rest", at: "2026-09-26T00:00:00Z", level: 4, betV: 1, commitment: { what: "Intro", currency: "intro", due: "2026-10-09", status: "offered" } },
+  };
+  const m = T.sendModel(data);
+  assert.deepEqual(m.items.map((i) => i.id), ["1", "2", "3"]);
+  const [ask, sheet, fu] = m.items;
+  assert.equal(ask.kind, "Ask · email");
+  assert.equal(ask.who, "Aisha Khan");
+  assert.equal(ask.stale, true);
+  assert.deepEqual(ask.actions, ["copy", "sent", "booked", "redraft"]);
+  assert.equal(sheet.kind, "Call sheet");
+  assert.equal(sheet.who, "James Ortiz · Wed 2 PM");
+  assert.equal(sheet.stale, false);
+  assert.deepEqual(sheet.actions, ["copy", "sent", "called"]);
+  assert.equal(fu.kind, "Follow-up");
+  assert.equal(fu.note, "From their call: commitment due Oct 9");
+  assert.deepEqual(fu.actions, ["copy"]);
+  assert.equal(fu.sent, true);
+  assert.equal(m.count, 3);
+});
+
+test("send: Booked lands a card in the send zone, Redraft in the people zone", () => {
+  const p = person("a", "Aisha Khan");
+  assert.deepEqual(T.bookedCard(p, { send: "zone-s" }), { zone: "zone-s", title: "Booked: Aisha Khan", text: "person: a" });
+  assert.deepEqual(T.redraftCard(p, draft("d9"), { people: "zone-p" }), { zone: "zone-p", title: "Redraft: Aisha Khan", text: "draft: d9" });
+});
+
+test("send: Copy takes the subject line with the body", () => {
+  assert.equal(T.copyText(draft("1", { subject: "A short call?" })), "Subject: A short call?\n\nHi 1");
+  assert.equal(T.copyText(draft("1")), "Hi 1");
+});
