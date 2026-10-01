@@ -162,6 +162,21 @@ function fromDayNum(n) {
 function addDays(iso, n) { return fromDayNum(dayNum(iso) + n); }
 function diffDays(a, b) { return Math.round(dayNum(a) - dayNum(b)); }
 
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/* "Oct 1" from an ISO day. */
+function dayLabel(iso) {
+  var p = String(iso).split("-");
+  return MONTHS[+p[1] - 1] + " " + (+p[2]);
+}
+
+/* "Oct 1–20" inside a month, "Oct 21–Nov 15" across two. */
+function rangeLabel(from, to) {
+  var a = from.split("-"), b = to.split("-");
+  if (a[0] === b[0] && a[1] === b[1]) return dayLabel(from) + "–" + (+b[2]);
+  return dayLabel(from) + "–" + dayLabel(to);
+}
+
 function validDay(v) { return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(dayNum(v)); }
 
 /* ---- records ------------------------------------------------------------- */
@@ -406,26 +421,50 @@ function applyReading(inv, reading, at) {
   o.step = step;
   return o;
 }
+
+/* An investor moved on one step by hand or by a sent draft: applyReading's
+   "next", and the old next step (which belonged to the step they left) is
+   dropped, so nothing stale is shown as due. */
+function advanceStep(inv, at) {
+  var o = applyReading(inv, "next", at);
+  delete o.next;
+  return o;
+}
+
+/* A field note by id, or undefined. */
+function noteById(id) {
+  for (var i = 0; i < GUIDE.length; i++) if (GUIDE[i].id === id) return GUIDE[i];
+  return undefined;
+}
+
+/* "3 calls", "1 call". */
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many || one + "s"); }
+
+/* An investor's step as a whole number 0 to 8; 0 when missing. */
+function stepOf(inv) { var s = inv && inv.step; return typeof s === "number" && s >= 0 && s <= 8 ? Math.floor(s) : 0; }
+
+/* A phase to read ahead on, or null: only a whole number from 0 to 3. */
+function peekOf(settings) {
+  var p = settings && settings.peek;
+  return typeof p === "number" && p >= 0 && p <= 3 && Math.floor(p) === p ? p : null;
+}
+
+/* Where a card goes. The app writes each kit page a map of the kit's zone
+   keys to the zones it placed ("kitZones"), so a renamed zone, or a second
+   placing, still lands here. Without it the zone's key stands. */
+function zoneFor(zones, key) {
+  var id = zones && typeof zones === "object" ? zones[key] : "";
+  return typeof id === "string" && id ? id : key;
+}
+
+/* What each kind of draft is called, in To send's chips and in the title of
+   the card that asks for it. The asker picks the draft from that title. */
+var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
 </script>
 
 <script id="logic">
 /* THE STRIP'S RULES. Pure functions, no DOM, no window: pages.test.mjs
    pulls this block out of the page, after core, and runs it under node. */
-
-var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-/* "Oct 1" from an ISO day. */
-function dayLabel(iso) {
-  var p = String(iso).split("-");
-  return MONTHS[+p[1] - 1] + " " + (+p[2]);
-}
-
-/* "Oct 1–20" inside a month, "Oct 21–Nov 15" across two. */
-function rangeLabel(from, to) {
-  var a = from.split("-"), b = to.split("-");
-  if (a[0] === b[0] && a[1] === b[1]) return dayLabel(from) + "–" + (+b[2]);
-  return dayLabel(from) + "–" + dayLabel(to);
-}
 
 /* The weeks left to the must-close date, in whole weeks, then days. */
 function weeksLine(round, now) {
@@ -435,12 +474,6 @@ function weeksLine(round, now) {
   if (left < 7) return left + (left === 1 ? " day" : " days") + " to " + to;
   var w = Math.floor(left / 7);
   return w + (w === 1 ? " week" : " weeks") + " to " + to;
-}
-
-/* A phase to read ahead on, or null: only a whole number from 0 to 3. */
-function peekOf(settings) {
-  var p = settings && settings.peek;
-  return typeof p === "number" && p >= 0 && p <= 3 && Math.floor(p) === p ? p : null;
 }
 
 /* Everything the strip draws. discovery is a Discovery store's data, or

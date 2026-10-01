@@ -1,0 +1,903 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Investors</title>
+<!--
+  THE INVESTORS PAGE. Placed by the Fundraising kit in 2 · Investors. Find
+  investors, the board (tabs, one row per investor, nine cells for how far
+  they are) and the detail for the picked investor.
+
+  It reads the kit store (window.wibble.kit): investor:<id> records, the
+  draft:<id> records (to see whether a draft is already waiting), settings
+  and the field notes read ("read").
+
+  It writes:
+    - investor:<slug> { name, how: "know", step: 0, dates: { 0: day },
+      next: { text, due } }, from Add n investors on day one;
+    - investor:<id> moved one step (step, dates, lastContact; the old next
+      step is dropped), from Move to <next step>, and passed (passed,
+      passedAt, lastContact) from Passed after an in-page confirm;
+    - read.<noteId> = true | false, from Got it and show again;
+    - settings.tab, the tab being shown.
+  Find investors lands a card in this zone, and that landing is what runs
+  the scout. A Draft button lands a card in To send, titled
+  "<kind> · <investor name>", and that landing is what runs the asker.
+  Nothing here sends anything to anyone.
+
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  pages.test.mjs can run them under node.
+
+  Classes start with fr- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,"Noto Sans",system-ui,sans-serif);color:var(--text,#ddd)}
+.fr-wrap{display:grid;gap:16px}
+.fr-card{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:12px;background:var(--win,#232323);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.36),0 6px 16px rgba(0,0,0,.34);box-sizing:border-box;min-width:0}
+.fr-card.fr-det{gap:12px;box-shadow:inset 0 0 0 1px rgba(224,160,96,.35),0 6px 16px rgba(0,0,0,.34)}
+.fr-two{display:grid;grid-template-columns:repeat(auto-fit,minmax(340px,1fr));gap:16px;align-items:start}
+.fr-head{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 8px}
+.fr-ttl{font-size:15px;font-weight:600;line-height:1.3}
+.fr-sub{margin:0;font-size:12.5px;color:var(--muted,#b3b3b3);line-height:1.45}
+.fr-muted{color:var(--muted,#999);font-size:12px}
+.fr-grow{margin-left:auto}
+.fr-cap{font:700 11px/1.2 var(--mono,"Geist Mono",ui-monospace,monospace);letter-spacing:.06em;color:var(--muted,#999)}
+.fr-mono{font-family:var(--mono,"Geist Mono",ui-monospace,monospace)}
+.fr-tag{flex:none;font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap}
+.fr-know{background:rgba(110,196,140,.16);color:#9fdcbc}
+.fr-warm{background:rgba(224,160,96,.18);color:#f0cfa8}
+.fr-cold{background:rgba(255,255,255,.08);color:#cfcfcf}
+.fr-pill{min-height:30px;padding:4px 10px;border:1px solid var(--edge,rgba(255,255,255,.12));border-radius:999px;background:transparent;color:var(--text,#ddd);font:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center}
+.fr-pill[aria-pressed="true"]{background:#3a2c1e;color:#fff;border-color:rgba(224,160,96,.6)}
+.fr-pill.fr-soft{min-height:24px;padding:1px 8px;color:#9cb4da;border-color:rgba(156,192,245,.3)}
+.fr-pill.fr-dim{color:#8ea2c2;border-color:rgba(156,192,245,.25)}
+.fr-btn{min-height:40px;padding:8px 14px;border:0;border-radius:10px;background:#e0a060;color:#1f160c;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.fr-btn:disabled{opacity:.45;cursor:default}
+.fr-btn:focus-visible,.fr-pill:focus-visible,.fr-row:focus-visible,.fr-in:focus-visible,.fr-paste:focus-visible{outline:2px solid #f0cfa8;outline-offset:2px}
+.fr-seg{display:flex;gap:4px;padding:4px;border-radius:10px;background:var(--bg,#1d1d1d)}
+.fr-seg button{flex:1;min-height:32px;padding:6px 10px;border:0;border-radius:8px;background:transparent;color:var(--muted,#999);font:inherit;font-size:12.5px;font-weight:500;cursor:pointer}
+.fr-seg button[aria-pressed="true"]{background:var(--edge,#333);color:var(--text,#fff)}
+.fr-in{box-sizing:border-box;width:100%;min-height:34px;padding:6px 10px;border:1px solid var(--edge,rgba(255,255,255,.14));border-radius:8px;background:var(--bg,#1d1d1d);color:var(--text,#e6e6e6);font:inherit;font-size:12.5px}
+.fr-tabs{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.fr-tabs .fr-n{margin-left:6px;opacity:.7}
+.fr-colh{display:grid;grid-template-columns:minmax(0,1fr) 120px 56px;gap:12px;padding:6px 8px 2px;font-size:10.5px;font-weight:700;letter-spacing:.06em;color:var(--faint,#888)}
+.fr-list{display:flex;flex-direction:column;max-height:900px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin}
+.fr-row{display:grid;grid-template-columns:minmax(0,1fr) 120px 56px;gap:12px;align-items:center;width:100%;padding:10px 8px;border:0;border-top:1px solid rgba(255,255,255,.06);background:transparent;color:inherit;font:inherit;text-align:left;cursor:pointer;border-radius:8px}
+.fr-row[aria-pressed="true"]{background:rgba(224,160,96,.1);box-shadow:inset 0 0 0 1px rgba(224,160,96,.4)}
+.fr-name{font-size:13.5px;font-weight:600;white-space:nowrap}
+.fr-kind{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:12px;color:var(--muted,#9a9a9a)}
+.fr-line{display:flex;align-items:baseline;gap:8px;min-width:0}
+.fr-nx{font-size:12px;color:#d6d6d6}
+.fr-nx.fr-hot{color:#f0cfa8}
+.fr-nx.fr-quiet{color:#e8b48a}
+.fr-nx.fr-gone{color:#8a8a8a}
+.fr-cells{display:flex;gap:3px}
+.fr-cells i{display:block;height:8px;flex:1;border-radius:2px;background:#3a3a3a}
+.fr-cells.fr-live i.fr-on{background:#e0a060}
+.fr-cells.fr-quiet i.fr-on{background:#e8b48a}
+.fr-cells.fr-gone i.fr-on{background:#6a6a6a}
+.fr-stage{font-size:11px;color:#aaa}
+.fr-tl{display:flex;flex-direction:column}
+.fr-tli{display:grid;grid-template-columns:18px minmax(0,1fr) auto;gap:10px;align-items:start;padding:5px 0;font-size:12.5px;line-height:1.4;color:#aaa}
+.fr-tli i{display:block;width:10px;height:10px;border-radius:5px;margin:3px 4px 0;background:#3a3a3a}
+.fr-tli.fr-done{color:#e6e6e6}
+.fr-tli.fr-done i{background:#e0a060}
+.fr-tli.fr-now{color:#f0cfa8;font-weight:600}
+.fr-tli.fr-now i{background:#f0cfa8;box-shadow:0 0 0 3px rgba(240,207,168,.2)}
+.fr-tli.fr-later{opacity:.45}
+.fr-tli.fr-pass{color:#aaa;font-weight:600}
+.fr-tli.fr-pass i{background:#8a8a8a}
+.fr-tli .fr-w{font:11px var(--mono,"Geist Mono",ui-monospace,monospace);color:#8a8a8a}
+.fr-hair{height:1px;background:rgba(255,255,255,.07)}
+.fr-field{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:10px;background:#262a33;box-shadow:inset 0 0 0 1px rgba(156,192,245,.22);font-size:12.5px;line-height:1.5;color:#d9e3f3}
+.fr-fhead{display:flex;align-items:center;gap:6px;font-size:10.5px;font-weight:700;letter-spacing:.07em;color:#9cb4da}
+.fr-src{font-size:11.5px;color:#8ea2c2;font-style:italic}
+.fr-paste{box-sizing:border-box;width:100%;height:92px;resize:none;padding:10px 12px;border:1px dashed rgba(224,160,96,.5);border-radius:10px;background:var(--bg,#1d1d1d);color:var(--text,#e8e8e8);font:inherit;font-size:13px;line-height:1.6}
+.fr-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.fr-ok{display:flex;align-items:center;gap:8px;padding:10px 12px;border-radius:10px;background:rgba(120,200,160,.1);font-size:12.5px;color:#bfe6d0}
+.fr-ask{padding:10px 12px;border-radius:10px;background:rgba(255,255,255,.05);font-size:12.5px;color:var(--text,#ddd)}
+.fr-found{font-size:12.5px;color:#f0cfa8}
+.fr-confirm{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:10px;background:rgba(232,180,138,.1);box-shadow:inset 0 0 0 1px rgba(232,180,138,.35);font-size:12.5px}
+.fr-ghost{opacity:.5}
+.fr-empty{margin:0;padding:18px 16px;border:1px dashed var(--edge,rgba(255,255,255,.14));border-radius:10px;font-size:13px;color:var(--faint,#9a9a9a);line-height:1.5}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="fr-wrap" id="app"></div>
+
+<script id="core">
+/* THE FUNDRAISING KIT'S SHARED RULES. Every page needs the same phase,
+   the same "next for you", the same idea of quiet and the same field
+   notes, or the strip, the pages and the agents drift apart. Pure
+   functions, no DOM, no window. This file is the only copy:
+   sync-core.mjs pastes it into each page's <script id="core">, and
+   core.test.mjs runs it under node.
+
+   Dates are ISO day strings ("2026-10-01") in the operator's local time. */
+
+var DAY = 24 * 60 * 60 * 1000;
+var QUIET_AFTER = 10;
+var PREPARE_DAYS = 20;
+var MEETINGS_BEFORE_CLOSE = 15;
+
+var STEPS = ["Researched", "Intro asked", "Intro made", "First meeting", "Follow-up", "Partner meeting", "Diligence", "Terms", "Signed"];
+
+var PHASES = [
+  { name: "Prepare", why: "Story, investor list, first updates to people you know" },
+  { name: "Meetings", why: "First meetings packed close so interest overlaps" },
+  { name: "Close", why: "Leads first, a deadline, SAFEs signed" },
+  { name: "Backup", why: "A second wave or a smaller angel round" },
+];
+
+var SRC_PG = "Paraphrasing Paul Graham, “How to Raise Money”";
+var SRC_SU = "Paraphrasing Mark Suster, “Invest in Lines, Not Dots”";
+var SRC_VD = "Paraphrasing Brad Feld & Jason Mendelson, Venture Deals";
+var SRC_SH = "Paraphrasing Scott Kupor, Secrets of Sand Hill Road";
+var SRC_HO = "Paraphrasing the Holloway Guide to Raising Venture Capital";
+var SRC_CA = "Paraphrasing Jason Calacanis, Angel";
+var WEEK_IDS = { p1: 1, p2: 1, p5: 1, m1: 1, m4: 1, m5: 1, c1: 1, c4: 1, c2: 1, b4: 1, b3: 1, b1: 1 };
+
+/* The 25 field notes: [id, phase, title, text, source, where else it shows]. */
+var GUIDE = [
+  ["p1", 0, "Lines, not dots", "Investors trust a trend they watched more than one good meeting. Send a short update before you ask for money, so by the time you ask they’ve seen you improve.", SRC_SU, "the monthly update"],
+  ["p2", 0, "Start with people who know you", "People who already know you are the fastest first meetings, and their interest makes the next investors take you seriously.", SRC_PG, "day one"],
+  ["p5", 0, "What a SAFE is", "Investors give money now and get shares later, when you raise a priced round. The cap is the highest valuation their money converts at. Post-money makes ownership easy to work out up front.", SRC_VD, "The round"],
+  ["p3", 0, "Choosing who", "Check two things first: does this investor lead rounds at your stage, and do they write checks your size? A round needs a lead; followers wait for one.", SRC_VD, "Researched"],
+  ["p4", 0, "Not at fit yet", "Pre-seed investors back the team, an insight others missed, and how fast you learn. An honest “not yet, and here’s the evidence” reads as on track.", SRC_PG + ", and Scott Kupor, Secrets of Sand Hill Road", "Story"],
+  ["p6", 0, "Asking for an intro", "Make it easy to say yes: ask the connector first if they’re comfortable, then send a short email they can forward without editing.", SRC_HO, "Intro asked"],
+  ["p7", 0, "Cold notes", "Cold notes work less often than intros, so they’re the fallback. Keep it short, lead with the most surprising thing you’ve learned, and make one ask.", SRC_HO, "cold notes"],
+  ["m1", 1, "Pack first meetings together", "Meet investors in a short burst rather than one at a time. Interest overlaps, investors see others are looking, and the pitch improves fast.", SRC_PG, "Meetings week"],
+  ["m2", 1, "When the intro lands", "Reply within a day: thank the connector, move them to bcc, and offer two specific times.", SRC_HO, "Intro made"],
+  ["m3", 1, "The first meeting", "Most of a fund’s returns come from a few huge outcomes, so investors listen for how big this could get, not how safe it is.", SRC_SH, "First meeting"],
+  ["m4", 1, "Before each meeting", "Know what they’ve backed and how big their checks are. Lead with your strongest evidence, and know which hard question they’ll likely ask.", SRC_VD, "prep sheets"],
+  ["m5", 1, "Follow up within a day", "Send what you promised within 24 hours. Speed here reads as how you’ll run the company.", SRC_HO, "Follow-up"],
+  ["m6", 1, "Reading interest", "Investors rarely say no outright. Treat it as no until it’s an unambiguous yes, and keep meeting others meanwhile.", SRC_PG, "Meetings"],
+  ["m9", 1, "A real next step", "Interest shows in actions with dates: a partner meeting, a request for customer calls. Warm words without a date don’t count yet.", SRC_PG, "Meetings"],
+  ["m7", 1, "The partner meeting", "At a fund, the person you met has to win over their partners. Give them what they need to argue for you, in a form they can forward.", SRC_SH, "Partner meeting"],
+  ["m8", 1, "When it goes quiet", "Silence after a meeting is common and not a verdict. Send news, not a nudge: what you learned since you last spoke.", SRC_SU, "quiet investors"],
+  ["c1", 2, "Momentum", "The first commitment makes the rest easier, because investors take comfort from other investors. Put your effort where a yes is closest.", SRC_PG, "Close week"],
+  ["c4", 2, "Set a close date", "Give interested investors a real date for the round. A date turns “maybe later” into a decision.", SRC_VD, "Close week"],
+  ["c2", 2, "Diligence at pre-seed", "Early diligence is light: references on the founders and a few customer conversations. Your Discovery calls are those references.", SRC_VD, "Diligence"],
+  ["c3", 2, "Reading the terms", "On a SAFE the numbers that matter are the amount and the cap. Have a lawyer read anything beyond the standard form, such as side letters or extra rights.", SRC_VD, "Terms"],
+  ["c5", 2, "After they sign", "Thank them, add them to the monthly update, and ask who else they’d introduce you to. Investors often bring the next investor.", SRC_PG, "Signed"],
+  ["b1", 3, "After a pass", "A pass now is often a yes next round. Keep them on the monthly update; they’ll have watched you improve.", SRC_SU, "Keep updated"],
+  ["b2", 3, "A clear pass is useful", "Write down the bar they named, like “come back with revenue”, and tell them when you clear it.", SRC_SU, "Meetings"],
+  ["b3", 3, "A smaller angel round", "Angels decide faster and write smaller checks, and several together can make a round. Useful if funds move slowly.", SRC_CA, "Backup week"],
+  ["b4", 3, "The holiday slowdown", "Most investors go quiet from mid-December to early January. Aim to have signatures before then.", "Widely reported by founders; not from one book", "Backup week"],
+].map(function (g) {
+  return { id: g[0], phase: g[1], title: g[2], text: g[3], src: g[4], where: g[5], week: !!WEEK_IDS[g[0]] };
+});
+
+/* The five hard questions, and why each is asked. */
+var WHY_THEY_ASK = [
+  { id: "pmf", text: "Do you have product-market fit?", why: "They want to see you know the difference between interest and fit. An honest “not yet, here’s the evidence” is the strong answer.", src: SRC_PG },
+  { id: "big", text: "How big can this get?", why: "A fund’s returns come from a few very large companies, so each investment has to be able to become one.", src: SRC_SH },
+  { id: "pay", text: "Will they pay, or just complain?", why: "Commitment before a product exists is the strongest early signal you can show.", src: SRC_VD },
+  { id: "why", text: "Why are you two the ones to build this?", why: "At pre-seed, the team is most of what an investor can judge.", src: SRC_PG },
+  { id: "now", text: "Why now?", why: "Timing explains why nobody has solved it yet.", src: SRC_HO },
+];
+
+/* Which field note each investor step, draft kind and reading opens. */
+var STEP_NOTE = { 0: "p3", 1: "p6", 2: "m2", 3: "m3", 4: "m5", 5: "m7", 6: "c2", 7: "c3", 8: "c5", quiet: "m8", passed: "b1" };
+var DRAFT_NOTE = { intro: "p6", cold: "p7", reply: "m2", followup: "m5", prep: "m4", checkin: "m8", update: "p1" };
+var READING_NOTE = { next: "m9", maybe: "m6", pass: "b2", intro: "m3" };
+
+/* ---- dates --------------------------------------------------------------- */
+
+function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+/* An ISO day in the operator's local time, from a time, a Date or a day. */
+function isoDay(t) {
+  if (typeof t === "string" && /^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  var d = t instanceof Date ? t : new Date(t == null ? Date.now() : t);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+
+function dayNum(iso) {
+  var p = String(iso).split("-");
+  return Date.UTC(+p[0], +p[1] - 1, +p[2]) / DAY;
+}
+
+function fromDayNum(n) {
+  var d = new Date(n * DAY);
+  return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate());
+}
+
+function addDays(iso, n) { return fromDayNum(dayNum(iso) + n); }
+function diffDays(a, b) { return Math.round(dayNum(a) - dayNum(b)); }
+
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/* "Oct 1" from an ISO day. */
+function dayLabel(iso) {
+  var p = String(iso).split("-");
+  return MONTHS[+p[1] - 1] + " " + (+p[2]);
+}
+
+/* "Oct 1–20" inside a month, "Oct 21–Nov 15" across two. */
+function rangeLabel(from, to) {
+  var a = from.split("-"), b = to.split("-");
+  if (a[0] === b[0] && a[1] === b[1]) return dayLabel(from) + "–" + (+b[2]);
+  return dayLabel(from) + "–" + dayLabel(to);
+}
+
+function validDay(v) { return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(dayNum(v)); }
+
+/* ---- records ------------------------------------------------------------- */
+
+/* Records out of the store, by kind. read is the map of field-note ids
+   the operator has read. */
+function records(data) {
+  var out = { settings: (data && data.settings) || {}, investors: [], drafts: [], meetings: [], questions: [], read: (data && data.read && typeof data.read === "object") ? data.read : {} };
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("investor:") === 0) out.investors.push(Object.assign({ id: k.slice(9) }, v));
+    else if (k.indexOf("draft:") === 0) out.drafts.push(Object.assign({ id: k.slice(6) }, v));
+    else if (k.indexOf("meeting:") === 0) out.meetings.push(Object.assign({ id: k.slice(8) }, v));
+    else if (k.indexOf("question:") === 0) out.questions.push(Object.assign({ id: k.slice(9) }, v));
+  }
+  return out;
+}
+
+/* ---- the round and its phases ------------------------------------------- */
+
+function clampDay(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+/* The round's dates and the four phases. Start defaults to today, close-by
+   to Nov 30 and must-close to Dec 15 of the year it falls in. Prepare runs
+   20 days from the start, Meetings to 15 days before close-by, Close to
+   close-by, Backup to must-close. Each boundary is clamped so a phase is
+   at least a day long and the phases never overlap, even when close-by
+   comes early. */
+function roundOf(settings, now) {
+  var s = (settings && settings.round) || {};
+  var today = isoDay(now);
+  var start = validDay(s.start) ? s.start : today;
+  var year = +start.slice(0, 4);
+  var closeBy = validDay(s.closeBy) ? s.closeBy : year + "-11-30";
+  var mustClose = validDay(s.mustClose) ? s.mustClose : year + "-12-15";
+  if (!validDay(s.closeBy) && closeBy < start) closeBy = (year + 1) + "-11-30";
+  if (!validDay(s.mustClose) && mustClose < closeBy) mustClose = closeBy.slice(0, 4) + "-12-15";
+  var st = dayNum(start);
+  var e3 = Math.max(dayNum(mustClose), st + 3);
+  var e2 = clampDay(dayNum(closeBy), st + 2, e3 - 1);
+  var e1 = clampDay(dayNum(closeBy) - MEETINGS_BEFORE_CLOSE, st + 1, e2 - 1);
+  var e0 = clampDay(st + PREPARE_DAYS - 1, st, e1 - 1);
+  var ends = [e0, e1, e2, e3];
+  var phases = PHASES.map(function (p, i) {
+    return { name: p.name, from: fromDayNum(i === 0 ? st : ends[i - 1] + 1), to: fromDayNum(ends[i]) };
+  });
+  return { start: start, closeBy: closeBy, mustClose: mustClose, phases: phases };
+}
+
+/* Which phase today is in: 0 to 3. Before the start is Prepare, after the
+   last day is Backup. */
+function phaseAt(round, now) {
+  var today = isoDay(now);
+  for (var i = 0; i < round.phases.length; i++) {
+    if (today <= round.phases[i].to) return i;
+  }
+  return round.phases.length - 1;
+}
+
+/* Whole days since last contact, when the investor has gone quiet: 11 or
+   more days with no next step due still ahead. Passed and signed
+   investors aren't quiet. Otherwise null. */
+function quietDays(inv, now) {
+  if (!inv || inv.passed || inv.step === 8 || !validDay(inv.lastContact)) return null;
+  var today = isoDay(now);
+  var days = diffDays(today, inv.lastContact);
+  if (days <= QUIET_AFTER) return null;
+  if (inv.next && validDay(inv.next.due) && inv.next.due >= today) return null;
+  return days;
+}
+
+/* ---- hard questions ------------------------------------------------------ */
+
+/* "ready", "needs" or "yours". The founders' own two (why, now) are never
+   drafted, so they read "yours" until something is written. A drafted
+   answer that is missing, or marked needs, needs evidence. */
+function questionStatus(r, id) {
+  var q = null;
+  for (var i = 0; i < r.questions.length; i++) if (r.questions[i].id === id) q = r.questions[i];
+  var written = !!(q && typeof q.answer === "string" && q.answer.trim());
+  if (id === "why" || id === "now") return written ? "ready" : "yours";
+  if (q && q.status === "ready") return "ready";
+  if (q && !q.status && written) return "ready";
+  return "needs";
+}
+
+var DRAFTED = ["pmf", "big", "pay"];
+
+/* The hard questions that still need evidence: the three drafted ones, and
+   any a meeting added that is marked needs. */
+function questionsNeeding(r) {
+  var ids = DRAFTED.filter(function (id) { return questionStatus(r, id) !== "ready"; });
+  r.questions.forEach(function (q) {
+    if (DRAFTED.indexOf(q.id) < 0 && q.id !== "why" && q.id !== "now" && q.status === "needs") ids.push(q.id);
+  });
+  return ids;
+}
+
+/* ---- what to do next ----------------------------------------------------- */
+
+function sentAny(r) { return r.drafts.some(function (d) { return d.status === "sent"; }); }
+
+function liveInvestors(r) { return r.investors.filter(function (i) { return !i.passed; }); }
+
+function byDue(a, b) { return a.next.due < b.next.due ? -1 : a.next.due > b.next.due ? 1 : 0; }
+
+/* What the operator does next, as the strip and the zone ring say it.
+   zone is one of the kit's zone keys (progress, story, investors, send,
+   meetings). cap is the small label over it. During day one, start lists
+   the three starting moves. */
+function nextFor(r, now) {
+  var today = isoDay(now);
+  var haveInv = r.investors.length > 0;
+  var roundSet = !!(r.settings.round && r.settings.round.set);
+  var answered = DRAFTED.every(function (id) { return questionStatus(r, id) === "ready"; });
+  var done = (haveInv ? 1 : 0) + (roundSet ? 1 : 0) + (answered ? 1 : 0);
+  var dayOne = !(haveInv && roundSet && answered && sentAny(r));
+  function out(zone, text, cap, start) {
+    var o = { zone: zone, text: text, cap: cap || "NEXT FOR YOU" };
+    if (start) o.start = start;
+    return o;
+  }
+  if (dayOne) {
+    var start = [
+      { label: "Add the investors you know", done: haveInv },
+      { label: "Set the round", done: roundSet },
+      { label: "Fill answers from Discovery", done: answered },
+    ];
+    var cap = done < 3 ? "START HERE · " + done + " OF 3 DONE" : "NEXT FOR YOU";
+    if (!haveInv) return out("investors", "Add the investors you already know in 2 · Investors. Names are enough.", cap, start);
+    if (!roundSet) return out("story", "Set the round in 1 · Story: how much, and what it buys.", cap, start);
+    if (!answered) return out("story", "Press Fill answers from Discovery in 1 · Story. Your calls already hold the evidence.", cap, start);
+    if (!r.drafts.length) return out("investors", "You’re set up. Pick someone you know in 2 · Investors and draft a first note.", cap, start);
+    return out("send", "Send your note from 3 · To send, then press Sent. That’s the raise started.", cap, start);
+  }
+  var live = liveInvestors(r);
+  var byId = {};
+  r.investors.forEach(function (i) { byId[i.id] = i; });
+  // A follow-up request from a meeting is a step due today.
+  var asks = r.drafts.filter(function (d) { return d.status === "requested"; });
+  if (asks.length) {
+    var who = byId[asks[0].investor];
+    return out("send", "Draft the follow-up for " + (who && who.name ? who.name : "your last meeting") + " in 3 · To send. Within a day reads as how you’ll run the company.");
+  }
+  var due = live.filter(function (i) { return i.next && validDay(i.next.due) && i.next.due <= today; }).sort(byDue);
+  if (due.length) return out("investors", due[0].name + ": " + due[0].next.text + ". Due " + (due[0].next.due === today ? "today" : "since " + due[0].next.due) + ", in 2 · Investors.");
+  var needing = questionsNeeding(r);
+  if (needing.length) {
+    return out("story", (needing.length === 1 ? "A hard question still needs" : needing.length + " hard questions still need") + " evidence. Press Fill answers from Discovery in 1 · Story.");
+  }
+  var soon = live.filter(function (i) { return i.next && validDay(i.next.due); }).sort(byDue);
+  if (soon.length) return out("investors", soon[0].name + ": " + soon[0].next.text + ". Due " + soon[0].next.due + ", in 2 · Investors.");
+  return out("investors", "Pick an investor in 2 · Investors and set their next step.");
+}
+
+/* The quietest investor, as one line for under Next for you, or null. */
+function alsoWaiting(r, now) {
+  var best = null, days = 0;
+  r.investors.forEach(function (i) {
+    var q = quietDays(i, now);
+    if (q != null && q > days) { best = i; days = q; }
+  });
+  return best ? best.name + " has been quiet " + days + " days" : null;
+}
+
+/* ---- field notes --------------------------------------------------------- */
+
+/* The three This week notes for a phase. */
+function weekNotes(phase) {
+  return GUIDE.filter(function (g) { return g.phase === phase && g.week; });
+}
+
+/* How many of a phase's This week notes are still unread. */
+function unreadWeek(r, phase) {
+  return weekNotes(phase).filter(function (g) { return !r.read[g.id]; }).length;
+}
+
+/* ---- Discovery ----------------------------------------------------------- */
+
+function commitmentLive(c, now) {
+  if (!c) return false;
+  var s = c.status;
+  if (s === "lapsed" || s === "broken" || s === "declined" || s === "withdrawn") return false;
+  if (s === "fulfilled" || s === "kept") return true;
+  var due = Date.parse(c.due);
+  if (isNaN(due) || !isFinite(now)) return true;
+  return due + 14 * DAY >= now;
+}
+
+/* What the Story page says about Discovery, from a Discovery store: calls
+   with a person, how many scored 4 or 5 (hair on fire), people holding a
+   live commitment, the strongest quote with who said it, and how many
+   times the bets were sharpened. any is false until there is a call. */
+function fromDiscovery(data, now) {
+  var calls = 0, hot = 0, sharpened = 0, best = null, who = {};
+  var committed = {};
+  var ms = typeof now === "number" ? now : Date.parse(now);
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("person:") === 0) who[k.slice(7)] = v;
+    else if (k.indexOf("market:") === 0) {
+      var bv = v.bet && Number(v.bet.v);
+      if (isFinite(bv) && bv > 1) sharpened += bv - 1;
+    }
+  }
+  for (var k2 in data || {}) {
+    if (k2.indexOf("call:") !== 0) continue;
+    var c = data[k2];
+    if (!c || typeof c !== "object" || !c.person) continue;
+    calls++;
+    var lv = Number(c.level) || 0;
+    if (lv >= 4) hot++;
+    if (c.commitment && commitmentLive(c.commitment, ms)) committed[c.person] = true;
+    if (typeof c.quote === "string" && c.quote.trim() && (!best || lv > best.lv)) best = { lv: lv, text: c.quote.trim(), person: c.person };
+  }
+  var quote = null;
+  if (best) {
+    var p = who[best.person];
+    quote = { text: best.text, who: (p && p.name) || "" };
+  }
+  return { calls: calls, hot: hot, commits: Object.keys(committed).length, quote: quote, sharpened: sharpened, any: calls > 0 };
+}
+
+/* ---- readings ------------------------------------------------------------ */
+
+/* An investor after a meeting read as next, maybe, pass or intro. Returns
+   a new record; the input isn't changed. next moves them a step, intro
+   books the first meeting, maybe leaves the step, pass marks them
+   passed. */
+function applyReading(inv, reading, at) {
+  var o = Object.assign({}, inv);
+  var step = typeof o.step === "number" ? o.step : 0;
+  var before = step;
+  o.dates = Object.assign({}, o.dates);
+  o.lastContact = at;
+  if (reading === "next") step = Math.min(8, step + 1);
+  else if (reading === "intro") step = Math.max(step, 3);
+  else if (reading === "pass") { o.passed = true; o.passedAt = at; }
+  if (step !== before) o.dates[step] = at;
+  o.step = step;
+  return o;
+}
+
+/* An investor moved on one step by hand or by a sent draft: applyReading's
+   "next", and the old next step (which belonged to the step they left) is
+   dropped, so nothing stale is shown as due. */
+function advanceStep(inv, at) {
+  var o = applyReading(inv, "next", at);
+  delete o.next;
+  return o;
+}
+
+/* A field note by id, or undefined. */
+function noteById(id) {
+  for (var i = 0; i < GUIDE.length; i++) if (GUIDE[i].id === id) return GUIDE[i];
+  return undefined;
+}
+
+/* "3 calls", "1 call". */
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many || one + "s"); }
+
+/* An investor's step as a whole number 0 to 8; 0 when missing. */
+function stepOf(inv) { var s = inv && inv.step; return typeof s === "number" && s >= 0 && s <= 8 ? Math.floor(s) : 0; }
+
+/* A phase to read ahead on, or null: only a whole number from 0 to 3. */
+function peekOf(settings) {
+  var p = settings && settings.peek;
+  return typeof p === "number" && p >= 0 && p <= 3 && Math.floor(p) === p ? p : null;
+}
+
+/* Where a card goes. The app writes each kit page a map of the kit's zone
+   keys to the zones it placed ("kitZones"), so a renamed zone, or a second
+   placing, still lands here. Without it the zone's key stands. */
+function zoneFor(zones, key) {
+  var id = zones && typeof zones === "object" ? zones[key] : "";
+  return typeof id === "string" && id ? id : key;
+}
+
+/* What each kind of draft is called, in To send's chips and in the title of
+   the card that asks for it. The asker picks the draft from that title. */
+var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
+</script>
+
+<script id="logic">
+/* THE INVESTORS PAGE'S RULES. Pure functions, no DOM, no window:
+   pages.test.mjs pulls this block out of the page, after core, and runs it
+   under node. */
+
+var HOW_LABEL = { know: "Know", warm: "Warm", cold: "Cold" };
+var KIND_WORD = { angel: "angel", fund: "fund", scout: "scout", group: "angel group" };
+var TABS = [["all", "Active"], ["know", "Know"], ["warm", "Warm"], ["cold", "Cold"], ["passed", "Keep updated"]];
+var SOURCES = [["know", "People we know"], ["warm", "Warm paths"], ["web", "Web search"]];
+var SOURCE_NOTE = {
+  know: "Paste names or drop your contacts. The scout fills in what each person invests in and how much.",
+  warm: "The scout looks for people you both know: advisors, customers, other founders. Warm intros come first.",
+  web: "The scout reads fund sites and public deal lists for investors who back your stage and space.",
+};
+
+function howOf(inv) { return inv && HOW_LABEL[inv.how] ? inv.how : "know"; }
+
+/* "Northloop · pre-seed fund · leads · $250–500k", from whatever the scout
+   filled in. */
+function kindLine(inv) {
+  var kind = KIND_WORD[inv.kind] || "";
+  var parts = [];
+  if (inv.firm) parts.push(inv.firm);
+  var what = [inv.stage, kind].filter(Boolean).join(" ");
+  if (what) parts.push(what);
+  if (inv.leads === true) parts.push("leads");
+  if (inv.check) parts.push(String(inv.check).toLowerCase() === "unknown" ? "check size unknown" : inv.check);
+  return parts.join(" · ");
+}
+
+/* The connector's name from the scout's own next-step line, "Ask <name> for
+   the intro", or "". */
+function connectorOf(inv) {
+  var m = /^Ask (.+?) for the intro/i.exec(inv && inv.next && inv.next.text || "");
+  return m ? m[1] : "";
+}
+
+/* What to do when the record names no next step. */
+function defaultNext(inv) {
+  var s = stepOf(inv);
+  if (s === 0) return howOf(inv) === "cold" ? "Look for a warm path, or write a cold note" : howOf(inv) === "warm" ? "Ask for the intro" : "Reach out this week";
+  return ["", "Waiting for the intro", "Reply with two times that work", "Prepare for the meeting", "Follow up within a day", "Prepare for the partner meeting", "Send what they ask for", "Read the terms", "Signed. Keep them on the monthly update"][s];
+}
+
+function dueWords(due, today) {
+  if (!validDay(due)) return "";
+  if (due === today) return "today";
+  return due < today ? "overdue since " + dayLabel(due) : "by " + dayLabel(due);
+}
+
+/* The one next step as a row shows it: its words and a tone (hot, quiet,
+   gone or plain). */
+function nextView(inv, now) {
+  var today = isoDay(now);
+  if (inv.passed) return { text: "Passed · on the monthly update", tone: "gone" };
+  var q = quietDays(inv, now);
+  if (q !== null) return { text: "Quiet " + q + " days · send news", tone: "quiet" };
+  var n = inv.next && inv.next.text ? inv.next : null;
+  if (!n) return { text: defaultNext(inv), tone: "plain" };
+  var due = dueWords(n.due, today);
+  return { text: n.text + (due ? " · " + due : ""), tone: validDay(n.due) && n.due <= today ? "hot" : "plain" };
+}
+
+/* The kind of draft the investor's step calls for, or null. Quiet comes
+   first. A step 0 note to someone you know is a short direct note, so it
+   is a cold-note kind; only a warm path asks for an intro. */
+function draftKind(inv, now) {
+  if (inv.passed) return null;
+  if (quietDays(inv, now) !== null) return "checkin";
+  var s = stepOf(inv);
+  if (s === 0) return howOf(inv) === "warm" ? "intro" : "cold";
+  if (s === 2) return "reply";
+  if (s === 3) return "prep";
+  if (s === 4) return "followup";
+  return null;
+}
+
+function draftLabel(inv, kind) {
+  if (kind === "intro") { var c = connectorOf(inv); return "Draft intro request" + (c ? " to " + c : ""); }
+  if (kind === "cold") return howOf(inv) === "know" ? "Draft a note to " + String(inv.name || "them").split(" ")[0] : "Draft a cold note";
+  if (kind === "reply") return "Draft a reply with times";
+  if (kind === "prep") return "Draft a prep sheet";
+  if (kind === "followup") return "Draft the follow-up";
+  return "Draft a check-in";
+}
+
+/* The note id the detail shows for an investor. */
+function noteIdFor(inv, now) {
+  if (inv.passed) return STEP_NOTE.passed;
+  if (quietDays(inv, now) !== null) return STEP_NOTE.quiet;
+  return STEP_NOTE[stepOf(inv)];
+}
+
+function sortRows(a, b) {
+  var da = a.next && validDay(a.next.due) ? a.next.due : "9999", db = b.next && validDay(b.next.due) ? b.next.due : "9999";
+  return da < db ? -1 : da > db ? 1 : String(a.name).localeCompare(String(b.name));
+}
+
+/* The board: tab counts, and the rows for one tab. */
+function rowsView(r, tab, now) {
+  var counts = { all: 0, know: 0, warm: 0, cold: 0, passed: 0 };
+  r.investors.forEach(function (i) { if (i.passed) counts.passed++; else { counts.all++; counts[howOf(i)]++; } });
+  var tabs = TABS.map(function (t) { return { key: t[0], label: t[1], n: counts[t[0]], on: t[0] === tab }; });
+  var shown = r.investors.filter(function (i) {
+    if (tab === "passed") return !!i.passed;
+    return !i.passed && (tab === "all" || howOf(i) === tab);
+  }).sort(sortRows);
+  var rows = shown.map(function (i) {
+    var nx = nextView(i, now);
+    var s = stepOf(i);
+    return {
+      id: i.id, name: i.name || "Unnamed", kind: kindLine(i), next: nx.text, tone: nx.tone,
+      how: howOf(i), howLabel: HOW_LABEL[howOf(i)],
+      filled: s + 1, stage: i.passed ? "Passed" : STEPS[s],
+      cells: i.passed ? "gone" : nx.tone === "quiet" ? "quiet" : "live",
+    };
+  });
+  return { tabs: tabs, rows: rows, total: r.investors.length };
+}
+
+/* The detail panel for one investor. */
+function detailView(inv, r, now) {
+  var s = stepOf(inv);
+  var q = quietDays(inv, now);
+  var timeline = [];
+  var upto = inv.passed ? s : 8;
+  for (var i = 0; i <= upto; i++) {
+    var when = inv.dates && validDay(inv.dates[i]) ? dayLabel(inv.dates[i]) : "";
+    var state = inv.passed ? "done" : i < s ? "done" : i === s ? "now" : "later";
+    timeline.push({ label: STEPS[i] + (state === "now" ? " · now" : ""), when: when, state: state });
+  }
+  if (inv.passed) timeline.push({ label: "Passed · keep updated", when: validDay(inv.passedAt) ? dayLabel(inv.passedAt) : "", state: "pass" });
+  var nx = nextView(inv, now);
+  var nextFull;
+  var first = String(inv.name || "They").split(" ")[0];
+  if (inv.passed) nextFull = (inv.bar ? "They named a bar: “" + inv.bar + "”. " : "") + first + " stays on the monthly update, so they see the progress.";
+  else if (q !== null) nextFull = first + " has been quiet " + q + " days. Send news, not a nudge: what has changed since you last spoke.";
+  else nextFull = inv.next && inv.next.text ? inv.next.text + (inv.next.due ? " (" + dueWords(inv.next.due, isoDay(now)) + ")" : "") : defaultNext(inv);
+  var g = noteById(noteIdFor(inv, now));
+  var kind = draftKind(inv, now);
+  var pending = null;
+  if (kind) {
+    var mine = r.drafts.filter(function (d) { return d.investor === inv.id && d.status !== "sent" && d.status !== "met" && (d.kind === kind || d.status === "requested"); })[0];
+    if (mine) pending = mine.status === "requested" ? "requested" : "waiting";
+  }
+  return {
+    id: inv.id, name: inv.name || "Unnamed", how: howOf(inv), howLabel: HOW_LABEL[howOf(inv)], kind: kindLine(inv),
+    path: inv.passed ? "Passed" + (validDay(inv.passedAt) ? " " + dayLabel(inv.passedAt) : "") + (inv.bar ? ": “" + inv.bar + "”" : "") : (inv.path || ""),
+    timeline: timeline, nextFull: nextFull, nextTone: nx.tone, quiet: q, passed: !!inv.passed,
+    move: !inv.passed && s < 8 ? { label: "Move to " + STEPS[s + 1] } : null,
+    note: { id: g.id, title: g.title, text: g.text, src: g.src, read: !!r.read[g.id] },
+    draft: kind ? { kind: kind, title: DRAFT_LABEL[kind] + " · " + (inv.name || ""), label: draftLabel(inv, kind), pending: pending } : null,
+  };
+}
+
+/* "Dana Whitfield" lines out of the paste box: new names only, once each. */
+function namesIn(text, r) {
+  var have = {};
+  r.investors.forEach(function (i) { have[String(i.name || "").trim().toLowerCase()] = true; });
+  var out = [];
+  String(text || "").split(/\r?\n/).forEach(function (line) {
+    var n = line.replace(/\s+/g, " ").trim();
+    if (!n || have[n.toLowerCase()]) return;
+    have[n.toLowerCase()] = true;
+    out.push(n);
+  });
+  return out;
+}
+
+function slugOf(name) {
+  return String(name).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "investor";
+}
+
+/* Store entries [key, record] for new names, at step 0, known to you. A
+   slug already in use gets -2, -3. */
+function newInvestors(names, data, now) {
+  var today = isoDay(now);
+  var used = {};
+  Object.keys(data || {}).forEach(function (k) { used[k] = true; });
+  return names.map(function (name) {
+    var base = "investor:" + slugOf(name), key = base, n = 2;
+    while (used[key]) key = base + "-" + n++;
+    used[key] = true;
+    return [key, { name: name, how: "know", step: 0, dates: { 0: today }, next: { text: "Reach out this week", due: addDays(today, 2) } }];
+  });
+}
+
+/* A pass by hand: marked passed today, and the old next step goes. */
+function passInvestor(inv, at) {
+  var o = applyReading(inv, "pass", at);
+  delete o.next;
+  return o;
+}
+
+/* The card that lands in Investors, which runs the scout. */
+function findCard(source, typed, zones) {
+  var t = String(typed || "").trim();
+  return { zone: zoneFor(zones, "investors"), title: "Find investors", text: source + ": " + (t || "(nothing added)") };
+}
+
+/* The card that lands in To send, which runs the asker. It names the
+   investor by id so the asker finds the record. */
+function draftCard(inv, kind, zones) {
+  return { zone: zoneFor(zones, "send"), title: DRAFT_LABEL[kind] + " · " + (inv.name || ""), text: "investor: " + inv.id };
+}
+</script>
+
+<script>
+(function () {
+  var app = document.getElementById("app");
+  var kit = window.wibble && window.wibble.kit;
+  var data = {};
+  var ui = { source: "know", typed: "", paste: "", sel: null, status: "", asked: {}, confirm: null };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function zones() { try { return window.wibble.get("kitZones"); } catch (_) { return undefined; } }
+  function tabNow(r) { var t = r.settings.tab; return TABS.some(function (x) { return x[0] === t; }) ? t : "all"; }
+
+  function findCardHtml() {
+    return '<div class="fr-card"><div class="fr-head"><div class="fr-ttl">Find investors</div><span class="fr-muted">who back your stage, size and space</span></div>' +
+      '<div class="fr-seg" role="group" aria-label="Where to look">' + SOURCES.map(function (s) {
+        return '<button type="button" data-act="source" data-id="' + s[0] + '" aria-pressed="' + (ui.source === s[0]) + '">' + esc(s[1]) + "</button>";
+      }).join("") + "</div>" +
+      '<div class="fr-sub">' + esc(SOURCE_NOTE[ui.source]) + "</div>" +
+      '<label class="fr-cap" for="fr-who">WHO TO LOOK FOR</label>' +
+      '<input class="fr-in" id="fr-who" type="text" data-f="typed" value="' + esc(ui.typed) + '" placeholder="e.g. seed funds that back restaurant software">' +
+      '<div class="fr-acts"><button class="fr-btn" type="button" data-act="find">Find investors</button>' +
+      (ui.status ? '<span class="fr-found" role="status">' + esc(ui.status) + "</span>" : "") + "</div></div>";
+  }
+
+  function boardDayOne() {
+    var n = namesIn(ui.paste, records(data)).length;
+    return '<div class="fr-card"><div class="fr-ttl">Your investors land here</div>' +
+      '<div class="fr-sub">Start with people you already know: past investors, angels, advisors, founder friends. Names are enough. The scout fills in what each one invests in and how much.</div>' +
+      '<label class="fr-cap" for="fr-paste">PASTE NAMES, ONE PER LINE</label>' +
+      '<textarea class="fr-paste" id="fr-paste" data-f="paste" placeholder="Dana Whitfield&#10;Ellis Rowe&#10;Tom Becker">' + esc(ui.paste) + "</textarea>" +
+      '<button class="fr-btn" type="button" data-act="paste" id="fr-addbtn"' + (n ? "" : " disabled") + ">" + (n ? "Add " + plural(n, "investor") : "Add investors") + "</button>" +
+      '<div class="fr-sub">Or use <b style="color:var(--text,#fff)">Find investors</b> above to look for new ones.</div></div>';
+  }
+
+  function detailDayOne() {
+    var g = noteById("p2");
+    return '<div class="fr-card fr-det"><div class="fr-ttl">Each investor’s whole path</div>' +
+      '<div class="fr-sub">Pick an investor and their steps show here, from first research to signed, with dates and the one next step.</div>' +
+      '<div class="fr-tl fr-ghost">' + STEPS.map(function (s) { return '<div class="fr-tli"><i></i><span>' + esc(s) + "</span><span></span></div>"; }).join("") + "</div>" +
+      '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(g.title.toUpperCase()) + "</div><div>" + esc(g.text) + '</div><div class="fr-src">' + esc(g.src) + "</div></div></div>";
+  }
+
+  function boardHtml(v) {
+    var tabs = v.tabs.map(function (t) {
+      return '<button class="fr-pill" type="button" data-act="tab" data-id="' + t.key + '" aria-pressed="' + t.on + '">' + esc(t.label) + '<span class="fr-n">' + t.n + "</span></button>";
+    }).join("");
+    var rows = v.rows.length ? v.rows.map(function (x) {
+      var cells = "";
+      for (var i = 0; i < 9; i++) cells += '<i class="' + (i < x.filled ? "fr-on" : "") + '"></i>';
+      return '<button class="fr-row" type="button" data-act="pick" data-id="' + esc(x.id) + '" aria-pressed="' + (ui.sel === x.id) + '">' +
+        '<div style="min-width:0;display:flex;flex-direction:column;gap:2px"><div class="fr-line"><span class="fr-name">' + esc(x.name) + '</span><span class="fr-kind">' + esc(x.kind) + "</span></div>" +
+        '<div class="fr-nx fr-' + x.tone + '">' + esc(x.next) + "</div></div>" +
+        '<div style="display:flex;flex-direction:column;gap:4px"><div class="fr-cells fr-' + x.cells + '" aria-hidden="true">' + cells + '</div><span class="fr-stage">' + esc(x.stage) + "</span></div>" +
+        '<div style="display:flex;justify-content:flex-end"><span class="fr-tag fr-' + x.how + '">' + esc(x.howLabel) + "</span></div></button>";
+    }).join("") : '<p class="fr-empty">Nobody here yet.</p>';
+    return '<div class="fr-card"><div class="fr-tabs">' + tabs + "</div>" +
+      '<div class="fr-colh"><span>INVESTOR · NEXT STEP</span><span>HOW FAR</span><span style="text-align:right">HOW</span></div>' +
+      '<div class="fr-list">' + rows + "</div></div>";
+  }
+
+  function detailHtml(d) {
+    var tl = d.timeline.map(function (t) {
+      return '<div class="fr-tli fr-' + t.state + '"><i></i><span>' + esc(t.label) + '</span><span class="fr-w">' + esc(t.when) + "</span></div>";
+    }).join("");
+    var note = d.note.read
+      ? '<button class="fr-pill fr-dim" type="button" style="align-self:flex-start" data-act="unread" data-id="' + esc(d.note.id) + '">Field note read · show again</button>'
+      : '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(d.note.title.toUpperCase()) + '<button class="fr-pill fr-soft fr-grow" type="button" data-act="gotit" data-id="' + esc(d.note.id) + '">Got it</button></div><div>' + esc(d.note.text) + '</div><div class="fr-src">' + esc(d.note.src) + "</div></div>";
+    var draft = "";
+    if (d.draft) {
+      if (ui.asked[d.id] === d.draft.kind) draft = '<div class="fr-ok" role="status">Asked. The draft lands in To send.</div>';
+      else if (d.draft.pending === "requested") draft = '<div class="fr-ask">A follow-up is requested. Press Draft on its card in To send.</div>';
+      else if (d.draft.pending === "waiting") draft = '<div class="fr-ask">A draft is waiting in To send.</div>';
+      else draft = '<button class="fr-btn" type="button" data-act="draft" data-id="' + esc(d.id) + '">' + esc(d.draft.label) + "</button>";
+    }
+    var moves = "";
+    if (ui.confirm === d.id) {
+      moves = '<div class="fr-confirm" role="alertdialog" aria-label="Mark as passed"><div>Mark ' + esc(d.name) + ' as passed? They move to Keep updated and still get the monthly update.</div>' +
+        '<div class="fr-acts"><button class="fr-pill" type="button" data-act="pass-yes" data-id="' + esc(d.id) + '">Yes, they passed</button><button class="fr-pill" type="button" data-act="pass-no">Keep them on the board</button></div></div>';
+    } else if (!d.passed) {
+      moves = '<div class="fr-acts">' + (d.move ? '<button class="fr-pill fr-soft" type="button" data-act="move" data-id="' + esc(d.id) + '">' + esc(d.move.label) + "</button>" : "") +
+        '<button class="fr-pill fr-soft" type="button" data-act="pass" data-id="' + esc(d.id) + '">Passed</button></div>';
+    }
+    return '<div class="fr-card fr-det"><div style="display:flex;flex-direction:column;gap:3px"><div class="fr-head"><div class="fr-ttl" style="font-size:16px">' + esc(d.name) + '</div><span class="fr-tag fr-' + d.how + ' fr-grow">' + esc(d.howLabel) + "</span></div>" +
+      (d.kind ? '<div class="fr-sub">' + esc(d.kind) + "</div>" : "") + (d.path ? '<div class="fr-muted">' + esc(d.path) + "</div>" : "") + "</div>" +
+      '<div class="fr-hair"></div><div class="fr-tl">' + tl + '</div><div class="fr-hair"></div>' +
+      '<div style="display:flex;flex-direction:column;gap:4px"><div class="fr-cap" style="color:#f0cfa8">NEXT STEP</div><div style="font-size:13px;line-height:1.45">' + esc(d.nextFull) + "</div></div>" +
+      moves + note + draft + '<div class="fr-sub">Nothing is sent. Every message goes out from you.</div></div>';
+  }
+
+  function render() {
+    if (!kit) return;
+    var now = Date.now();
+    var r = records(data);
+    var tab = tabNow(r);
+    var v = rowsView(r, tab, now);
+    var byId = {};
+    r.investors.forEach(function (i) { byId[i.id] = i; });
+    if (!ui.sel || !byId[ui.sel] || !v.rows.some(function (x) { return x.id === ui.sel; })) ui.sel = v.rows[0] ? v.rows[0].id : null;
+    var body;
+    if (!r.investors.length) body = '<div class="fr-two">' + boardDayOne() + detailDayOne() + "</div>";
+    else body = '<div class="fr-two">' + boardHtml(v) + (ui.sel ? detailHtml(detailView(byId[ui.sel], r, now)) : '<div class="fr-card fr-det"><p class="fr-empty">Pick an investor to see their path.</p></div>') + "</div>";
+    app.innerHTML = findCardHtml() + body;
+    if (ui.refocus) { var el = document.getElementById(ui.refocus); if (el) { el.focus(); try { el.setSelectionRange(el.value.length, el.value.length); } catch (_) {} } ui.refocus = null; }
+  }
+
+  function typing() {
+    var a = document.activeElement;
+    return !!(a && app.contains(a) && /^(TEXTAREA|INPUT)$/.test(a.tagName));
+  }
+  var held = false;
+  function refresh() { if (typing()) { held = true; return; } held = false; render(); }
+
+  function setRead(id, val) {
+    var r = records(data);
+    var next = Object.assign({}, r.read);
+    next[id] = val;
+    kit.set("read", next);
+  }
+
+  if (!kit) {
+    app.innerHTML = '<p class="fr-sub">Place this kit from the zone menu.</p>';
+    return;
+  }
+
+  app.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-act]");
+    if (!b || b.disabled) return;
+    var act = b.getAttribute("data-act"), id = b.getAttribute("data-id");
+    var r = records(data);
+    var inv = r.investors.filter(function (i) { return i.id === id; })[0];
+    var today = isoDay(Date.now());
+    function put(i, rec) { var o = Object.assign({}, rec); delete o.id; kit.set("investor:" + i.id, o); }
+    if (act === "source") { ui.source = id; render(); }
+    else if (act === "tab") kit.set("settings", Object.assign({}, r.settings, { tab: id }));
+    else if (act === "pick") { ui.sel = id; ui.confirm = null; render(); }
+    else if (act === "find") {
+      ui.status = "Sent to the scout. New investors land on the board.";
+      render();
+      Promise.resolve().then(function () { return window.wibble.land(findCard(ui.source, ui.typed, zones())); }).catch(function () {
+        ui.status = "Couldn’t send that. Try again.";
+        render();
+      });
+    } else if (act === "paste") {
+      var list = newInvestors(namesIn(ui.paste, r), data, Date.now());
+      ui.paste = "";
+      list.forEach(function (p) { kit.set(p[0], p[1]); });
+      render();
+    } else if (act === "gotit") setRead(id, true);
+    else if (act === "unread") setRead(id, false);
+    else if (act === "move" && inv) put(inv, advanceStep(inv, today));
+    else if (act === "pass" && inv) { ui.confirm = id; render(); }
+    else if (act === "pass-no") { ui.confirm = null; render(); }
+    else if (act === "pass-yes" && inv) { ui.confirm = null; put(inv, passInvestor(inv, today)); }
+    else if (act === "draft" && inv) {
+      var kind = draftKind(inv, Date.now());
+      if (!kind) return;
+      ui.asked[id] = kind;
+      render();
+      Promise.resolve().then(function () { return window.wibble.land(draftCard(inv, kind, zones())); }).catch(function () {
+        delete ui.asked[id];
+        render();
+      });
+    }
+  });
+  app.addEventListener("input", function (e) {
+    var f = e.target.getAttribute && e.target.getAttribute("data-f");
+    if (!f) return;
+    ui[f] = e.target.value;
+    if (f === "paste") {
+      var n = namesIn(ui.paste, records(data)).length;
+      var btn = document.getElementById("fr-addbtn");
+      if (btn) { btn.disabled = !n; btn.textContent = n ? "Add " + plural(n, "investor") : "Add investors"; }
+    }
+  });
+  app.addEventListener("focusout", function () {
+    if (held) setTimeout(function () { if (!typing()) { held = false; render(); } }, 0);
+  });
+  kit.subscribe(function (d) { data = d || {}; refresh(); });
+})();
+</script>
+</body>
+</html>

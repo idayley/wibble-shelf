@@ -1,3 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Meetings</title>
+<!--
+  THE MEETINGS PAGE. Placed by the Fundraising kit in 4 · Meetings. You drop
+  your meeting notes or a recording in this zone, the debrief reads them,
+  and this page shows what it wrote: for each meeting the investor, when,
+  their own words, one reading of interest and what it means. Below, what
+  investors push on, counted across meetings.
+
+  It reads the kit store (window.wibble.kit): meeting:<id> records, the
+  investor:<id> each belongs to, question:<id> records (for the text of
+  questions a meeting raised) and the field notes read ("read").
+
+  It writes only read.<noteId> = true, when you open Why? on a meeting.
+  The debrief writes the meetings.
+
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  pages.test.mjs can run them under node.
+
+  Classes start with fr- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,"Noto Sans",system-ui,sans-serif);color:var(--text,#ddd)}
+.fr-wrap{display:grid;gap:14px}
+.fr-drop{padding:14px;border:1px dashed rgba(110,196,140,.45);border-radius:12px;font-size:12.5px;color:#9fcfae;text-align:center}
+.fr-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;background:var(--win,#232323);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.36),0 6px 16px rgba(0,0,0,.34);box-sizing:border-box;min-width:0}
+.fr-card.fr-push{gap:10px;padding:16px;box-shadow:inset 0 0 0 1px rgba(110,196,140,.35),0 6px 16px rgba(0,0,0,.34)}
+.fr-head{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
+.fr-who{font-size:13.5px;font-weight:600}
+.fr-ttl{font-size:15px;font-weight:600;line-height:1.3}
+.fr-muted{color:var(--muted,#999);font-size:12px}
+.fr-grow{margin-left:auto}
+.fr-tag{flex:none;font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap}
+.fr-next{background:rgba(110,196,140,.16);color:#9fdcbc}
+.fr-maybe{background:rgba(232,180,138,.16);color:#e8b48a}
+.fr-pass,.fr-intro{background:rgba(255,255,255,.08);color:#cfcfcf}
+.fr-quote{margin:0;font-size:12.5px;color:var(--text,#ececec);line-height:1.45}
+.fr-mean{display:flex;align-items:flex-start;gap:8px}
+.fr-mean div{flex:1;font-size:12px;color:var(--muted,#9a9a9a)}
+.fr-pill{flex:none;min-height:24px;padding:1px 8px;border:1px solid rgba(156,192,245,.3);border-radius:999px;background:transparent;color:#9cb4da;font:inherit;font-size:12px;font-weight:500;cursor:pointer}
+.fr-pill:focus-visible{outline:2px solid #6ec48c;outline-offset:2px}
+.fr-field{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:10px;background:#262a33;box-shadow:inset 0 0 0 1px rgba(156,192,245,.22);font-size:12.5px;line-height:1.5;color:#d9e3f3}
+.fr-fhead{font-size:10.5px;font-weight:700;letter-spacing:.07em;color:#9cb4da}
+.fr-src{font-size:11.5px;color:#8ea2c2;font-style:italic}
+.fr-counts{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:8px 12px;font-size:12.5px;line-height:1.45;align-items:baseline}
+.fr-counts .fr-c{text-align:right;color:var(--muted,#999);font-family:var(--mono,"Geist Mono",ui-monospace,monospace)}
+.fr-counts .fr-c.fr-top{color:#f0cfa8}
+.fr-sub{margin:0;font-size:12.5px;color:var(--muted,#b3b3b3);line-height:1.45}
+.fr-list{display:flex;flex-direction:column;gap:12px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="fr-wrap" id="app"></div>
+
+<script id="core">
 /* THE FUNDRAISING KIT'S SHARED RULES. Every page needs the same phase,
    the same "next for you", the same idea of quiet and the same field
    notes, or the strip, the pages and the agents drift apart. Pure
@@ -396,3 +457,134 @@ function zoneFor(zones, key) {
 /* What each kind of draft is called, in To send's chips and in the title of
    the card that asks for it. The asker picks the draft from that title. */
 var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
+</script>
+
+<script id="logic">
+/* THE MEETINGS PAGE'S RULES. Pure functions, no DOM, no window:
+   pages.test.mjs pulls this block out of the page, after core, and runs it
+   under node. */
+
+var READING_LABEL = { next: "Real next step", maybe: "Maybe = no for now", pass: "Pass", intro: "Intro call" };
+var KIND_WORD = { angel: "angel", fund: "fund", scout: "scout", group: "angel group" };
+var MEET_HINT = "After each investor meeting, drop your notes or the recording here. The debrief reads where it stands and sets the next step. Your first meetings come from the people you add in Investors.";
+
+/* The question ids a meeting raised, and the words for each: the five hard
+   questions, a question record a meeting added, or the raw text. */
+function questionText(r, id) {
+  for (var i = 0; i < WHY_THEY_ASK.length; i++) if (WHY_THEY_ASK[i].id === id) return WHY_THEY_ASK[i].text;
+  for (var j = 0; j < r.questions.length; j++) if (r.questions[j].id === id && r.questions[j].text) return r.questions[j].text;
+  return String(id);
+}
+
+/* The meetings as cards, newest first, and What investors push on: each
+   question and how many meetings raised it ("3 of 4"). */
+function meetingsView(r) {
+  var byId = {};
+  r.investors.forEach(function (i) { byId[i.id] = i; });
+  var items = r.meetings.map(function (m, idx) {
+    var inv = byId[m.investor];
+    var reading = READING_LABEL[m.reading] ? m.reading : "maybe";
+    var g = noteById(READING_NOTE[reading]);
+    var kind = inv && KIND_WORD[inv.kind] ? KIND_WORD[inv.kind] : "";
+    var at = typeof m.at === "string" && validDay(m.at.slice(0, 10)) ? m.at.slice(0, 10) : "";
+    var day = at ? dayLabel(at) : "";
+    return {
+      id: m.id, who: (inv && inv.name) || m.investor || "Someone", when: [kind, day].filter(Boolean).join(" · "),
+      reading: reading, label: READING_LABEL[reading], quote: typeof m.quote === "string" ? m.quote : "",
+      meaning: typeof m.meaning === "string" ? m.meaning : "",
+      note: { id: g.id, title: g.title, text: g.text, src: g.src, read: !!r.read[g.id] },
+      at: at, idx: idx,
+    };
+  });
+  items.sort(function (a, b) { return a.at < b.at ? 1 : a.at > b.at ? -1 : b.idx - a.idx; });
+  var total = r.meetings.length;
+  var counts = {}, order = [];
+  r.meetings.forEach(function (m) {
+    var seen = {};
+    (Array.isArray(m.questions) ? m.questions : []).forEach(function (q) {
+      var id = String(q);
+      if (seen[id]) return;
+      seen[id] = true;
+      if (!(id in counts)) { counts[id] = 0; order.push(id); }
+      counts[id]++;
+    });
+  });
+  var rows = order.map(function (id) {
+    return { id: id, text: questionText(r, id), n: counts[id], line: counts[id] + " of " + total, inStory: WHY_THEY_ASK.some(function (w) { return w.id === id; }) || r.questions.some(function (q) { return q.id === id; }) };
+  }).sort(function (a, b) { return b.n - a.n || a.text.localeCompare(b.text); });
+  var top = rows[0];
+  return {
+    empty: total === 0, hint: MEET_HINT, items: items, count: total,
+    push: {
+      after: "after " + plural(total, "meeting"),
+      rows: rows,
+      line: top ? "“" + top.text + "” came up in " + top.line + "." + (top.inStory ? " It’s in Hard questions in 1 · Story." : "") : "",
+    },
+  };
+}
+</script>
+
+<script>
+(function () {
+  var app = document.getElementById("app");
+  var kit = window.wibble && window.wibble.kit;
+  var data = {};
+  var ui = { why: null };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function meeting(m) {
+    var open = ui.why === m.id;
+    return '<div class="fr-card"><div class="fr-head"><span class="fr-who">' + esc(m.who) + '</span><span class="fr-muted">' + esc(m.when) + '</span><span class="fr-tag fr-' + m.reading + ' fr-grow">' + esc(m.label) + "</span></div>" +
+      (m.quote ? '<p class="fr-quote">“' + esc(m.quote) + "”</p>" : "") +
+      '<div class="fr-mean"><div>' + esc(m.meaning) + '</div><button class="fr-pill" type="button" data-id="' + esc(m.id) + '" aria-expanded="' + open + '">Why?</button></div>' +
+      (open ? '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(m.note.title.toUpperCase()) + "</div><div>" + esc(m.note.text) + '</div><div class="fr-src">' + esc(m.note.src) + "</div></div>" : "") + "</div>";
+  }
+
+  function render() {
+    if (!kit) return;
+    var v = meetingsView(records(data));
+    var html = '<div class="fr-drop">Drop meeting notes or a recording here</div>';
+    if (v.empty) html += '<p class="fr-sub">' + esc(v.hint) + "</p>";
+    else {
+      html += '<div class="fr-list">' + v.items.map(meeting).join("") + "</div>";
+      if (v.push.rows.length) {
+        html += '<div class="fr-card fr-push"><div class="fr-head"><div class="fr-ttl">What investors push on</div><span class="fr-muted">' + esc(v.push.after) + "</span></div>" +
+          '<div class="fr-counts">' + v.push.rows.map(function (x, i) {
+            return "<span>" + esc(x.text) + '</span><span class="fr-c' + (i === 0 ? " fr-top" : "") + '">' + esc(x.line) + "</span>";
+          }).join("") + "</div>" +
+          (v.push.line ? '<p class="fr-sub">' + esc(v.push.line) + "</p>" : "") + "</div>";
+      }
+    }
+    app.innerHTML = html;
+  }
+
+  if (!kit) {
+    app.innerHTML = '<p class="fr-sub">Place this kit from the zone menu.</p>';
+    return;
+  }
+  app.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("button[data-id]");
+    if (!b) return;
+    var id = b.getAttribute("data-id");
+    var r = records(data);
+    ui.why = ui.why === id ? null : id;
+    if (ui.why) {
+      var m = meetingsView(r).items.filter(function (x) { return x.id === id; })[0];
+      if (m && !r.read[m.note.id]) {
+        var next = Object.assign({}, r.read);
+        next[m.note.id] = true;
+        kit.set("read", next);
+      }
+    }
+    render();
+  });
+  kit.subscribe(function (d) { data = d || {}; render(); });
+})();
+</script>
+</body>
+</html>

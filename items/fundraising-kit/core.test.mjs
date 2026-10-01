@@ -11,9 +11,9 @@ const src = readFileSync(new URL("./core.js", import.meta.url), "utf8");
 const {
   STEPS, PHASES, GUIDE, WHY_THEY_ASK, STEP_NOTE, DRAFT_NOTE, READING_NOTE,
   records, roundOf, phaseAt, quietDays, nextFor, alsoWaiting, weekNotes, unreadWeek, fromDiscovery, applyReading,
-  questionStatus, isoDay, addDays,
+  questionStatus, isoDay, addDays, advanceStep, noteById, plural, dayLabel, rangeLabel,
 } = new Function(
-  src + "\nreturn { STEPS, PHASES, GUIDE, WHY_THEY_ASK, STEP_NOTE, DRAFT_NOTE, READING_NOTE, records, roundOf, phaseAt, quietDays, nextFor, alsoWaiting, weekNotes, unreadWeek, fromDiscovery, applyReading, questionStatus, isoDay, addDays };",
+  src + "\nreturn { STEPS, PHASES, GUIDE, WHY_THEY_ASK, STEP_NOTE, DRAFT_NOTE, READING_NOTE, records, roundOf, phaseAt, quietDays, nextFor, alsoWaiting, weekNotes, unreadWeek, fromDiscovery, applyReading, questionStatus, isoDay, addDays, advanceStep, noteById, plural, dayLabel, rangeLabel };",
 )();
 
 const D = (s) => Date.parse(s + "T12:00:00");
@@ -218,4 +218,24 @@ test("records sorts the store by kind and reads the read map", () => {
   assert.equal(r.questions.length, 1);
   assert.deepEqual(r.read, { p1: true });
   assert.deepEqual(records(undefined).read, {});
+});
+
+test("advanceStep moves one step, stamps the day and drops the old next step", () => {
+  const inv = { name: "A", step: 3, lastContact: "2026-10-01", next: { text: "Meet Thu", due: "2026-10-08" }, dates: { 3: "2026-10-01" } };
+  const o = advanceStep(inv, "2026-10-09");
+  assert.equal(o.step, 4);
+  assert.equal(o.lastContact, "2026-10-09");
+  assert.deepEqual(o.dates, { 3: "2026-10-01", 4: "2026-10-09" });
+  assert.equal("next" in o, false);
+  assert.equal(inv.step, 3);
+  assert.equal(advanceStep({ step: 8 }, "2026-10-09").step, 8);
+});
+
+test("noteById, plural and the day labels", () => {
+  assert.equal(noteById("m5").title, "Follow up within a day");
+  assert.equal(noteById("zz"), undefined);
+  assert.equal(plural(1, "call"), "1 call");
+  assert.equal(plural(3, "person", "people"), "3 people");
+  assert.equal(dayLabel("2026-10-01"), "Oct 1");
+  assert.equal(rangeLabel("2026-10-21", "2026-11-15"), "Oct 21–Nov 15");
 });

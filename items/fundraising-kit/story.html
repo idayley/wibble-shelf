@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Story</title>
+<!--
+  THE STORY PAGE. Placed by the Fundraising kit in 1 · Story. Five cards:
+  Reassurance, the Field guide, The round, What we've learned and Hard
+  questions.
+
+  It reads the kit store (window.wibble.kit): settings (the round, peek and
+  openNote), question:<id> records, the field notes read ("read"). What
+  we've learned comes from the Discovery kit on this canvas through
+  window.wibble.read("discovery-kit"), read only and live; with none, or
+  none scored yet, the card says so.
+
+  It writes:
+    - read.<noteId> = true, when you press Got it;
+    - settings.round, merged (never replaced: the progress strip keeps
+      round.start there), with set: true, when you save the round;
+    - settings.peek = null, from Back to this week; settings.openNote = null
+      once a note has been opened;
+    - question:<id> { text, answer, status, source }, when you edit an
+      answer and click away.
+  Fill answers from Discovery lands a card in this zone, and that landing
+  is what runs the asker. Nothing here sends, spends or decides.
+
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  pages.test.mjs can run them under node.
+
+  Classes start with fr- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,"Noto Sans",system-ui,sans-serif);color:var(--text,#ddd)}
+.fr-wrap{display:grid;gap:14px}
+.fr-card{display:flex;flex-direction:column;gap:10px;padding:16px;border-radius:12px;background:var(--win,#232323);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.36),0 6px 16px rgba(0,0,0,.34);box-sizing:border-box;min-width:0}
+.fr-card.fr-calm{background:#1f2a24;box-shadow:inset 0 0 0 1px rgba(110,196,140,.35),0 6px 16px rgba(0,0,0,.34)}
+.fr-card.fr-guide{box-shadow:inset 0 0 0 1px rgba(156,192,245,.3),0 6px 16px rgba(0,0,0,.34)}
+.fr-head{display:flex;align-items:center;flex-wrap:wrap;gap:4px 8px}
+.fr-ttl{font-size:15px;font-weight:600;line-height:1.3}
+.fr-sub{margin:0;font-size:12.5px;color:var(--muted,#b3b3b3);line-height:1.45}
+.fr-muted{color:var(--muted,#999);font-size:12px}
+.fr-grow{margin-left:auto}
+.fr-cap{font:700 11px/1.2 var(--mono,"Geist Mono",ui-monospace,monospace);letter-spacing:.06em;color:var(--muted,#999)}
+.fr-mono{font-family:var(--mono,"Geist Mono",ui-monospace,monospace)}
+.fr-tag{flex:none;font-size:11px;font-weight:600;padding:4px 9px;border-radius:999px;white-space:nowrap}
+.fr-tag.fr-you{background:rgba(255,255,255,.08);color:#d6d6d6}
+.fr-tag.fr-live{background:rgba(110,196,140,.16);color:#9fdcbc}
+.fr-tag.fr-needs{background:rgba(232,180,138,.16);color:#e8b48a}
+.fr-nextb{display:inline-flex;align-items:center;height:22px;padding:0 9px;border-radius:999px;background:#f0cfa8;color:#241a0e;font-size:11px;font-weight:700;white-space:nowrap}
+.fr-pill{min-height:28px;padding:3px 10px;border:1px solid var(--edge,rgba(255,255,255,.12));border-radius:999px;background:transparent;color:var(--text,#ddd);font:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center}
+.fr-pill.fr-blue{color:#9cc0f5;border-color:rgba(156,192,245,.35)}
+.fr-pill.fr-soft{min-height:24px;padding:1px 8px;color:#9cb4da;border-color:rgba(156,192,245,.3)}
+.fr-btn{min-height:40px;padding:8px 14px;border:0;border-radius:10px;background:#6b9df0;color:#10192a;font:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.fr-btn.fr-grey{background:var(--edge,#333);color:var(--text,#fff)}
+.fr-btn:disabled{opacity:.45;cursor:default}
+.fr-pill:focus-visible,.fr-btn:focus-visible,.fr-qrow:focus-visible,.fr-in:focus-visible,.fr-ans:focus-visible{outline:2px solid #9cc0f5;outline-offset:2px}
+.fr-field{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:10px;background:#262a33;box-shadow:inset 0 0 0 1px rgba(156,192,245,.22);font-size:12.5px;line-height:1.5;color:#d9e3f3}
+.fr-fhead{font-size:10.5px;font-weight:700;letter-spacing:.07em;color:#9cb4da}
+.fr-src{font-size:11.5px;color:#8ea2c2;font-style:italic}
+.fr-bar{height:6px;border-radius:3px;background:#2e2e2e;overflow:hidden}
+.fr-bar i{display:block;height:100%;background:#6ec48c}
+.fr-qrow{display:flex;align-items:center;gap:10px;width:100%;padding:9px 2px;border:0;border-top:1px solid rgba(255,255,255,.06);background:transparent;color:inherit;font:inherit;font-size:13px;text-align:left;cursor:pointer}
+.fr-qrow .fr-t{flex:1;min-width:0}
+.fr-dot{flex:none;width:16px;height:16px;border-radius:8px;display:inline-flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;box-shadow:inset 0 0 0 1.5px #5a6b85}
+.fr-dot.fr-ok{background:#6ec48c;color:#0f2016;box-shadow:none}
+.fr-open{display:flex;flex-direction:column;gap:8px;padding:2px 2px 12px}
+.fr-ans{box-sizing:border-box;width:100%;min-height:70px;resize:vertical;padding:9px 11px;border:1px solid var(--edge,rgba(255,255,255,.14));border-radius:10px;background:var(--bg,#1d1d1d);color:var(--text,#e6e6e6);font:inherit;font-size:12.5px;line-height:1.5}
+.fr-evi{font-size:12px;color:var(--muted,#9a9a9a)}
+.fr-bet{display:grid;grid-template-columns:96px minmax(0,1fr);gap:7px 12px;margin:0;font-size:13px;line-height:1.45}
+.fr-bet dt{color:var(--muted,#999);font-size:12px;padding-top:1px}
+.fr-bet dd{margin:0;color:var(--text,#ececec)}
+.fr-blank{color:var(--muted,#9a9a9a)}
+.fr-form{display:grid;grid-template-columns:96px minmax(0,1fr);gap:8px 12px;align-items:center;font-size:12.5px}
+.fr-form label{color:var(--muted,#999);font-size:12px}
+.fr-in{box-sizing:border-box;width:100%;min-height:32px;padding:5px 9px;border:1px solid var(--edge,rgba(255,255,255,.14));border-radius:8px;background:var(--bg,#1d1d1d);color:var(--text,#e6e6e6);font:inherit;font-size:12.5px}
+.fr-acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.fr-err{font-size:12px;color:#e8b48a}
+.fr-learn{display:grid;grid-template-columns:150px minmax(0,1fr) 44px;gap:8px 12px;font-size:12.5px;align-items:center}
+.fr-cells{display:flex;gap:3px}
+.fr-cells i{display:block;height:8px;flex:1;border-radius:2px;background:#3a3a3a}
+.fr-cells i.fr-on{background:#6b9df0}
+.fr-cells i.fr-all{background:#9a9a9a}
+.fr-quote{margin:0;padding-left:12px;border-left:2px solid rgba(107,157,240,.5);font-size:12.5px;line-height:1.45;color:var(--text,#ececec)}
+.fr-empty{margin:0;padding:18px 16px;border:1px dashed var(--edge,rgba(255,255,255,.14));border-radius:10px;font-size:13px;color:var(--faint,#9a9a9a);line-height:1.5}
+.fr-reason{font-size:12px;color:var(--muted,#9a9a9a)}
+.fr-ok-line{font-size:12.5px;color:#bfe6d0}
+.fr-over{position:fixed;inset:0;z-index:30;overflow:auto;padding:16px;background:rgba(12,12,12,.86);box-sizing:border-box}
+.fr-over .fr-card{max-width:1400px;margin:0 auto;gap:16px;padding:22px 24px;box-shadow:inset 0 0 0 1px rgba(156,192,245,.35),0 24px 60px rgba(0,0,0,.6)}
+.fr-cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:18px;align-items:start}
+.fr-col{display:flex;flex-direction:column;gap:10px;min-width:0}
+.fr-colh{display:flex;align-items:baseline;gap:8px;padding-bottom:6px;border-bottom:1px solid rgba(255,255,255,.08)}
+.fr-colh b{font-size:14px;font-weight:600}
+.fr-nh{display:flex;align-items:center;gap:7px}
+.fr-nh b{flex:1;font-size:13px;font-weight:600;color:#fff}
+.fr-where{font-size:11px;color:#7f90ab}
+.fr-row{display:flex;align-items:center;gap:8px}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="fr-wrap" id="app"></div>
+
+<script id="core">
+/* THE FUNDRAISING KIT'S SHARED RULES. Every page needs the same phase,
+   the same "next for you", the same idea of quiet and the same field
+   notes, or the strip, the pages and the agents drift apart. Pure
+   functions, no DOM, no window. This file is the only copy:
+   sync-core.mjs pastes it into each page's <script id="core">, and
+   core.test.mjs runs it under node.
+
+   Dates are ISO day strings ("2026-10-01") in the operator's local time. */
+
+var DAY = 24 * 60 * 60 * 1000;
+var QUIET_AFTER = 10;
+var PREPARE_DAYS = 20;
+var MEETINGS_BEFORE_CLOSE = 15;
+
+var STEPS = ["Researched", "Intro asked", "Intro made", "First meeting", "Follow-up", "Partner meeting", "Diligence", "Terms", "Signed"];
+
+var PHASES = [
+  { name: "Prepare", why: "Story, investor list, first updates to people you know" },
+  { name: "Meetings", why: "First meetings packed close so interest overlaps" },
+  { name: "Close", why: "Leads first, a deadline, SAFEs signed" },
+  { name: "Backup", why: "A second wave or a smaller angel round" },
+];
+
+var SRC_PG = "Paraphrasing Paul Graham, “How to Raise Money”";
+var SRC_SU = "Paraphrasing Mark Suster, “Invest in Lines, Not Dots”";
+var SRC_VD = "Paraphrasing Brad Feld & Jason Mendelson, Venture Deals";
+var SRC_SH = "Paraphrasing Scott Kupor, Secrets of Sand Hill Road";
+var SRC_HO = "Paraphrasing the Holloway Guide to Raising Venture Capital";
+var SRC_CA = "Paraphrasing Jason Calacanis, Angel";
+var WEEK_IDS = { p1: 1, p2: 1, p5: 1, m1: 1, m4: 1, m5: 1, c1: 1, c4: 1, c2: 1, b4: 1, b3: 1, b1: 1 };
+
+/* The 25 field notes: [id, phase, title, text, source, where else it shows]. */
+var GUIDE = [
+  ["p1", 0, "Lines, not dots", "Investors trust a trend they watched more than one good meeting. Send a short update before you ask for money, so by the time you ask they’ve seen you improve.", SRC_SU, "the monthly update"],
+  ["p2", 0, "Start with people who know you", "People who already know you are the fastest first meetings, and their interest makes the next investors take you seriously.", SRC_PG, "day one"],
+  ["p5", 0, "What a SAFE is", "Investors give money now and get shares later, when you raise a priced round. The cap is the highest valuation their money converts at. Post-money makes ownership easy to work out up front.", SRC_VD, "The round"],
+  ["p3", 0, "Choosing who", "Check two things first: does this investor lead rounds at your stage, and do they write checks your size? A round needs a lead; followers wait for one.", SRC_VD, "Researched"],
+  ["p4", 0, "Not at fit yet", "Pre-seed investors back the team, an insight others missed, and how fast you learn. An honest “not yet, and here’s the evidence” reads as on track.", SRC_PG + ", and Scott Kupor, Secrets of Sand Hill Road", "Story"],
+  ["p6", 0, "Asking for an intro", "Make it easy to say yes: ask the connector first if they’re comfortable, then send a short email they can forward without editing.", SRC_HO, "Intro asked"],
+  ["p7", 0, "Cold notes", "Cold notes work less often than intros, so they’re the fallback. Keep it short, lead with the most surprising thing you’ve learned, and make one ask.", SRC_HO, "cold notes"],
+  ["m1", 1, "Pack first meetings together", "Meet investors in a short burst rather than one at a time. Interest overlaps, investors see others are looking, and the pitch improves fast.", SRC_PG, "Meetings week"],
+  ["m2", 1, "When the intro lands", "Reply within a day: thank the connector, move them to bcc, and offer two specific times.", SRC_HO, "Intro made"],
+  ["m3", 1, "The first meeting", "Most of a fund’s returns come from a few huge outcomes, so investors listen for how big this could get, not how safe it is.", SRC_SH, "First meeting"],
+  ["m4", 1, "Before each meeting", "Know what they’ve backed and how big their checks are. Lead with your strongest evidence, and know which hard question they’ll likely ask.", SRC_VD, "prep sheets"],
+  ["m5", 1, "Follow up within a day", "Send what you promised within 24 hours. Speed here reads as how you’ll run the company.", SRC_HO, "Follow-up"],
+  ["m6", 1, "Reading interest", "Investors rarely say no outright. Treat it as no until it’s an unambiguous yes, and keep meeting others meanwhile.", SRC_PG, "Meetings"],
+  ["m9", 1, "A real next step", "Interest shows in actions with dates: a partner meeting, a request for customer calls. Warm words without a date don’t count yet.", SRC_PG, "Meetings"],
+  ["m7", 1, "The partner meeting", "At a fund, the person you met has to win over their partners. Give them what they need to argue for you, in a form they can forward.", SRC_SH, "Partner meeting"],
+  ["m8", 1, "When it goes quiet", "Silence after a meeting is common and not a verdict. Send news, not a nudge: what you learned since you last spoke.", SRC_SU, "quiet investors"],
+  ["c1", 2, "Momentum", "The first commitment makes the rest easier, because investors take comfort from other investors. Put your effort where a yes is closest.", SRC_PG, "Close week"],
+  ["c4", 2, "Set a close date", "Give interested investors a real date for the round. A date turns “maybe later” into a decision.", SRC_VD, "Close week"],
+  ["c2", 2, "Diligence at pre-seed", "Early diligence is light: references on the founders and a few customer conversations. Your Discovery calls are those references.", SRC_VD, "Diligence"],
+  ["c3", 2, "Reading the terms", "On a SAFE the numbers that matter are the amount and the cap. Have a lawyer read anything beyond the standard form, such as side letters or extra rights.", SRC_VD, "Terms"],
+  ["c5", 2, "After they sign", "Thank them, add them to the monthly update, and ask who else they’d introduce you to. Investors often bring the next investor.", SRC_PG, "Signed"],
+  ["b1", 3, "After a pass", "A pass now is often a yes next round. Keep them on the monthly update; they’ll have watched you improve.", SRC_SU, "Keep updated"],
+  ["b2", 3, "A clear pass is useful", "Write down the bar they named, like “come back with revenue”, and tell them when you clear it.", SRC_SU, "Meetings"],
+  ["b3", 3, "A smaller angel round", "Angels decide faster and write smaller checks, and several together can make a round. Useful if funds move slowly.", SRC_CA, "Backup week"],
+  ["b4", 3, "The holiday slowdown", "Most investors go quiet from mid-December to early January. Aim to have signatures before then.", "Widely reported by founders; not from one book", "Backup week"],
+].map(function (g) {
+  return { id: g[0], phase: g[1], title: g[2], text: g[3], src: g[4], where: g[5], week: !!WEEK_IDS[g[0]] };
+});
+
+/* The five hard questions, and why each is asked. */
+var WHY_THEY_ASK = [
+  { id: "pmf", text: "Do you have product-market fit?", why: "They want to see you know the difference between interest and fit. An honest “not yet, here’s the evidence” is the strong answer.", src: SRC_PG },
+  { id: "big", text: "How big can this get?", why: "A fund’s returns come from a few very large companies, so each investment has to be able to become one.", src: SRC_SH },
+  { id: "pay", text: "Will they pay, or just complain?", why: "Commitment before a product exists is the strongest early signal you can show.", src: SRC_VD },
+  { id: "why", text: "Why are you two the ones to build this?", why: "At pre-seed, the team is most of what an investor can judge.", src: SRC_PG },
+  { id: "now", text: "Why now?", why: "Timing explains why nobody has solved it yet.", src: SRC_HO },
+];
+
+/* Which field note each investor step, draft kind and reading opens. */
+var STEP_NOTE = { 0: "p3", 1: "p6", 2: "m2", 3: "m3", 4: "m5", 5: "m7", 6: "c2", 7: "c3", 8: "c5", quiet: "m8", passed: "b1" };
+var DRAFT_NOTE = { intro: "p6", cold: "p7", reply: "m2", followup: "m5", prep: "m4", checkin: "m8", update: "p1" };
+var READING_NOTE = { next: "m9", maybe: "m6", pass: "b2", intro: "m3" };
+
+/* ---- dates --------------------------------------------------------------- */
+
+function pad2(n) { return (n < 10 ? "0" : "") + n; }
+
+/* An ISO day in the operator's local time, from a time, a Date or a day. */
+function isoDay(t) {
+  if (typeof t === "string" && /^\d{4}-\d{2}-\d{2}/.test(t)) return t.slice(0, 10);
+  var d = t instanceof Date ? t : new Date(t == null ? Date.now() : t);
+  return d.getFullYear() + "-" + pad2(d.getMonth() + 1) + "-" + pad2(d.getDate());
+}
+
+function dayNum(iso) {
+  var p = String(iso).split("-");
+  return Date.UTC(+p[0], +p[1] - 1, +p[2]) / DAY;
+}
+
+function fromDayNum(n) {
+  var d = new Date(n * DAY);
+  return d.getUTCFullYear() + "-" + pad2(d.getUTCMonth() + 1) + "-" + pad2(d.getUTCDate());
+}
+
+function addDays(iso, n) { return fromDayNum(dayNum(iso) + n); }
+function diffDays(a, b) { return Math.round(dayNum(a) - dayNum(b)); }
+
+var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+
+/* "Oct 1" from an ISO day. */
+function dayLabel(iso) {
+  var p = String(iso).split("-");
+  return MONTHS[+p[1] - 1] + " " + (+p[2]);
+}
+
+/* "Oct 1–20" inside a month, "Oct 21–Nov 15" across two. */
+function rangeLabel(from, to) {
+  var a = from.split("-"), b = to.split("-");
+  if (a[0] === b[0] && a[1] === b[1]) return dayLabel(from) + "–" + (+b[2]);
+  return dayLabel(from) + "–" + dayLabel(to);
+}
+
+function validDay(v) { return typeof v === "string" && /^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(dayNum(v)); }
+
+/* ---- records ------------------------------------------------------------- */
+
+/* Records out of the store, by kind. read is the map of field-note ids
+   the operator has read. */
+function records(data) {
+  var out = { settings: (data && data.settings) || {}, investors: [], drafts: [], meetings: [], questions: [], read: (data && data.read && typeof data.read === "object") ? data.read : {} };
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("investor:") === 0) out.investors.push(Object.assign({ id: k.slice(9) }, v));
+    else if (k.indexOf("draft:") === 0) out.drafts.push(Object.assign({ id: k.slice(6) }, v));
+    else if (k.indexOf("meeting:") === 0) out.meetings.push(Object.assign({ id: k.slice(8) }, v));
+    else if (k.indexOf("question:") === 0) out.questions.push(Object.assign({ id: k.slice(9) }, v));
+  }
+  return out;
+}
+
+/* ---- the round and its phases ------------------------------------------- */
+
+function clampDay(n, lo, hi) { return Math.max(lo, Math.min(hi, n)); }
+
+/* The round's dates and the four phases. Start defaults to today, close-by
+   to Nov 30 and must-close to Dec 15 of the year it falls in. Prepare runs
+   20 days from the start, Meetings to 15 days before close-by, Close to
+   close-by, Backup to must-close. Each boundary is clamped so a phase is
+   at least a day long and the phases never overlap, even when close-by
+   comes early. */
+function roundOf(settings, now) {
+  var s = (settings && settings.round) || {};
+  var today = isoDay(now);
+  var start = validDay(s.start) ? s.start : today;
+  var year = +start.slice(0, 4);
+  var closeBy = validDay(s.closeBy) ? s.closeBy : year + "-11-30";
+  var mustClose = validDay(s.mustClose) ? s.mustClose : year + "-12-15";
+  if (!validDay(s.closeBy) && closeBy < start) closeBy = (year + 1) + "-11-30";
+  if (!validDay(s.mustClose) && mustClose < closeBy) mustClose = closeBy.slice(0, 4) + "-12-15";
+  var st = dayNum(start);
+  var e3 = Math.max(dayNum(mustClose), st + 3);
+  var e2 = clampDay(dayNum(closeBy), st + 2, e3 - 1);
+  var e1 = clampDay(dayNum(closeBy) - MEETINGS_BEFORE_CLOSE, st + 1, e2 - 1);
+  var e0 = clampDay(st + PREPARE_DAYS - 1, st, e1 - 1);
+  var ends = [e0, e1, e2, e3];
+  var phases = PHASES.map(function (p, i) {
+    return { name: p.name, from: fromDayNum(i === 0 ? st : ends[i - 1] + 1), to: fromDayNum(ends[i]) };
+  });
+  return { start: start, closeBy: closeBy, mustClose: mustClose, phases: phases };
+}
+
+/* Which phase today is in: 0 to 3. Before the start is Prepare, after the
+   last day is Backup. */
+function phaseAt(round, now) {
+  var today = isoDay(now);
+  for (var i = 0; i < round.phases.length; i++) {
+    if (today <= round.phases[i].to) return i;
+  }
+  return round.phases.length - 1;
+}
+
+/* Whole days since last contact, when the investor has gone quiet: 11 or
+   more days with no next step due still ahead. Passed and signed
+   investors aren't quiet. Otherwise null. */
+function quietDays(inv, now) {
+  if (!inv || inv.passed || inv.step === 8 || !validDay(inv.lastContact)) return null;
+  var today = isoDay(now);
+  var days = diffDays(today, inv.lastContact);
+  if (days <= QUIET_AFTER) return null;
+  if (inv.next && validDay(inv.next.due) && inv.next.due >= today) return null;
+  return days;
+}
+
+/* ---- hard questions ------------------------------------------------------ */
+
+/* "ready", "needs" or "yours". The founders' own two (why, now) are never
+   drafted, so they read "yours" until something is written. A drafted
+   answer that is missing, or marked needs, needs evidence. */
+function questionStatus(r, id) {
+  var q = null;
+  for (var i = 0; i < r.questions.length; i++) if (r.questions[i].id === id) q = r.questions[i];
+  var written = !!(q && typeof q.answer === "string" && q.answer.trim());
+  if (id === "why" || id === "now") return written ? "ready" : "yours";
+  if (q && q.status === "ready") return "ready";
+  if (q && !q.status && written) return "ready";
+  return "needs";
+}
+
+var DRAFTED = ["pmf", "big", "pay"];
+
+/* The hard questions that still need evidence: the three drafted ones, and
+   any a meeting added that is marked needs. */
+function questionsNeeding(r) {
+  var ids = DRAFTED.filter(function (id) { return questionStatus(r, id) !== "ready"; });
+  r.questions.forEach(function (q) {
+    if (DRAFTED.indexOf(q.id) < 0 && q.id !== "why" && q.id !== "now" && q.status === "needs") ids.push(q.id);
+  });
+  return ids;
+}
+
+/* ---- what to do next ----------------------------------------------------- */
+
+function sentAny(r) { return r.drafts.some(function (d) { return d.status === "sent"; }); }
+
+function liveInvestors(r) { return r.investors.filter(function (i) { return !i.passed; }); }
+
+function byDue(a, b) { return a.next.due < b.next.due ? -1 : a.next.due > b.next.due ? 1 : 0; }
+
+/* What the operator does next, as the strip and the zone ring say it.
+   zone is one of the kit's zone keys (progress, story, investors, send,
+   meetings). cap is the small label over it. During day one, start lists
+   the three starting moves. */
+function nextFor(r, now) {
+  var today = isoDay(now);
+  var haveInv = r.investors.length > 0;
+  var roundSet = !!(r.settings.round && r.settings.round.set);
+  var answered = DRAFTED.every(function (id) { return questionStatus(r, id) === "ready"; });
+  var done = (haveInv ? 1 : 0) + (roundSet ? 1 : 0) + (answered ? 1 : 0);
+  var dayOne = !(haveInv && roundSet && answered && sentAny(r));
+  function out(zone, text, cap, start) {
+    var o = { zone: zone, text: text, cap: cap || "NEXT FOR YOU" };
+    if (start) o.start = start;
+    return o;
+  }
+  if (dayOne) {
+    var start = [
+      { label: "Add the investors you know", done: haveInv },
+      { label: "Set the round", done: roundSet },
+      { label: "Fill answers from Discovery", done: answered },
+    ];
+    var cap = done < 3 ? "START HERE · " + done + " OF 3 DONE" : "NEXT FOR YOU";
+    if (!haveInv) return out("investors", "Add the investors you already know in 2 · Investors. Names are enough.", cap, start);
+    if (!roundSet) return out("story", "Set the round in 1 · Story: how much, and what it buys.", cap, start);
+    if (!answered) return out("story", "Press Fill answers from Discovery in 1 · Story. Your calls already hold the evidence.", cap, start);
+    if (!r.drafts.length) return out("investors", "You’re set up. Pick someone you know in 2 · Investors and draft a first note.", cap, start);
+    return out("send", "Send your note from 3 · To send, then press Sent. That’s the raise started.", cap, start);
+  }
+  var live = liveInvestors(r);
+  var byId = {};
+  r.investors.forEach(function (i) { byId[i.id] = i; });
+  // A follow-up request from a meeting is a step due today.
+  var asks = r.drafts.filter(function (d) { return d.status === "requested"; });
+  if (asks.length) {
+    var who = byId[asks[0].investor];
+    return out("send", "Draft the follow-up for " + (who && who.name ? who.name : "your last meeting") + " in 3 · To send. Within a day reads as how you’ll run the company.");
+  }
+  var due = live.filter(function (i) { return i.next && validDay(i.next.due) && i.next.due <= today; }).sort(byDue);
+  if (due.length) return out("investors", due[0].name + ": " + due[0].next.text + ". Due " + (due[0].next.due === today ? "today" : "since " + due[0].next.due) + ", in 2 · Investors.");
+  var needing = questionsNeeding(r);
+  if (needing.length) {
+    return out("story", (needing.length === 1 ? "A hard question still needs" : needing.length + " hard questions still need") + " evidence. Press Fill answers from Discovery in 1 · Story.");
+  }
+  var soon = live.filter(function (i) { return i.next && validDay(i.next.due); }).sort(byDue);
+  if (soon.length) return out("investors", soon[0].name + ": " + soon[0].next.text + ". Due " + soon[0].next.due + ", in 2 · Investors.");
+  return out("investors", "Pick an investor in 2 · Investors and set their next step.");
+}
+
+/* The quietest investor, as one line for under Next for you, or null. */
+function alsoWaiting(r, now) {
+  var best = null, days = 0;
+  r.investors.forEach(function (i) {
+    var q = quietDays(i, now);
+    if (q != null && q > days) { best = i; days = q; }
+  });
+  return best ? best.name + " has been quiet " + days + " days" : null;
+}
+
+/* ---- field notes --------------------------------------------------------- */
+
+/* The three This week notes for a phase. */
+function weekNotes(phase) {
+  return GUIDE.filter(function (g) { return g.phase === phase && g.week; });
+}
+
+/* How many of a phase's This week notes are still unread. */
+function unreadWeek(r, phase) {
+  return weekNotes(phase).filter(function (g) { return !r.read[g.id]; }).length;
+}
+
+/* ---- Discovery ----------------------------------------------------------- */
+
+function commitmentLive(c, now) {
+  if (!c) return false;
+  var s = c.status;
+  if (s === "lapsed" || s === "broken" || s === "declined" || s === "withdrawn") return false;
+  if (s === "fulfilled" || s === "kept") return true;
+  var due = Date.parse(c.due);
+  if (isNaN(due) || !isFinite(now)) return true;
+  return due + 14 * DAY >= now;
+}
+
+/* What the Story page says about Discovery, from a Discovery store: calls
+   with a person, how many scored 4 or 5 (hair on fire), people holding a
+   live commitment, the strongest quote with who said it, and how many
+   times the bets were sharpened. any is false until there is a call. */
+function fromDiscovery(data, now) {
+  var calls = 0, hot = 0, sharpened = 0, best = null, who = {};
+  var committed = {};
+  var ms = typeof now === "number" ? now : Date.parse(now);
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("person:") === 0) who[k.slice(7)] = v;
+    else if (k.indexOf("market:") === 0) {
+      var bv = v.bet && Number(v.bet.v);
+      if (isFinite(bv) && bv > 1) sharpened += bv - 1;
+    }
+  }
+  for (var k2 in data || {}) {
+    if (k2.indexOf("call:") !== 0) continue;
+    var c = data[k2];
+    if (!c || typeof c !== "object" || !c.person) continue;
+    calls++;
+    var lv = Number(c.level) || 0;
+    if (lv >= 4) hot++;
+    if (c.commitment && commitmentLive(c.commitment, ms)) committed[c.person] = true;
+    if (typeof c.quote === "string" && c.quote.trim() && (!best || lv > best.lv)) best = { lv: lv, text: c.quote.trim(), person: c.person };
+  }
+  var quote = null;
+  if (best) {
+    var p = who[best.person];
+    quote = { text: best.text, who: (p && p.name) || "" };
+  }
+  return { calls: calls, hot: hot, commits: Object.keys(committed).length, quote: quote, sharpened: sharpened, any: calls > 0 };
+}
+
+/* ---- readings ------------------------------------------------------------ */
+
+/* An investor after a meeting read as next, maybe, pass or intro. Returns
+   a new record; the input isn't changed. next moves them a step, intro
+   books the first meeting, maybe leaves the step, pass marks them
+   passed. */
+function applyReading(inv, reading, at) {
+  var o = Object.assign({}, inv);
+  var step = typeof o.step === "number" ? o.step : 0;
+  var before = step;
+  o.dates = Object.assign({}, o.dates);
+  o.lastContact = at;
+  if (reading === "next") step = Math.min(8, step + 1);
+  else if (reading === "intro") step = Math.max(step, 3);
+  else if (reading === "pass") { o.passed = true; o.passedAt = at; }
+  if (step !== before) o.dates[step] = at;
+  o.step = step;
+  return o;
+}
+
+/* An investor moved on one step by hand or by a sent draft: applyReading's
+   "next", and the old next step (which belonged to the step they left) is
+   dropped, so nothing stale is shown as due. */
+function advanceStep(inv, at) {
+  var o = applyReading(inv, "next", at);
+  delete o.next;
+  return o;
+}
+
+/* A field note by id, or undefined. */
+function noteById(id) {
+  for (var i = 0; i < GUIDE.length; i++) if (GUIDE[i].id === id) return GUIDE[i];
+  return undefined;
+}
+
+/* "3 calls", "1 call". */
+function plural(n, one, many) { return n + " " + (n === 1 ? one : many || one + "s"); }
+
+/* An investor's step as a whole number 0 to 8; 0 when missing. */
+function stepOf(inv) { var s = inv && inv.step; return typeof s === "number" && s >= 0 && s <= 8 ? Math.floor(s) : 0; }
+
+/* A phase to read ahead on, or null: only a whole number from 0 to 3. */
+function peekOf(settings) {
+  var p = settings && settings.peek;
+  return typeof p === "number" && p >= 0 && p <= 3 && Math.floor(p) === p ? p : null;
+}
+
+/* Where a card goes. The app writes each kit page a map of the kit's zone
+   keys to the zones it placed ("kitZones"), so a renamed zone, or a second
+   placing, still lands here. Without it the zone's key stands. */
+function zoneFor(zones, key) {
+  var id = zones && typeof zones === "object" ? zones[key] : "";
+  return typeof id === "string" && id ? id : key;
+}
+
+/* What each kind of draft is called, in To send's chips and in the title of
+   the card that asks for it. The asker picks the draft from that title. */
+var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
+</script>
+
+<script id="logic">
+/* THE STORY PAGE'S RULES. Pure functions, no DOM, no window: pages.test.mjs
+   pulls this block out of the page, after core, and runs it under node. */
+
+var DISCOVERY_EMPTY = "Nothing from Discovery yet. Calls you score in the Discovery kit on this canvas show here.";
+var QLABEL = { ready: "Answer ready", needs: "Needs evidence", yours: "Yours to write" };
+var YOURS_HINT = "Only you two can answer this one. Write it in your own words; a sentence or two is plenty.";
+var NEEDS_HINT = "Discovery has the evidence for this. Press Fill answers from Discovery, or write your own.";
+var OWN_HINT = "Write your answer in your own words.";
+
+function noteView(g, r) {
+  return { id: g.id, title: g.title, text: g.text, src: g.src, where: g.where, also: /week$/.test(g.where) ? "" : "also in " + g.where, read: !!r.read[g.id] };
+}
+
+/* The Field guide card: the read bar, the notes for this week (or for the
+   phase being read ahead on), and every note by phase for See all.
+   round is optional; with it the phases carry their dates. */
+function guideView(r, phase, peek, round) {
+  var readN = GUIDE.filter(function (g) { return r.read[g.id]; }).length;
+  var shown = typeof peek === "number" && peek >= 0 && peek <= 3 && Math.floor(peek) === peek ? peek : phase;
+  var peeking = shown !== phase;
+  return {
+    readCount: readN,
+    total: GUIDE.length,
+    readLine: readN + " of " + GUIDE.length + " read",
+    pct: Math.round(readN / GUIDE.length * 100),
+    shown: shown,
+    peeking: peeking,
+    cap: (peeking ? "READING AHEAD" : "THIS WEEK") + " · " + PHASES[shown].name.toUpperCase(),
+    notes: weekNotes(shown).map(function (g) { return noteView(g, r); }),
+    phases: PHASES.map(function (p, i) {
+      var notes = GUIDE.filter(function (g) { return g.phase === i; });
+      var n = notes.filter(function (g) { return r.read[g.id]; }).length;
+      var ph = round && round.phases && round.phases[i];
+      return { name: p.name, dates: ph ? rangeLabel(ph.from, ph.to) : "", readLine: n + " of " + notes.length + " read", notes: notes.map(function (g) { return noteView(g, r); }) };
+    }),
+  };
+}
+
+function questionOf(r, id) {
+  for (var i = 0; i < r.questions.length; i++) if (r.questions[i].id === id) return r.questions[i];
+  return null;
+}
+
+/* The Hard questions card: the five, then any a meeting added. discovery is
+   fromDiscovery's result (or undefined); it only decides whether Fill
+   answers from Discovery can be pressed. */
+function questionsView(r, discovery) {
+  var known = {};
+  var items = WHY_THEY_ASK.map(function (w) {
+    known[w.id] = true;
+    var q = questionOf(r, w.id);
+    var status = questionStatus(r, w.id);
+    return {
+      id: w.id, text: w.text, status: status, label: QLABEL[status],
+      answer: q && typeof q.answer === "string" ? q.answer : "",
+      evidence: q && typeof q.evidence === "string" ? q.evidence : "",
+      hint: status === "yours" ? YOURS_HINT : NEEDS_HINT,
+      why: w.why, src: w.src, meeting: false,
+    };
+  });
+  r.questions.forEach(function (q) {
+    if (known[q.id]) return;
+    var status = questionStatus(r, q.id);
+    items.push({
+      id: q.id, text: q.text || q.id, status: status, label: QLABEL[status],
+      answer: typeof q.answer === "string" ? q.answer : "",
+      evidence: typeof q.evidence === "string" ? q.evidence : "",
+      hint: OWN_HINT, why: "", src: q.source === "meeting" ? "Raised in a meeting" : "", meeting: true,
+    });
+  });
+  var ready = items.filter(function (i) { return i.status === "ready"; }).length;
+  var any = !!(discovery && discovery.any);
+  return {
+    items: items,
+    readyLine: ready + " of " + items.length + " ready",
+    fill: { label: "Fill answers from Discovery", disabled: !any, reason: any ? "" : "Score a call in the Discovery kit first. There is nothing to draw on yet." },
+  };
+}
+
+/* The record to write when an answer is edited and left. The status is
+   ready once there is something written; with nothing written the two
+   founder questions have none and the others need evidence again. */
+function answerRecord(r, id, text) {
+  var cur = questionOf(r, id);
+  var w = WHY_THEY_ASK.filter(function (x) { return x.id === id; })[0];
+  var t = String(text == null ? "" : text).trim();
+  var rec = Object.assign({}, cur);
+  delete rec.id;
+  rec.text = (cur && cur.text) || (w && w.text) || id;
+  rec.answer = t;
+  rec.source = (cur && cur.source) || "asked";
+  if (t) rec.status = "ready";
+  else if (id === "why" || id === "now") delete rec.status;
+  else rec.status = "needs";
+  return rec;
+}
+
+/* The round card, as rows. Placeholders until the operator sets them. */
+function roundView(settings, now) {
+  var s = (settings && settings.round) || {};
+  var rd = roundOf(settings, now);
+  var amount = String(s.amount == null ? "" : s.amount).trim();
+  var cap = String(s.cap == null ? "" : s.cap).trim();
+  var months = String(s.months == null ? "" : s.months).trim();
+  var buys = months ? months + (months === "1" ? " month" : " months") : "";
+  return {
+    set: !!s.set,
+    rows: [
+      { dt: "Raising", dd: (amount || "[YOUR AMOUNT]") + " on a post-money SAFE", blank: !amount },
+      { dt: "Cap", dd: cap || "[YOUR CAP]", blank: !cap },
+      { dt: "Buys", dd: (buys || "[MONTHS]") + " of runway to reach product-market fit", blank: !months },
+      { dt: "Close by", dd: dayLabel(rd.closeBy), after: "must close " + dayLabel(rd.mustClose), blank: false },
+    ],
+    form: { amount: amount, cap: cap, months: months, closeBy: rd.closeBy, mustClose: rd.mustClose },
+  };
+}
+
+/* What is wrong with the dates in the form, or "". */
+function roundIssue(form) {
+  if (!validDay(form.closeBy)) return "Close by needs a date.";
+  if (!validDay(form.mustClose)) return "Must close needs a date.";
+  if (diffDays(form.mustClose, form.closeBy) < 1) return "Must close has to come after close by.";
+  return "";
+}
+
+/* settings after Save: the round merged into what is there (the strip's
+   round.start stays), set: true. */
+function roundPatch(settings, form, now) {
+  var round = Object.assign({}, settings && settings.round);
+  round.amount = String(form.amount == null ? "" : form.amount).trim();
+  round.cap = String(form.cap == null ? "" : form.cap).trim();
+  round.months = String(form.months == null ? "" : form.months).trim();
+  if (validDay(form.closeBy)) round.closeBy = form.closeBy;
+  if (validDay(form.mustClose)) round.mustClose = form.mustClose;
+  round.start = roundOf(settings, now).start;
+  round.set = true;
+  return Object.assign({}, settings, { round: round });
+}
+
+/* The What we've learned card, from fromDiscovery's result. The bars are
+   shares of the calls, in twelfths. */
+function learnedView(d) {
+  if (!d || !d.any) return { empty: true, text: DISCOVERY_EMPTY };
+  function twelfths(n) { return n > 0 ? Math.max(1, Math.round(12 * n / d.calls)) : 0; }
+  return {
+    empty: false,
+    rows: [
+      { label: "Customer calls", n: d.calls, filled: 12, all: true },
+      { label: "Hair on fire (4–5)", n: d.hot, filled: twelfths(d.hot), all: false },
+      { label: "Commitments", n: d.commits, filled: twelfths(d.commits), all: false },
+    ],
+    quote: d.quote,
+    count: "Counts the calls with a person in the Discovery kit. Bars show each as a share of those " + d.calls + ".",
+    sharpened: d.sharpened > 0
+      ? "The bet sharpened " + (d.sharpened === 1 ? "once" : d.sharpened + " times") + " as the calls came in. That speed is the story: learning fast, honestly."
+      : "The bet hasn’t been sharpened yet. Calls that disagree with it are what sharpen it.",
+  };
+}
+
+/* The card that lands in Story, which runs the asker. */
+function fillCard(zones) {
+  return { zone: zoneFor(zones, "story"), title: "Fill answers", text: "Draft answers to the hard questions from Discovery." };
+}
+</script>
+
+<script>
+(function () {
+  var app = document.getElementById("app");
+  var kit = window.wibble && window.wibble.kit;
+  var data = {};
+  var disc = null, discData;
+  var ui = { q: null, note: null, overlay: false, editRound: false, form: null, issue: "", status: "", consumed: "" };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function settings() { return (data && data.settings) || {}; }
+  function zones() { try { return window.wibble.get("kitZones"); } catch (_) { return undefined; } }
+
+  // Discovery is read once its store exists; asked for again until it does.
+  function watchDiscovery() {
+    if (disc) return;
+    try {
+      var d = window.wibble && window.wibble.read && window.wibble.read("discovery-kit");
+      if (d && typeof d.subscribe === "function") {
+        disc = d;
+        d.subscribe(function (x) { discData = x; refresh(); });
+      }
+    } catch (_) {}
+  }
+
+  function noteRow(g) {
+    var open = ui.note === g.id;
+    return '<div><button class="fr-qrow" type="button" data-act="note" data-id="' + esc(g.id) + '" aria-expanded="' + open + '">' +
+      '<span class="fr-dot' + (g.read ? " fr-ok" : "") + '">' + (g.read ? "✓" : "") + '</span><span class="fr-t">' + esc(g.title) + "</span>" +
+      '<span class="fr-muted">' + esc(g.also) + "</span></button>" +
+      (open ? '<div class="fr-field" style="margin-bottom:10px"><div>' + esc(g.text) + '</div><div class="fr-row"><div class="fr-src fr-grow" style="margin-left:0;flex:1">' + esc(g.src) + "</div>" +
+        '<button class="fr-pill fr-soft" type="button" data-act="gotit" data-id="' + esc(g.id) + '">Got it</button></div></div>' : "") + "</div>";
+  }
+
+  function guideCard(g) {
+    return '<div class="fr-card fr-guide"><div class="fr-head"><div class="fr-ttl">Field guide</div><span class="fr-muted">' + esc(g.readLine) + "</span>" +
+      '<button class="fr-pill fr-blue fr-grow" type="button" data-act="all">See all ' + g.total + "</button></div>" +
+      '<div class="fr-bar" role="img" aria-label="' + esc(g.readLine) + '"><i style="width:' + g.pct + '%"></i></div>' +
+      '<p class="fr-sub">Short notes from six sources. Each also shows up in the kit at the moment it applies.</p>' +
+      '<div class="fr-row" style="margin-top:6px"><div class="fr-cap"' + (g.peeking ? ' style="color:#9cc0f5"' : "") + ">" + esc(g.cap) + "</div>" +
+      (g.peeking ? '<button class="fr-pill fr-soft fr-grow" type="button" data-act="unpeek">Back to this week</button>' : "") + "</div>" +
+      g.notes.map(noteRow).join("") + "</div>";
+  }
+
+  function overlay(g) {
+    return '<div class="fr-over" role="dialog" aria-modal="true" aria-label="Field guide"><div class="fr-card">' +
+      '<div class="fr-head"><div class="fr-ttl" style="font-size:20px">Field guide</div><span class="fr-muted">' + g.total + " short notes from six sources · " + esc(g.readLine) + "</span>" +
+      '<button class="fr-btn fr-grey fr-grow" type="button" data-act="close" id="fr-close" style="min-height:36px;font-size:13px">Close</button></div>' +
+      '<p class="fr-sub">Grouped by phase. Read ahead whenever you like; each note also appears in the kit when it applies. Sources: Paul Graham’s “How to Raise Money”, Mark Suster’s “Invest in Lines, Not Dots”, Venture Deals, Secrets of Sand Hill Road, the Holloway Guide to Raising Venture Capital, and Jason Calacanis’s Angel.</p>' +
+      '<div class="fr-cols">' + g.phases.map(function (ph) {
+        return '<div class="fr-col"><div class="fr-colh"><b>' + esc(ph.name) + '</b><span class="fr-mono fr-muted" style="font-size:11px">' + esc(ph.dates) + '</span><span class="fr-muted fr-grow">' + esc(ph.readLine) + "</span></div>" +
+          ph.notes.map(function (n) {
+            return '<div class="fr-field"' + (n.read ? ' style="opacity:.78"' : "") + '><div class="fr-nh"><span class="fr-dot' + (n.read ? " fr-ok" : "") + '">' + (n.read ? "✓" : "") + "</span><b>" + esc(n.title) + "</b></div><div>" + esc(n.text) + "</div>" +
+              '<div class="fr-row"><div class="fr-src" style="flex:1">' + esc(n.src) + '</div><span class="fr-where">in ' + esc(n.where) + "</span>" +
+              (n.read ? "" : '<button class="fr-pill fr-soft" type="button" data-act="gotit" data-id="' + esc(n.id) + '">Got it</button>') + "</div></div>";
+          }).join("") + "</div>";
+      }).join("") + "</div></div></div>";
+  }
+
+  function roundCard(rv, nextRound) {
+    var head = '<div class="fr-head"><div class="fr-ttl">The round</div>' +
+      (nextRound ? '<span class="fr-nextb fr-grow">Next for you</span>' : rv.set ? "" : '<span class="fr-tag fr-you fr-grow">Yours to set</span>') + "</div>";
+    if (ui.editRound) {
+      var f = ui.form;
+      function field(id, label, val, type, ph) {
+        return '<label for="fr-' + id + '">' + label + '</label><input class="fr-in" id="fr-' + id + '" data-f="' + id + '" type="' + type + '" value="' + esc(val) + '" placeholder="' + esc(ph || "") + '"' + (type === "number" ? ' min="1" inputmode="numeric"' : "") + ">";
+      }
+      return '<div class="fr-card">' + head + '<div class="fr-form">' +
+        field("amount", "Raising", f.amount, "text", "e.g. $500k") + field("cap", "Cap", f.cap, "text", "e.g. $8M post-money") +
+        field("months", "Months of runway", f.months, "number", "e.g. 18") + field("closeBy", "Close by", f.closeBy, "date") + field("mustClose", "Must close", f.mustClose, "date") + "</div>" +
+        (ui.issue ? '<div class="fr-err" role="alert">' + esc(ui.issue) + "</div>" : "") +
+        '<div class="fr-acts"><button class="fr-btn" type="button" data-act="saveround">Save</button><button class="fr-pill" type="button" data-act="cancelround">Cancel</button></div>' +
+        '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(noteById("p5").title.toUpperCase()) + "</div><div>" + esc(noteById("p5").text) + '</div><div class="fr-src">' + esc(noteById("p5").src) + "</div></div></div>";
+    }
+    var p5 = noteById("p5");
+    var rows = '<dl class="fr-bet">' + rv.rows.map(function (x) {
+      return "<dt>" + esc(x.dt) + "</dt><dd" + (x.blank ? ' class="fr-blank"' : "") + ">" + esc(x.dd) + (x.after ? ' <span class="fr-muted">· ' + esc(x.after) + "</span>" : "") + "</dd>";
+    }).join("") + "</dl>";
+    return '<div class="fr-card">' + head +
+      (rv.set ? "" : '<p class="fr-sub">How much, on what terms, and what it buys. Most pre-seed rounds use a post-money SAFE: a simple agreement that turns into shares later.</p>') + rows +
+      '<div class="fr-acts"><button class="fr-btn' + (rv.set ? " fr-grey" : "") + '" type="button" data-act="editround">' + (rv.set ? "Edit the round" : "Set the round") + "</button></div>" +
+      '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(p5.title.toUpperCase()) + "</div><div>" + esc(p5.text) + '</div><div class="fr-src">' + esc(p5.src) + "</div></div></div>";
+  }
+
+  function learnedCard(lv) {
+    var head = '<div class="fr-head"><div class="fr-ttl">What we’ve learned</div><span class="fr-tag fr-live">Live from Discovery</span></div>';
+    if (lv.empty) return '<div class="fr-card">' + head + '<p class="fr-empty">' + esc(lv.text) + "</p></div>";
+    var bars = lv.rows.map(function (x) {
+      var cells = "";
+      for (var i = 0; i < 12; i++) cells += '<i class="' + (i < x.filled ? (x.all ? "fr-all" : "fr-on") : "") + '"></i>';
+      return "<span>" + esc(x.label) + '</span><div class="fr-cells" aria-hidden="true">' + cells + '</div><span class="fr-mono" style="text-align:right">' + x.n + "</span>";
+    }).join("");
+    return '<div class="fr-card">' + head + '<div class="fr-learn">' + bars + "</div>" +
+      '<div class="fr-muted">' + esc(lv.count) + "</div>" +
+      (lv.quote ? '<blockquote class="fr-quote">“' + esc(lv.quote.text) + "”" + (lv.quote.who ? ' <span class="fr-muted">· ' + esc(lv.quote.who) + "</span>" : "") + "</blockquote>" : "") +
+      '<p class="fr-sub">' + esc(lv.sharpened) + "</p></div>";
+  }
+
+  function questionRow(q) {
+    var open = ui.q === q.id;
+    var cls = q.status === "ready" ? "fr-live" : q.status === "needs" ? "fr-needs" : "fr-you";
+    var body = "";
+    if (open) {
+      body = '<div class="fr-open"><label class="fr-cap" for="fr-a-' + esc(q.id) + '">YOUR ANSWER</label>' +
+        '<textarea class="fr-ans" id="fr-a-' + esc(q.id) + '" data-q="' + esc(q.id) + '" placeholder="' + esc(q.hint) + '">' + esc(q.answer) + "</textarea>" +
+        (q.evidence ? '<div class="fr-evi">Evidence: ' + esc(q.evidence) + "</div>" : "") +
+        (q.why ? '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · WHY THEY ASK</div><div>' + esc(q.why) + '</div><div class="fr-src">' + esc(q.src) + "</div></div>"
+          : q.src ? '<div class="fr-src">' + esc(q.src) + "</div>" : "") + "</div>";
+    }
+    return "<div><button class=\"fr-qrow\" type=\"button\" data-act=\"q\" data-id=\"" + esc(q.id) + "\" aria-expanded=\"" + open + "\"><span class=\"fr-t\">" + esc(q.text) + '</span><span class="fr-tag ' + cls + '">' + esc(q.label) + "</span></button>" + body + "</div>";
+  }
+
+  function questionsCard(qv) {
+    return '<div class="fr-card"><div class="fr-head"><div class="fr-ttl">Hard questions</div><span class="fr-muted">' + esc(qv.readyLine) + "</span></div>" +
+      qv.items.map(questionRow).join("") +
+      '<div class="fr-acts" style="margin-top:8px"><button class="fr-btn" type="button" data-act="fill"' + (qv.fill.disabled ? ' disabled aria-describedby="fr-fillwhy"' : "") + ">" + esc(qv.fill.label) + "</button>" +
+      (qv.fill.reason ? '<span class="fr-reason" id="fr-fillwhy">' + esc(qv.fill.reason) + "</span>" : "") + "</div>" +
+      (ui.status ? '<div class="fr-ok-line" role="status">' + esc(ui.status) + "</div>" : "") + "</div>";
+  }
+
+  function render() {
+    if (!kit) return;
+    watchDiscovery();
+    var now = Date.now();
+    var r = records(data);
+    var round = roundOf(r.settings, now);
+    var phase = phaseAt(round, now);
+    var fd = fromDiscovery(discData, now);
+    var nx = nextFor(r, now);
+    var g = guideView(r, phase, peekOf(r.settings), round);
+    var rv = roundView(r.settings, now);
+    var nextRound = !!(nx.start && nx.start[0].done && !nx.start[1].done);
+    // A note the strip asked to open opens once, then the request clears.
+    var want = r.settings.openNote;
+    if (want && ui.consumed !== want) {
+      ui.consumed = want;
+      ui.note = want;
+      try { kit.set("settings", Object.assign({}, r.settings, { openNote: null })); } catch (_) {}
+    }
+    app.innerHTML =
+      '<div class="fr-card fr-calm"><div class="fr-ttl">Still nailing it? That’s expected at this stage.</div>' +
+      '<div style="font-size:13px;line-height:1.55;color:#d7eadc">Pre-seed investors don’t expect repeatable sales yet. They back three things: <b style="color:#fff">the team</b>, <b style="color:#fff">an insight others missed</b>, and <b style="color:#fff">how fast you learn</b>. The third one is what Discovery already measures.</div>' +
+      '<div style="font-size:12.5px;line-height:1.5;color:#b9d3c1">Saying “not yet, and here’s the evidence we’re getting close” reads as honest and on track. Claiming fit you don’t have is what costs trust.</div>' +
+      '<div class="fr-src" style="color:#8fb59b">' + esc(SRC_PG + ", and Scott Kupor, Secrets of Sand Hill Road") + "</div></div>" +
+      guideCard(g) + roundCard(rv, nextRound) + learnedCard(learnedView(fd)) + questionsCard(questionsView(r, fd)) +
+      (ui.overlay ? overlay(g) : "");
+    if (ui.overlay) { var c = document.getElementById("fr-close"); if (c) c.focus(); }
+  }
+
+  var held = false;
+  function typing() {
+    var a = document.activeElement;
+    return !!(a && app.contains(a) && /^(TEXTAREA|INPUT)$/.test(a.tagName));
+  }
+  function refresh() {
+    if (typing()) { held = true; return; }
+    held = false;
+    render();
+  }
+
+  function save(el) {
+    var id = el.getAttribute("data-q");
+    var r = records(data);
+    var cur = questionOf(r, id);
+    var before = cur && typeof cur.answer === "string" ? cur.answer.trim() : "";
+    if (el.value.trim() === before) return;
+    kit.set("question:" + id, answerRecord(r, id, el.value));
+  }
+
+  if (!kit) {
+    app.innerHTML = '<p class="fr-sub">Place this kit from the zone menu.</p>';
+    return;
+  }
+
+  app.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-act]");
+    if (!b || b.disabled) return;
+    var act = b.getAttribute("data-act"), id = b.getAttribute("data-id");
+    var r = records(data);
+    if (act === "q") { ui.q = ui.q === id ? null : id; render(); }
+    else if (act === "note") { ui.note = ui.note === id ? null : id; render(); }
+    else if (act === "gotit") { ui.note = null; kit.set("read", Object.assign({}, r.read, (function () { var o = {}; o[id] = true; return o; })())); }
+    else if (act === "all") { ui.overlay = true; render(); }
+    else if (act === "close") { ui.overlay = false; render(); }
+    else if (act === "unpeek") kit.set("settings", Object.assign({}, r.settings, { peek: null }));
+    else if (act === "editround") { ui.form = roundView(r.settings, Date.now()).form; ui.issue = ""; ui.editRound = true; render(); }
+    else if (act === "cancelround") { ui.editRound = false; ui.issue = ""; render(); }
+    else if (act === "saveround") {
+      ui.issue = roundIssue(ui.form);
+      if (ui.issue) { render(); return; }
+      ui.editRound = false;
+      kit.set("settings", roundPatch(r.settings, ui.form, Date.now()));
+      render();
+    } else if (act === "fill") {
+      ui.status = "Sent to the asker. Your answers land here.";
+      render();
+      Promise.resolve().then(function () { return window.wibble.land(fillCard(zones())); }).catch(function () {
+        ui.status = "Couldn’t send that. Try again.";
+        render();
+      });
+    }
+  });
+  app.addEventListener("input", function (e) {
+    var f = e.target.getAttribute && e.target.getAttribute("data-f");
+    if (f && ui.form) ui.form[f] = e.target.value;
+  });
+  app.addEventListener("focusout", function (e) {
+    var el = e.target;
+    if (el && el.getAttribute && el.getAttribute("data-q")) save(el);
+    if (held) setTimeout(function () { if (!typing()) { held = false; render(); } }, 0);
+  });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape" && ui.overlay) { ui.overlay = false; render(); }
+  });
+  kit.subscribe(function (d) { data = d || {}; refresh(); });
+})();
+</script>
+</body>
+</html>

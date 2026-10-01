@@ -1,3 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>To send</title>
+<!--
+  THE TO SEND PAGE. Placed by the Fundraising kit in 3 · To send. The
+  asker puts its drafts here: intro requests, cold notes, replies,
+  follow-ups, prep sheets, check-ins and the monthly update. You copy each
+  one, send it yourself, and press Sent. Wibble never sends anything.
+
+  It reads the kit store (window.wibble.kit): draft:<id> records (newest
+  first, a draft with status "requested" shows as Follow-up requested),
+  the investor:<id> each belongs to, and the field notes read ("read").
+
+  It writes:
+    - draft:<id>: status "sent" (or "met" for a prep sheet), sentAt, and
+      opened: true once you copy it or open Why it works;
+    - investor:<id>, from Sent: lastContact today, and step + 1 when the
+      draft says advances; from Met on a prep sheet: step to Follow-up
+      (never backwards), lastContact today. The old next step is dropped
+      whenever the step moves;
+    - read.<noteId> = true, from Why it works.
+  A Draft button on a Follow-up requested card lands a card in this zone
+  ("Follow-up · <investor name>", text "investor: <id>" and
+  "request: <draft id>"), and that landing is what runs the asker.
+
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  pages.test.mjs can run them under node.
+
+  Classes start with fr- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,"Noto Sans",system-ui,sans-serif);color:var(--text,#ddd)}
+.fr-wrap{display:grid;gap:14px}
+.fr-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:2px 8px}
+.fr-ttl{font-size:15px;font-weight:600;line-height:1.3}
+.fr-muted{color:var(--muted,#999);font-size:12.5px}
+.fr-grow{margin-left:auto}
+.fr-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;align-content:start}
+.fr-draft{display:flex;flex-direction:column;gap:7px;padding:14px;border-radius:12px;background:var(--win,#232323);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 6px 16px rgba(0,0,0,.3);font-size:12.5px;line-height:1.5;color:var(--text,#dcdcdc);box-sizing:border-box;min-width:0}
+.fr-draft.fr-new{box-shadow:inset 0 0 0 1px rgba(240,128,170,.45),0 6px 16px rgba(0,0,0,.3)}
+.fr-draft.fr-gone{opacity:.55}
+.fr-top{display:flex;flex-wrap:wrap;gap:6px 8px;align-items:center}
+.fr-chip{flex:none;font-size:12px;padding:3px 8px;border-radius:8px;background:var(--edge,#333);color:var(--text,#e8e8e8);white-space:nowrap}
+.fr-chip.fr-ask{background:rgba(224,160,96,.18);color:#f0cfa8}
+.fr-who{font-weight:600;color:var(--text,#fff);min-width:0;overflow-wrap:anywhere}
+.fr-newtag{margin-left:auto;font-size:11px;font-weight:600;padding:2px 7px;border-radius:999px;background:rgba(240,128,170,.16);color:#f6bfd3}
+.fr-body{white-space:pre-wrap;overflow-wrap:anywhere;user-select:text}
+.fr-line b{color:var(--text,#fff)}
+.fr-meta{font-size:12px;color:var(--muted,#999)}
+.fr-acts{display:flex;flex-wrap:wrap;gap:6px;margin-top:2px;align-items:center}
+.fr-pill{min-height:30px;padding:4px 10px;border:1px solid var(--edge,rgba(255,255,255,.12));border-radius:999px;background:transparent;color:var(--text,#ddd);font:inherit;font-size:12px;font-weight:500;cursor:pointer;white-space:nowrap;display:inline-flex;align-items:center}
+.fr-pill.fr-fill{background:var(--edge,#333);color:var(--text,#fff)}
+.fr-pill.fr-soft{color:#9cb4da;border-color:rgba(156,192,245,.3)}
+.fr-pill.fr-right{margin-left:auto}
+.fr-pill.fr-go{background:#e0a060;color:#1f160c;border-color:transparent;font-weight:600}
+.fr-pill:focus-visible{outline:2px solid #f080aa;outline-offset:2px}
+.fr-done{margin-left:auto;font-size:11.5px;font-weight:600;color:#9fdcbc}
+.fr-field{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:10px;background:#262a33;box-shadow:inset 0 0 0 1px rgba(156,192,245,.22);font-size:12.5px;line-height:1.5;color:#d9e3f3}
+.fr-fhead{font-size:10.5px;font-weight:700;letter-spacing:.07em;color:#9cb4da}
+.fr-src{font-size:11.5px;color:#8ea2c2;font-style:italic}
+.fr-empty{grid-column:1/-1;padding:40px 22px;border:1px dashed var(--edge,rgba(240,128,170,.35));border-radius:12px;font-size:13px;color:var(--faint,#9a8a90);text-align:center;line-height:1.6}
+.fr-empty b{color:var(--text,#ddd);font-weight:600}
+.fr-sub{margin:0;font-size:12.5px;color:var(--muted,#b3b3b3);line-height:1.45}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="fr-wrap" id="app"></div>
+
+<script id="core">
 /* THE FUNDRAISING KIT'S SHARED RULES. Every page needs the same phase,
    the same "next for you", the same idea of quiet and the same field
    notes, or the strip, the pages and the agents drift apart. Pure
@@ -396,3 +470,222 @@ function zoneFor(zones, key) {
 /* What each kind of draft is called, in To send's chips and in the title of
    the card that asks for it. The asker picks the draft from that title. */
 var DRAFT_LABEL = { intro: "Intro request", cold: "Cold note", reply: "Reply", followup: "Follow-up", prep: "Prep sheet", checkin: "Check-in", update: "Monthly update" };
+</script>
+
+<script id="logic">
+/* THE TO SEND PAGE'S RULES. Pure functions, no DOM, no window:
+   pages.test.mjs pulls this block out of the page, after core, and runs it
+   under node. */
+
+var SEND_EMPTY = "Drafts land here: intro requests, follow-ups, prep sheets and your monthly update.";
+
+function atMs(v) {
+  if (typeof v === "number") return v;
+  var t = Date.parse(v);
+  return isNaN(t) ? 0 : t;
+}
+
+/* The drafts as cards: a follow-up request first (it is due today), then
+   the rest newest first (by their "at", else the order they were
+   written, last first). A prep sheet has no Copy. */
+function draftsView(r) {
+  var byId = {};
+  r.investors.forEach(function (i) { byId[i.id] = i; });
+  var items = r.drafts.map(function (d, idx) {
+    var inv = byId[d.investor];
+    var name = (inv && inv.name) || "";
+    var requested = d.status === "requested";
+    var kind = DRAFT_LABEL[d.kind] ? d.kind : "followup";
+    var who = kind === "update" ? (d.to || "Everyone") : d.to && name && d.to !== name ? d.to + " → " + name : name || d.to || "Someone";
+    var lines = (Array.isArray(d.lines) ? d.lines : []).map(function (l) {
+      return typeof l === "string" ? { b: "", t: l } : { b: String((l && l.b) || ""), t: String((l && l.t) || "") };
+    });
+    var body = typeof d.text === "string" ? d.text : "";
+    var noteId = d.note && noteById(d.note) ? d.note : DRAFT_NOTE[kind];
+    var g = noteById(noteId);
+    var sent = d.status === "sent" || d.status === "met";
+    return {
+      id: d.id, kind: kind, label: requested ? "Follow-up requested" : DRAFT_LABEL[kind], who: who, investor: d.investor || "", investorName: name,
+      body: body, lines: lines, meta: typeof d.meta === "string" ? d.meta : "", requested: requested, sent: sent,
+      done: d.status === "met" ? "Met" : d.status === "sent" ? "Sent" : "",
+      isNew: !requested && !sent && !d.opened,
+      advances: d.advances === true,
+      action: requested ? "draft" : sent ? null : kind === "prep" ? "met" : "sent",
+      actionLabel: requested ? "Draft" : kind === "prep" ? "Met" : "Sent",
+      canCopy: !requested && kind !== "prep",
+      copyText: body || lines.map(function (l) { return (l.b ? l.b + " " : "") + l.t; }).join("\n"),
+      note: g ? { id: g.id, title: g.title, text: g.text, src: g.src } : null,
+      at: atMs(d.at), idx: idx,
+    };
+  });
+  items.sort(function (a, b) {
+    if (a.requested !== b.requested) return a.requested ? -1 : 1;
+    return b.at - a.at || b.idx - a.idx;
+  });
+  return { empty: items.length === 0, text: SEND_EMPTY, items: items, count: items.length };
+}
+
+/* What pressing Sent writes: the draft, and the investor it belongs to. The
+   investor moves a step only when the draft says it advances; either way
+   the day of last contact is today. A monthly update names no investor. */
+function sentPatch(r, id, now) {
+  var d = r.drafts.filter(function (x) { return x.id === id; })[0];
+  if (!d) return null;
+  var today = isoDay(now);
+  var draft = Object.assign({}, d, { status: "sent", sentAt: today, opened: true });
+  delete draft.id;
+  var inv = d.investor ? r.investors.filter(function (i) { return i.id === d.investor; })[0] : null;
+  var out = null;
+  if (inv) {
+    var upd = d.advances === true ? advanceStep(inv, today) : Object.assign({}, inv, { lastContact: today });
+    delete upd.id;
+    out = { key: "investor:" + inv.id, value: upd };
+  }
+  return { draft: draft, investor: out };
+}
+
+/* What pressing Met on a prep sheet writes: the investor moves to
+   Follow-up (never backwards) and the sheet is marked met. */
+function metPatch(r, id, now) {
+  var d = r.drafts.filter(function (x) { return x.id === id; })[0];
+  if (!d) return null;
+  var today = isoDay(now);
+  var draft = Object.assign({}, d, { status: "met", sentAt: today, opened: true });
+  delete draft.id;
+  var inv = d.investor ? r.investors.filter(function (i) { return i.id === d.investor; })[0] : null;
+  var out = null;
+  if (inv) {
+    var upd = Object.assign({}, inv, { lastContact: today });
+    if (stepOf(inv) < 4) { upd.step = 4; upd.dates = Object.assign({}, inv.dates); upd.dates[4] = today; }
+    delete upd.next;
+    delete upd.id;
+    out = { key: "investor:" + inv.id, value: upd };
+  }
+  return { draft: draft, investor: out };
+}
+
+/* The card that lands in To send for a requested follow-up, which runs the
+   asker. It names the investor and the request, so the asker writes the
+   finished draft over the request. */
+function requestCard(item, zones) {
+  return { zone: zoneFor(zones, "send"), title: DRAFT_LABEL.followup + " · " + (item.investorName || item.who), text: "investor: " + item.investor + "\nrequest: " + item.id };
+}
+</script>
+
+<script>
+(function () {
+  var app = document.getElementById("app");
+  var kit = window.wibble && window.wibble.kit;
+  var data = {};
+  var ui = { why: null, copied: "", failed: "", asked: {} };
+
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function zones() { try { return window.wibble.get("kitZones"); } catch (_) { return undefined; } }
+
+  function card(it) {
+    var why = ui.why === it.id && it.note
+      ? '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(it.note.title.toUpperCase()) + "</div><div>" + esc(it.note.text) + '</div><div class="fr-src">' + esc(it.note.src) + "</div></div>" : "";
+    var body = it.body ? '<div class="fr-body">' + esc(it.body) + "</div>" : "";
+    var lines = it.lines.map(function (l) { return '<div class="fr-line">' + (l.b ? "<b>" + esc(l.b) + "</b> " : "") + esc(l.t) + "</div>"; }).join("");
+    var acts;
+    if (it.requested) {
+      var asked = ui.asked[it.id];
+      acts = asked ? '<span class="fr-meta" role="status">Asked. The draft replaces this card.</span>'
+        : '<button class="fr-pill fr-go" type="button" data-act="draft" data-id="' + esc(it.id) + '">Draft</button>';
+    } else {
+      acts = (it.canCopy ? '<button class="fr-pill fr-fill" type="button" data-act="copy" data-id="' + esc(it.id) + '">' + (ui.copied === it.id ? "Copied" : "Copy") + "</button>" : "") +
+        '<button class="fr-pill fr-soft" type="button" data-act="why" data-id="' + esc(it.id) + '" aria-expanded="' + (ui.why === it.id) + '">' + (ui.why === it.id ? "Hide why" : "Why it works") + "</button>" +
+        (it.sent ? '<span class="fr-done">' + esc(it.done) + "</span>" : '<button class="fr-pill fr-right" type="button" data-act="' + it.action + '" data-id="' + esc(it.id) + '">' + esc(it.actionLabel) + "</button>");
+    }
+    return '<div class="fr-draft' + (it.isNew ? " fr-new" : "") + (it.sent ? " fr-gone" : "") + '" data-id="' + esc(it.id) + '">' +
+      '<div class="fr-top"><span class="fr-chip' + (it.requested ? " fr-ask" : "") + '">' + esc(it.label) + '</span><span class="fr-who">' + esc(it.who) + "</span>" + (it.isNew ? '<span class="fr-newtag">New</span>' : "") + "</div>" +
+      body + lines + (it.meta ? '<div class="fr-meta">' + esc(it.meta) + "</div>" : "") +
+      (ui.failed === it.id ? '<div class="fr-meta">Couldn’t copy. The text is selected, press Cmd+C.</div>' : "") + why +
+      '<div class="fr-acts">' + acts + "</div></div>";
+  }
+
+  function render() {
+    if (!kit) return;
+    var v = draftsView(records(data));
+    app.innerHTML = '<div class="fr-head"><div class="fr-ttl">To send</div><span class="fr-muted">' + (v.count ? plural(v.count, "draft") : "") + '</span><span class="fr-muted fr-grow">Nothing is sent. Every message goes out from you.</span></div>' +
+      '<div class="fr-grid">' + (v.empty ? '<div class="fr-empty">' + esc(v.text) + "<br>Pick an investor in <b>2 · Investors</b> and press <b>Draft</b>.</div>" : v.items.map(card).join("")) + "</div>";
+  }
+
+  function itemOf(id) { return draftsView(records(data)).items.filter(function (x) { return x.id === id; })[0]; }
+  function writeDraft(id, patch) {
+    var d = records(data).drafts.filter(function (x) { return x.id === id; })[0];
+    if (!d) return;
+    var rec = Object.assign({}, d, patch);
+    delete rec.id;
+    kit.set("draft:" + id, rec);
+  }
+  function markRead(noteId) {
+    var r = records(data);
+    if (r.read[noteId]) return;
+    var next = Object.assign({}, r.read);
+    next[noteId] = true;
+    kit.set("read", next);
+  }
+
+  // Copy writes to the clipboard; when the browser refuses, the text is selected so Cmd+C works.
+  function copy(it) {
+    function select() {
+      var el = app.querySelector('[data-id="' + it.id + '"] .fr-body, [data-id="' + it.id + '"] .fr-line');
+      if (el && window.getSelection) {
+        var range = document.createRange();
+        range.selectNodeContents(el);
+        var sel = window.getSelection();
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
+      ui.failed = it.id; ui.copied = "";
+    }
+    var done = function () { ui.copied = it.id; ui.failed = ""; render(); };
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(it.copyText).then(done, select);
+      else select();
+    } catch (e) { select(); }
+    if (it.isNew) writeDraft(it.id, { opened: true });
+  }
+
+  if (!kit) {
+    app.innerHTML = '<p class="fr-sub">Place this kit from the zone menu.</p>';
+    return;
+  }
+
+  app.addEventListener("click", function (e) {
+    var b = e.target.closest && e.target.closest("[data-act]");
+    if (!b) return;
+    var id = b.getAttribute("data-id"), act = b.getAttribute("data-act");
+    var it = itemOf(id);
+    if (!it) return;
+    var r = records(data);
+    if (act === "copy") copy(it);
+    else if (act === "why") {
+      ui.why = ui.why === id ? null : id;
+      if (ui.why && it.note) markRead(it.note.id);
+      if (ui.why && it.isNew) writeDraft(id, { opened: true });
+      render();
+    } else if (act === "sent" || act === "met") {
+      var p = (act === "met" ? metPatch : sentPatch)(r, id, Date.now());
+      if (!p) return;
+      kit.set("draft:" + id, p.draft);
+      if (p.investor) kit.set(p.investor.key, p.investor.value);
+    } else if (act === "draft") {
+      ui.asked[id] = true;
+      render();
+      Promise.resolve().then(function () { return window.wibble.land(requestCard(it, zones())); }).catch(function () {
+        delete ui.asked[id];
+        render();
+      });
+    }
+  });
+  kit.subscribe(function (d) { data = d || {}; render(); });
+})();
+</script>
+</body>
+</html>
