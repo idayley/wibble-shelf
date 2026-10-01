@@ -1,0 +1,37 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Wibblet preview</title>
+<!--
+  A wibblet next to Director's, the way Wibble paints them: the body filled
+  with the wibblet's colour, the face in near-white. Three colours, four
+  sizes, light and dark.
+    preview.html?art=../../items/<agent>/art
+-->
+<style>
+body{margin:0;font:13px system-ui;display:grid;grid-template-columns:1fr 1fr}
+.pane{padding:28px;display:flex;flex-direction:column;gap:22px}
+.light{background:#f4f2ec}.dark{background:#1d1f24}
+.row{display:flex;align-items:flex-end;gap:26px}
+.w{position:relative;display:inline-block}
+.w::before,.w::after{content:"";position:absolute;inset:0;-webkit-mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-size:100% 100%;mask-repeat:no-repeat}
+.w::before{-webkit-mask-image:var(--body);mask-image:var(--body);background:linear-gradient(158deg,color-mix(in oklab,var(--tint) 66%,#fff) 0%,var(--tint) 34%,var(--tint2,var(--tint)) 76%,color-mix(in oklab,var(--tint2,var(--tint)) 74%,#000) 100%)}
+.w::after{-webkit-mask-image:var(--face);mask-image:var(--face);background:color-mix(in oklab,var(--tint) 8%,#fff)}
+</style></head><body>
+<div class="pane light"></div><div class="pane dark"></div>
+<script>
+const art = new URLSearchParams(location.search).get("art");
+const dir = "../../items/director/art";
+const tints = [["#e0703c"], ["#4a7fd6", "#7a5bd6"], ["#3f9e6e"]];
+const img = src => new Promise(r => { const i = new Image(); i.onload = () => r(i.width / i.height); i.src = src; });
+Promise.all([img(`${dir}/body.png`), img(`${art}/body.png`)]).then(([da, aa]) => {
+  for (const pane of document.querySelectorAll(".pane"))
+    for (const size of [120, 64, 44, 28]) {
+      const row = pane.appendChild(document.createElement("div")); row.className = "row";
+      for (const [t, t2] of tints)
+        for (const [d, a] of [[dir, da], [art, aa]]) {
+          const s = row.appendChild(document.createElement("span")); s.className = "w";
+          s.style.cssText = `height:${size}px;width:${size * a}px;--body:url(${d}/body.png);--face:url(${d}/face.png);--tint:${t}`;
+          if (t2) s.style.setProperty("--tint2", t2);
+        }
+    }
+});
+</script></body></html>

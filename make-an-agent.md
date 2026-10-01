@@ -35,4 +35,4 @@ Copy the file to `~/.claude/agents/<your-agent>.md`. It shows up in Wibble and i
 
 See [CONTRIBUTING.md](CONTRIBUTING.md). The entry's `path` is your file's name, e.g. `"path": "agent.md"`.
 
-Optional: give it its own look with two PNG masks, a body and a face, listed as `"art": { "body": "art/body.png", "face": "art/face.png", "aspect": 0.85 }`. Only the shape comes from them; the colour is Wibble's.
+Optional: give it its own look with two PNG masks, a body and a face, listed as `"art": { "body": "art/body.png", "face": "art/face.png", "aspect": 0.85 }`. Only the shape comes from them; the colour is Wibble's. [Make an agent's wibblet](make-wibblet-art.md) walks through drawing one.

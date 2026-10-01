@@ -1,0 +1,47 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>wibblet</title>
+<style>html,body{margin:0;background:transparent}svg{display:block}</style></head><body>
+<!--
+  Walkthrough's wibblet: a camcorder, drawn over camcorder-ref.png (1254
+  square). Rendered to body.png and face.png by
+  tools/wibblet-art/render.sh. See make-wibblet-art.md.
+-->
+<svg id="art" width="1254" height="1254" viewBox="0 0 1254 1254" xmlns="http://www.w3.org/2000/svg">
+<defs>
+  <!-- The parts, back to front. -->
+  <rect id="handle" x="547" y="369" width="326" height="126" rx="46" transform="rotate(-4.5 710 432)"/>
+  <rect id="eyepiece" x="900" y="423" width="174" height="192" rx="62" transform="rotate(-4.5 987 519)"/>
+  <rect id="main" x="298" y="458" width="714" height="422" rx="80" transform="rotate(-4.5 655 669)"/>
+  <rect id="grip" x="772" y="622" width="262" height="268" rx="60" transform="rotate(-4.5 655 669)"/>
+  <ellipse id="barrel" cx="332" cy="641" rx="134" ry="147"/>
+  <ellipse id="glass" cx="303" cy="662" rx="76" ry="90"/>
+  <clipPath id="in-main"><use href="#main"/></clipPath>
+  <clipPath id="in-handle"><use href="#handle"/></clipPath>
+  <clipPath id="in-eyepiece"><use href="#eyepiece"/></clipPath>
+  <!-- Seams: a front part's outline, kept only where it lies over a part behind it. -->
+  <mask id="seams" maskUnits="userSpaceOnUse" x="-2000" y="-2000" width="6000" height="6000">
+    <rect x="-2000" y="-2000" width="6000" height="6000" fill="#fff"/>
+    <g fill="none" stroke="#000" stroke-width="14">
+      <g clip-path="url(#in-handle)"><use href="#main"/></g>
+      <g clip-path="url(#in-eyepiece)"><use href="#main"/></g>
+      <g clip-path="url(#in-main)"><use href="#barrel"/><use href="#grip"/></g>
+      <use href="#glass"/>
+    </g>
+  </mask>
+</defs>
+<image id="ref" href="camcorder-ref.png" x="0" y="0" width="1254" height="1254"/>
+<g id="body" fill="#fff" mask="url(#seams)">
+  <use href="#handle"/><use href="#eyepiece"/><use href="#main"/><use href="#grip"/><use href="#barrel"/>
+</g>
+<g id="face" fill="#fff">
+  <ellipse cx="272" cy="609" rx="21" ry="30" transform="rotate(18 272 609)"/>
+  <ellipse cx="574" cy="664" rx="24" ry="33"/>
+  <ellipse cx="743" cy="643" rx="24" ry="33"/>
+  <path d="M628 684 q30 40 62 -4" fill="none" stroke="#fff" stroke-width="20" stroke-linecap="round"/>
+  <rect x="644" y="396" width="178" height="50" rx="25" transform="rotate(-4.5 733 421)"/>
+  <rect x="834" y="718" width="166" height="56" rx="28" transform="rotate(-4.5 917 746)"/>
+  <rect x="344" y="807" width="79" height="44" rx="22" transform="rotate(4 383 829)"/>
+</g>
+</svg>
+<script src="../../../tools/wibblet-art/draw.js"></script>
+</body></html>
