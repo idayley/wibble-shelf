@@ -4,12 +4,13 @@
     { "kind": "agent", "id": "outreach-asker" }
   ],
   "zones": [
+    { "key": "progress", "name": "Your progress", "shows": "board", "dx": 0, "dy": 0, "w": 2300, "h": 240 },
     {
-      "key": "who", "name": "Who to find", "color": "blue", "shows": "board", "dx": 0, "dy": 0, "w": 900, "h": 860,
+      "key": "who", "name": "Who to find", "color": "blue", "shows": "board", "dx": 0, "dy": 300, "w": 900, "h": 860,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "lead-scout" }, "into": "leads" }
     },
     {
-      "key": "leads", "name": "Leads", "color": "orange", "shows": "board", "dx": 980, "dy": 0, "w": 1320, "h": 860,
+      "key": "leads", "name": "Leads", "color": "orange", "shows": "board", "dx": 980, "dy": 300, "w": 1320, "h": 860,
       "rule": {
         "when": { "kind": "clock", "clock": { "repeat": "weekly", "days": ["mon"], "time": "08:00" } },
         "run": { "agent": "lead-scout", "note": "Monday re-run. Search only: re-run the saved searches on the lead board and add only people who are not on it yet. Never reveal or spend." },
@@ -18,18 +19,20 @@
       }
     },
     {
-      "key": "outreach", "name": "Outreach", "color": "green", "shows": "board", "dx": 0, "dy": 960, "w": 900, "h": 620,
+      "key": "outreach", "name": "Outreach", "color": "green", "shows": "board", "dx": 0, "dy": 1260, "w": 900, "h": 620,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "outreach-asker" }, "into": "send" }
     },
-    { "key": "send", "name": "To send", "color": "pink", "shows": "board", "dx": 980, "dy": 960, "w": 1320, "h": 620 }
+    { "key": "send", "name": "To send", "color": "pink", "shows": "board", "dx": 980, "dy": 1260, "w": 1320, "h": 620 }
   ],
   "pages": [
+    { "zone": "progress", "title": "Your progress", "file": "progress.html", "width": "card", "size": "fill", "stayOut": true, "maxHeight": 320 },
     { "zone": "who", "title": "Who do you want to reach?", "file": "ask.html", "width": "card", "size": "m", "stayOut": true },
     { "zone": "who", "title": "Start here", "file": "note-start.html", "width": "card", "size": "m", "stayOut": true },
     { "zone": "who", "title": "What happens in Who to find", "file": "note-who.html", "width": "card", "size": "m", "stayOut": true },
     { "zone": "leads", "title": "What happens in Leads", "file": "note-leads.html", "width": "card", "size": "s", "stayOut": true },
     { "zone": "leads", "title": "Lead board", "file": "board.html", "width": "card", "size": "xl", "stayOut": true },
     { "zone": "outreach", "title": "What happens in Outreach", "file": "note-outreach.html", "width": "card", "size": "m", "stayOut": true },
+    { "zone": "send", "title": "To send", "file": "send.html", "width": "card", "size": "xl", "stayOut": true },
     { "zone": "send", "title": "What happens in To send", "file": "note-send.html", "width": "card", "size": "s", "stayOut": true }
   ]
 }

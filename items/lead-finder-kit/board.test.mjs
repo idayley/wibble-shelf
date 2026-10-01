@@ -5,21 +5,69 @@
 
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 
+const dir = new URL("./", import.meta.url);
+const core = readFileSync(new URL("core.js", dir), "utf8").replace(/\s+$/, "");
+
+function block(file, id) {
+  const html = readFileSync(new URL(file, dir), "utf8");
+  const m = html.match(new RegExp(`<script id="${id}">([\\s\\S]*?)</script>`));
+  return m ? m[1] : null;
+}
+
+// A page's rules, with core.js in front when the page carries it.
 function logic(file, names) {
-  const html = readFileSync(new URL(`./${file}`, import.meta.url), "utf8");
-  const block = html.match(/<script id="logic">([\s\S]*?)<\/script>/);
-  assert.ok(block, `${file} has a <script id="logic"> block`);
-  return new Function(block[1] + `\nreturn { ${names.join(", ")} };`)();
+  const l = block(file, "logic");
+  assert.ok(l, `${file} has a <script id="logic"> block`);
+  const pre = block(file, "core") !== null ? core + "\n" : "";
+  return new Function(`${pre}${l}\nreturn { ${names.join(", ")} };`)();
 }
 
 const B = logic("board.html", [
   "channelsOn", "isPicked", "needsReveal", "creditsNeeded", "revealIds", "spendMode", "balanceAfter",
   "dedupeKey", "uniquePeople", "newPeople", "readyPeople", "sendState", "sendPayload", "sentKeyOf",
-  "applyReveal", "records", "spendLine", "REVEAL_CAP", "zoneFor",
+  "applyReveal", "records", "spendLine", "REVEAL_CAP", "zoneFor", "moveToKit",
 ]);
 const A = logic("ask.html", ["apolloState", "askCard", "canFind", "parseList", "SOURCES", "zoneFor"]);
+
+test("every page that carries core.js carries it byte for byte", () => {
+  const pages = readdirSync(dir).filter((n) => n.endsWith(".html") && block(n, "core") !== null);
+  assert.deepEqual(pages.sort(), ["board.html", "progress.html", "send.html"]);
+  for (const f of pages) {
+    assert.equal(block(f, "core").trim(), core.trim(), `${f}: run node items/lead-finder-kit/sync-core.mjs`);
+    const html = readFileSync(new URL(f, dir), "utf8");
+    assert.ok(html.indexOf('id="core"') < html.indexOf('id="logic"'), `${f}: core comes before logic`);
+  }
+});
+
+test("kit.json is valid and its zones never overlap", () => {
+  const kit = JSON.parse(readFileSync(new URL("kit.json", dir), "utf8"));
+  const zs = kit.zones;
+  for (let i = 0; i < zs.length; i++) {
+    for (let j = i + 1; j < zs.length; j++) {
+      const a = zs[i], b = zs[j];
+      const apart = a.dx + a.w <= b.dx || b.dx + b.w <= a.dx || a.dy + a.h <= b.dy || b.dy + b.h <= a.dy;
+      assert.ok(apart, `${a.key} and ${b.key} overlap`);
+    }
+  }
+  const keys = zs.map((z) => z.key);
+  assert.deepEqual(keys, ["progress", "who", "leads", "outreach", "send"]);
+  assert.equal(zs[0].dy, 0);
+  for (const p of kit.pages) {
+    assert.ok(keys.includes(p.zone), `${p.file} is in a zone that exists`);
+    readFileSync(new URL(p.file, dir), "utf8");
+  }
+  const strip = kit.pages.find((p) => p.file === "progress.html");
+  assert.equal(strip.size, "fill");
+  assert.ok(kit.pages.some((p) => p.file === "send.html" && p.zone === "send"));
+});
+
+test("no page uses an em dash", () => {
+  for (const f of readdirSync(dir).filter((n) => n.endsWith(".html") || n === "core.js")) {
+    assert.doesNotMatch(readFileSync(new URL(f, dir), "utf8"), /—/, `${f} has an em dash`);
+  }
+});
 
 const ch = (email, call, linkedin) => ({ email: !!email, call: !!call, linkedin: !!linkedin });
 const person = (id, over = {}) => ({

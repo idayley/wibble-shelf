@@ -5,17 +5,17 @@
 <title>Lead board</title>
 <!--
   THE LEAD BOARD. One page per canvas, placed by the Lead finder kit in its
-  Leads zone. Everything it knows lives in the pin's own store
-  (window.wibble), one key per record, so the operator and the agents never
-  overwrite each other:
+  Leads zone. Everything it knows lives in the kit store
+  (window.wibble.kit), shared with the progress strip, To send and both
+  agents, one key per record, so the operator and the agents never
+  overwrite each other. The record shapes are written once, at the top of
+  core.js.
 
-    request        Lead scout: { text, source, list?, at }
-    filters        Lead scout: { chips: [{label, value}], apollo?: {...}, saved?: true }
-    person:<id>    Lead scout adds; the operator sets channels here.
-                   { name, title, company, why, linkedin?, email?, phone?,
-                     phoneNote?, source, apolloId?, channels: {email, call, linkedin},
-                     revealed, revealFailed? }
-    settings       this page: { sentKey, sentAt }
+  Older placings kept all of this in the page's own store. On load, when
+  the kit store has no leads and the own store does, the board copies them
+  into the kit store (moveToKit). The own copy stays; nothing is deleted.
+  Outside a placed kit (window.wibble.kit is undefined) the board works on
+  its own store as before.
 
   Never a forced channel: Email / Call / LinkedIn start off. A person with
   none on is skipped.
@@ -27,8 +27,9 @@
   Send to Outreach lands a Picks card in Outreach (wibble.land). Wibble
   never sends, calls or messages anyone.
 
-  The rules are in the first script block, which has no DOM in it so
-  board.test.mjs can run it under node.
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  board.test.mjs can run them under node.
 
   Classes start with lf- on purpose: the frame drops any kit rule whose
   class a page's stylesheet also names.
@@ -73,29 +74,63 @@ body{margin:0;padding:16px;font:13px/1.5 var(--sans,system-ui,sans-serif);color:
 .lf-msg{font-size:12.5px;padding:8px 10px;border-radius:8px;background:rgba(120,200,160,.1);color:#bfe6d0}
 .lf-msg.lf-bad{background:rgba(240,106,122,.12);color:#f6a3ad}
 .lf-empty{padding:22px;border:1px dashed var(--edge,rgba(255,255,255,.14));border-radius:12px;text-align:center;color:var(--muted,#8a8a8a)}
+.lf-empty b{color:var(--text,#ddd);font-weight:600}
 .lf-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
 </style>
 </head>
 <body>
 <div class="lf-wrap" id="board"></div>
 
-<script id="logic">
-/* THE RULES. Pure functions, no DOM, no window: the test file pulls this
-   block out of the page and runs it under node. */
+<script id="core">
+/* THE LEAD FINDER KIT'S SHARED RULES, AND THE STORE SCHEMA. Every page and
+   both agents need the same idea of who is on the board, who is picked,
+   what is a draft and what is next, or the progress strip, the board, To
+   send and the agents drift apart. Pure functions, no DOM, no window. This
+   file is the only copy: sync-core.mjs pastes it into each page's
+   <script id="core">, and core.test.mjs runs it under node.
+
+   THE KIT STORE (window.wibble.kit, shared by every page of one placed kit;
+   agents reach it with read_pin -> `kit` and set_pin_data {kit: true}).
+   One key per record, so the operator and the agents never overwrite each
+   other. Agents merge only; they never pass replace.
+
+     request        Lead scout writes. { text, source: "apollo"|"web"|"list", list?, at }
+     filters        Lead scout writes. { chips: [{ label, value }], apollo?: {...}, saved?: true }
+     person:<id>    Lead scout adds (never overwrites); the operator sets channels on the
+                    board and Apollo's reveal fills email, linkedin and revealed.
+                    { name, title, company, why, linkedin?, email?, phone?, phoneNote?,
+                      source: "apollo"|"web"|"list", apolloId?,
+                      channels: { email, call, linkedin }  (all false when written),
+                      revealed, revealFailed? }
+                    <id> is "a-<apolloId>" for Apollo people, else a slug of name and company.
+     draft:<id>     Outreach asker writes; the To send page marks it sent.
+                    { person: <person id>, channel: "email"|"call"|"linkedin",
+                      subject?  (email only), body, at: <ISO time>,
+                      status: "draft"|"sent", sentAt?: <ISO time> }
+                    <id> is "<person id>-<channel>", so one draft per person per channel.
+                    An agent never rewrites a draft that exists.
+     settings       The board writes. { sentKey, sentAt }: the picks last sent to Outreach.
+
+   Wibble never sends, calls or messages anyone, and never spends for the
+   operator: every send, call and credit is theirs to press. */
 
 var CHANNELS = [
   { id: "email", label: "Email" },
   { id: "call", label: "Call" },
   { id: "linkedin", label: "LinkedIn" }
 ];
-var REVEAL_CAP = 100;
 var SOURCE_NAMES = { apollo: "Apollo", web: "Web search", list: "My list" };
 
 function str(v) { return typeof v === "string" ? v.trim() : ""; }
 
-function num(n) { return Number(n).toLocaleString("en-US"); }
-
 function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+
+function toMs(t) {
+  if (t == null || t === "") return NaN;
+  if (typeof t === "number") return t;
+  if (t instanceof Date) return t.getTime();
+  return Date.parse(t);
+}
 
 /* The channels the operator switched on, in a fixed order. */
 function channelsOn(p) {
@@ -104,6 +139,11 @@ function channelsOn(p) {
 }
 
 function isPicked(p) { return channelsOn(p).length > 0; }
+
+function labelOf(id) {
+  for (var i = 0; i < CHANNELS.length; i++) if (CHANNELS[i].id === id) return CHANNELS[i].label;
+  return id;
+}
 
 /* Email and LinkedIn come from Apollo's reveal, at one credit a person
    whichever of the two (or both) is picked. Call never costs: a phone
@@ -114,7 +154,7 @@ function needsReveal(p) {
   return on.indexOf("email") >= 0 || on.indexOf("linkedin") >= 0;
 }
 
-/* Apollo ids to reveal: once each, at most REVEAL_CAP (the extension's own cap). */
+/* Apollo ids to reveal: once each. */
 function allRevealIds(people) {
   var seen = {}, out = [];
   (people || []).forEach(function (p) {
@@ -122,8 +162,266 @@ function allRevealIds(people) {
   });
   return out;
 }
-function revealIds(people) { return allRevealIds(people).slice(0, REVEAL_CAP); }
 function creditsNeeded(people) { return allRevealIds(people).length; }
+
+/* ---- the same person, found again -------------------------------------- */
+
+function linkedinKey(u) {
+  return str(u).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
+}
+
+function words(s) { return str(s).toLowerCase().replace(/\s+/g, " "); }
+
+/* Apollo id first, then LinkedIn, then name and company. The scout uses
+   the same order when it decides whether to add someone. */
+function dedupeKey(p) {
+  if (p && p.apolloId) return "a:" + p.apolloId;
+  var li = linkedinKey(p && p.linkedin);
+  if (li) return "l:" + li;
+  return "n:" + words(p && p.name) + "|" + words(p && p.company);
+}
+
+/* One of each person, keeping the one the operator has already worked on
+   (revealed, then picked), else the first. Order of first appearance. */
+function uniquePeople(list) {
+  var best = {}, order = [];
+  (list || []).forEach(function (p) {
+    var k = dedupeKey(p);
+    var score = (p.revealed ? 2 : 0) + (isPicked(p) ? 1 : 0);
+    if (!(k in best)) { best[k] = { p: p, score: score }; order.push(k); }
+    else if (score > best[k].score) best[k] = { p: p, score: score };
+  });
+  return order.map(function (k) { return best[k].p; });
+}
+
+/* Records out of the store. */
+function records(data) {
+  var out = { request: {}, filters: {}, people: [], drafts: [], settings: {} };
+  var d = data || {};
+  if (d.request && typeof d.request === "object") out.request = d.request;
+  if (d.filters && typeof d.filters === "object") out.filters = d.filters;
+  if (d.settings && typeof d.settings === "object") out.settings = d.settings;
+  for (var k in d) {
+    var v = d[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("person:") === 0) out.people.push(Object.assign({}, v, { id: k.slice(7) }));
+    else if (k.indexOf("draft:") === 0) out.drafts.push(Object.assign({}, v, { id: k.slice(6) }));
+  }
+  return out;
+}
+
+/* ---- one-time move from the board's own store into the kit store -------- */
+
+/* The board used to keep everything in its own pin store. When the kit
+   store has no leads yet and the board's own store does, this is the patch
+   that copies request, filters, settings and the people into the kit
+   store. The own copy is left as it is: nothing is ever deleted. Returns
+   null when there is nothing to move. */
+function moveToKit(kitData, ownData) {
+  var kit = kitData || {}, own = ownData || {};
+  function hasPeople(d) { for (var k in d) if (k.indexOf("person:") === 0 && d[k] && typeof d[k] === "object") return true; return false; }
+  if (hasPeople(kit) || !hasPeople(own)) return null;
+  var patch = {};
+  for (var k in own) {
+    var v = own[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("person:") === 0) patch[k] = v;
+    else if ((k === "request" || k === "filters" || k === "settings") && !(k in kit)) patch[k] = v;
+  }
+  return patch;
+}
+
+/* ---- Send to Outreach ------------------------------------------------------ */
+
+/* Picked, and nothing left to reveal for them. */
+function readyPeople(people) {
+  return (people || []).filter(function (p) { return isPicked(p) && !needsReveal(p) && !p.revealFailed; });
+}
+
+/* The Picks card Outreach asker reads: each picked person, how the
+   operator wants to reach them, and everything known. */
+function sendPayload(people, request) {
+  var ready = readyPeople(people);
+  var req = request || {};
+  var lines = [];
+  if (str(req.text)) lines.push("Request: " + str(req.text));
+  if (SOURCE_NAMES[req.source]) lines.push("Where to look: " + SOURCE_NAMES[req.source]);
+  ready.forEach(function (p) {
+    lines.push("");
+    lines.push("## " + (str(p.name) || "Unnamed"));
+    lines.push("Person: " + p.id);
+    var who = [str(p.title), str(p.company)].filter(Boolean).join(", ");
+    if (who) lines.push(who);
+    lines.push("Reach by: " + channelsOn(p).map(labelOf).join(", "));
+    if (str(p.email)) lines.push("Email: " + str(p.email));
+    if (str(p.linkedin)) lines.push("LinkedIn: " + str(p.linkedin));
+    if (str(p.phone)) lines.push("Phone: " + str(p.phone) + (str(p.phoneNote) ? " (" + str(p.phoneNote) + ")" : ""));
+    if (str(p.why)) lines.push("Why: " + str(p.why));
+  });
+  return { zone: "Outreach", title: "Picks: " + plural(ready.length, "person", "people"), text: lines.join("\n").replace(/^\n+/, "") };
+}
+
+function sentKeyOf(payload) {
+  var s = payload.title + "\n" + payload.text, h = 5381;
+  for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
+  return h.toString(36);
+}
+
+/* Whether Send to Outreach is on, and if not why. */
+function sendState(people, sentKey, request) {
+  var need = creditsNeeded(people);
+  var ready = readyPeople(people);
+  if (need > 0) return { enabled: false, count: ready.length, why: "Spend " + plural(need, "credit") + " first, or turn Email and LinkedIn off for those people." };
+  if (ready.length === 0) return { enabled: false, count: 0, why: "Pick Email, Call or LinkedIn for at least one person." };
+  if (sentKey && sentKey === sentKeyOf(sendPayload(people, request))) {
+    return { enabled: false, count: ready.length, sent: true, why: "Already sent. Change a pick to send again." };
+  }
+  return { enabled: true, count: ready.length, why: "" };
+}
+
+/* ---- drafts ------------------------------------------------------------------ */
+
+function isSentDraft(d) { return !!d && d.status === "sent"; }
+
+/* What Copy puts on the clipboard: the subject line, then the body. */
+function copyText(d) {
+  return (str(d && d.subject) ? "Subject: " + str(d.subject) + "\n\n" : "") + ((d && d.body) || "");
+}
+
+/* "Email", "Call sheet" or "LinkedIn note": what the draft is. */
+function draftKind(d) {
+  if (d && d.channel === "call") return "Call sheet";
+  if (d && d.channel === "linkedin") return "LinkedIn note";
+  return "Email";
+}
+
+/* The record the Sent button writes: status and time, nothing else changed. */
+function markSent(d, now) {
+  var out = Object.assign({}, d, { status: "sent", sentAt: new Date(now == null ? Date.now() : now).toISOString() });
+  delete out.id;
+  return out;
+}
+
+function byTimeDesc(key) {
+  return function (a, b) {
+    var x = toMs(a[key]), y = toMs(b[key]);
+    if (isNaN(x)) x = 0;
+    if (isNaN(y)) y = 0;
+    return y - x || String(a.id).localeCompare(String(b.id));
+  };
+}
+
+/* The drafts as rows for To send: still to send (newest first), and sent
+   (latest sent first), each with the person it is for. */
+function draftRows(r) {
+  var byId = {};
+  (r.people || []).forEach(function (p) { byId[p.id] = p; });
+  function row(d) {
+    var p = byId[d.person] || null;
+    return {
+      id: d.id, person: d.person, who: (p && str(p.name)) || "Someone",
+      sub: p ? [str(p.title), str(p.company)].filter(Boolean).join(" · ") : "",
+      channel: d.channel, kind: draftKind(d), subject: str(d.subject), body: d.body || "",
+      sent: isSentDraft(d), sentAt: d.sentAt || "", at: d.at || ""
+    };
+  }
+  var all = (r.drafts || []).slice();
+  var todo = all.filter(function (d) { return !isSentDraft(d); }).sort(byTimeDesc("at")).map(row);
+  var done = all.filter(isSentDraft).sort(byTimeDesc("sentAt")).map(row);
+  return { todo: todo, sent: done, count: all.length };
+}
+
+/* ---- the funnel and what is next --------------------------------------------- */
+
+/* Found, picked, drafted, sent: each counts people, never drafts, and each
+   says what it counts. */
+function funnel(r) {
+  var people = uniquePeople(r.people);
+  var drafted = {}, sent = {};
+  (r.drafts || []).forEach(function (d) {
+    if (!d.person) return;
+    drafted[d.person] = true;
+    if (isSentDraft(d)) sent[d.person] = true;
+  });
+  return [
+    { id: "found", label: "Found", n: people.length, what: "people on the Lead board" },
+    { id: "picked", label: "Picked", n: people.filter(isPicked).length, what: "people you chose a way to reach" },
+    { id: "drafted", label: "Drafted", n: Object.keys(drafted).length, what: "people with a draft in To send" },
+    { id: "sent", label: "Sent", n: Object.keys(sent).length, what: "people you pressed Sent for" }
+  ];
+}
+
+/* How many ready people have a chosen channel with no draft yet. */
+function undrafted(people, drafts) {
+  var have = {};
+  (drafts || []).forEach(function (d) { have[d.person + ":" + d.channel] = true; });
+  return readyPeople(people).filter(function (p) {
+    return channelsOn(p).some(function (c) { return !have[p.id + ":" + c]; });
+  }).length;
+}
+
+/* Everything waiting on the operator, in the order of the kit's zones
+   (Who to find, Leads, Outreach, To send). The first is what is next; the
+   second, if any, is what else is waiting. zone is a kit zone key, or null
+   when the only thing happening is an agent at work. step is the funnel
+   step the operator is on (0 found .. 3 sent, 4 when everything is sent). */
+function waiting(r) {
+  var people = uniquePeople(r.people);
+  var picked = people.filter(isPicked);
+  var unpicked = people.length - picked.length;
+  var drafts = r.drafts || [];
+  var todo = drafts.filter(function (d) { return !isSentDraft(d); });
+  var out = [];
+  function add(zone, step, text, why, short) { out.push({ zone: zone, step: step, text: text, why: why, also: short }); }
+  if (!people.length) {
+    if (str((r.request || {}).text)) add("who", 0, "Check Who to find", "Lead scout has your request but nobody is on the board yet. If it has finished, ask again with wider words.", "Who to find, nobody was found yet");
+    else add("who", 0, "Say who you want to reach", "Lead scout can only look once you press Find people in Who to find.", "Find people in Who to find");
+  } else if (!picked.length) {
+    add("leads", 1, "Pick who to reach", "Tap Email, Call or LinkedIn on each person in Leads. Tap nothing to skip someone.", "Pick people in Leads");
+  } else {
+    var st = sendState(people, (r.settings || {}).sentKey, r.request);
+    var need = creditsNeeded(people);
+    if (need > 0) add("leads", 1, "Spend " + plural(need, "credit") + ", or turn off Email and LinkedIn", "Those people need an Apollo reveal before they can go to Outreach. Nothing is spent until you press Spend.", "Spend or skip in Leads");
+    else if (st.enabled && undrafted(people, drafts) > 0) {
+      var left = undrafted(people, drafts);
+      add("leads", 1, "Press Send to Outreach", plural(left, "picked person", "picked people") + " " + (left === 1 ? "is" : "are") + " ready for Outreach asker to draft. Nothing goes to them.", "Send to Outreach in Leads");
+    }
+    else if (st.count === 0) add("leads", 1, "Pick someone else", "Apollo had no match for the people you picked.", "Pick someone else in Leads");
+    else if (st.sent && !drafts.length) add(null, 2, "Wait for your drafts", "Outreach asker is writing them. They show up in To send.", "");
+  }
+  if (todo.length) add("send", 3, "Send your " + plural(todo.length, "draft"), "Copy each in To send, send it yourself, then press Sent. Wibble sends nothing.", plural(todo.length, "draft") + " in To send");
+  if (people.length && picked.length && unpicked > 0) {
+    add("leads", 1, "Pick more people", plural(unpicked, "person", "people") + " in Leads " + (unpicked === 1 ? "has" : "have") + " no way to reach them picked yet.", plural(unpicked, "person", "people") + " in Leads not picked");
+  }
+  return out;
+}
+
+/* What the operator does next: the first thing waiting, with its reason and
+   what else is waiting. With nothing waiting, it says so. */
+function nextStep(r) {
+  var w = waiting(r);
+  if (!w.length) {
+    var all = (r.drafts || []).length > 0;
+    return { zone: null, step: 4, text: "Nothing is waiting for you", why: all ? "Every draft is sent. Ask for more people in Who to find whenever you like." : "Ask for more people in Who to find whenever you like.", also: "" };
+  }
+  var first = w[0];
+  return { zone: first.zone, step: first.step, text: first.text, why: first.why, also: w[1] ? w[1].also : "" };
+}
+
+/* Ring a zone only when the next step moves to a different one. */
+function shouldMark(prevZone, zone) {
+  return zone !== prevZone;
+}
+</script>
+
+<script id="logic">
+/* THIS PAGE'S RULES. Pure functions, no DOM, no window: board.test.mjs
+   pulls this block out of the page, after core, and runs it under node. */
+
+var REVEAL_CAP = 100;
+
+function num(n) { return Number(n).toLocaleString("en-US"); }
+function revealIds(people) { return allRevealIds(people).slice(0, REVEAL_CAP); }
 
 /* Apollo when any person on the board came from it; otherwise there is
    nothing to spend. */
@@ -154,51 +452,6 @@ function spendLine(n, bal) {
   var line = head + ": " + num(bal.left) + " now, " + num(balanceAfter(bal.left, n)) + " after.";
   var d = shortDate(bal.resets);
   return d ? line + " Credits reset " + d + "." : line;
-}
-
-/* ---- the same person, found again -------------------------------------- */
-
-function linkedinKey(u) {
-  var s = str(u).toLowerCase().replace(/^https?:\/\//, "").replace(/^www\./, "").replace(/[?#].*$/, "").replace(/\/+$/, "");
-  return s;
-}
-
-function words(s) { return str(s).toLowerCase().replace(/\s+/g, " "); }
-
-/* Apollo id first, then LinkedIn, then name and company. The scout uses
-   the same order when it decides whether to add someone. */
-function dedupeKey(p) {
-  if (p && p.apolloId) return "a:" + p.apolloId;
-  var li = linkedinKey(p && p.linkedin);
-  if (li) return "l:" + li;
-  return "n:" + words(p && p.name) + "|" + words(p && p.company);
-}
-
-/* One of each person, keeping the one the operator has already worked on
-   (revealed, then picked), else the first. Order of first appearance. */
-function uniquePeople(list) {
-  var best = {}, order = [];
-  (list || []).forEach(function (p) {
-    var k = dedupeKey(p);
-    var score = (p.revealed ? 2 : 0) + (isPicked(p) ? 1 : 0);
-    if (!(k in best)) { best[k] = { p: p, score: score }; order.push(k); }
-    else if (score > best[k].score) best[k] = { p: p, score: score };
-  });
-  return order.map(function (k) { return best[k].p; });
-}
-
-/* Records out of the store. */
-function records(data) {
-  var out = { request: {}, filters: {}, people: [], settings: {} };
-  var d = data || {};
-  if (d.request && typeof d.request === "object") out.request = d.request;
-  if (d.filters && typeof d.filters === "object") out.filters = d.filters;
-  if (d.settings && typeof d.settings === "object") out.settings = d.settings;
-  for (var k in d) {
-    var v = d[k];
-    if (k.indexOf("person:") === 0 && v && typeof v === "object") out.people.push(Object.assign({}, v, { id: k.slice(7) }));
-  }
-  return out;
 }
 
 /* A re-search adds only who isn't on the board. */
@@ -256,40 +509,6 @@ function applyReveal(people, asked, result) {
   return out;
 }
 
-/* ---- Send to Outreach ------------------------------------------------------ */
-
-/* Picked, and nothing left to reveal for them. */
-function readyPeople(people) {
-  return (people || []).filter(function (p) { return isPicked(p) && !needsReveal(p) && !p.revealFailed; });
-}
-
-function labelOf(id) {
-  for (var i = 0; i < CHANNELS.length; i++) if (CHANNELS[i].id === id) return CHANNELS[i].label;
-  return id;
-}
-
-/* The Picks card Outreach asker reads: each picked person, how the
-   operator wants to reach them, and everything known. */
-function sendPayload(people, request) {
-  var ready = readyPeople(people);
-  var req = request || {};
-  var lines = [];
-  if (str(req.text)) lines.push("Request: " + str(req.text));
-  if (SOURCE_NAMES[req.source]) lines.push("Where to look: " + SOURCE_NAMES[req.source]);
-  ready.forEach(function (p) {
-    lines.push("");
-    lines.push("## " + (str(p.name) || "Unnamed"));
-    var who = [str(p.title), str(p.company)].filter(Boolean).join(", ");
-    if (who) lines.push(who);
-    lines.push("Reach by: " + channelsOn(p).map(labelOf).join(", "));
-    if (str(p.email)) lines.push("Email: " + str(p.email));
-    if (str(p.linkedin)) lines.push("LinkedIn: " + str(p.linkedin));
-    if (str(p.phone)) lines.push("Phone: " + str(p.phone) + (str(p.phoneNote) ? " (" + str(p.phoneNote) + ")" : ""));
-    if (str(p.why)) lines.push("Why: " + str(p.why));
-  });
-  return { zone: "Outreach", title: "Picks: " + plural(ready.length, "person", "people"), text: lines.join("\n").replace(/^\n+/, "") };
-}
-
 /* Where a card goes. The app writes each kit page a map of the kit's zone
    keys to the zones it placed ("kitZones"), so a renamed zone, or a second
    placing, still lands here. Without it (a plain browser, an old placing)
@@ -297,24 +516,6 @@ function sendPayload(people, request) {
 function zoneFor(zones, key, name) {
   var id = zones && typeof zones === "object" ? zones[key] : "";
   return typeof id === "string" && id ? id : name;
-}
-
-function sentKeyOf(payload) {
-  var s = payload.title + "\n" + payload.text, h = 5381;
-  for (var i = 0; i < s.length; i++) h = ((h * 33) ^ s.charCodeAt(i)) >>> 0;
-  return h.toString(36);
-}
-
-/* Whether Send to Outreach is on, and if not why. */
-function sendState(people, sentKey, request) {
-  var need = creditsNeeded(people);
-  var ready = readyPeople(people);
-  if (need > 0) return { enabled: false, count: ready.length, why: "Spend " + plural(need, "credit") + " first, or turn Email and LinkedIn off for those people." };
-  if (ready.length === 0) return { enabled: false, count: 0, why: "Pick Email, Call or LinkedIn for at least one person." };
-  if (sentKey && sentKey === sentKeyOf(sendPayload(people, request))) {
-    return { enabled: false, count: ready.length, sent: true, why: "Already sent. Change a pick to send again." };
-  }
-  return { enabled: true, count: ready.length, why: "" };
 }
 
 /* Filter chips from what Lead scout wrote: a list of {label, value}, or
@@ -338,7 +539,7 @@ function initials(name) {
 <script>
 /* THE PAGE. Draws from the store and writes back one record at a time. */
 (function () {
-  var store = window.wibble || (function () {
+  var base = window.wibble || (function () {
     // Outside wibble (a plain browser): a store that forgets on reload, a
     // demo board, and an Apollo that answers like a connected one.
     var d = {
@@ -372,6 +573,18 @@ function initials(name) {
       land: function (card) { console.log("land", card); return Promise.resolve(); },
     };
   })();
+
+  // The records live in the kit store, shared with the strip, To send and the
+  // agents. Without one (an older placing, a plain browser) the page's own
+  // store stands in, as before. Apollo, landing cards and kitZones stay on base.
+  var kit = base.kit;
+  var store = kit ? {
+    get: function (k) { return kit.get(k); },
+    set: function (k, v) { return kit.set(k, v); },
+    subscribe: function (f) { return kit.subscribe(f); },
+    call: function (a, b, c) { return base.call(a, b, c); },
+    land: function (card) { return base.land(card); },
+  } : base;
 
   var root = document.getElementById("board");
   var SHOWN = 8;
@@ -442,6 +655,7 @@ function initials(name) {
     h += '<div class="lf-row"><button type="button" class="lf-btn' + (mode === "apollo" ? "" : " lf-go") + '" id="send"' + (st.enabled && !ui.busy ? "" : " disabled") + ">" +
       (ui.busy === "send" ? "Sending..." : "Send to Outreach" + (st.count ? " (" + st.count + ")" : "")) + "</button></div>";
     if (!st.enabled && st.why) h += '<div class="lf-muted">' + esc(st.why) + "</div>";
+    if (st.enabled) h += '<div class="lf-muted">Outreach asker writes a draft for each way you picked. Nothing is sent to them.</div>';
     if (ui.msg) h += '<div class="lf-msg' + (ui.bad ? " lf-bad" : "") + '" role="status">' + esc(ui.msg) + "</div>";
     return h + "</div>";
   }
@@ -459,11 +673,11 @@ function initials(name) {
     if (!people.length) {
       h = '<div class="lf-head"><div class="lf-title">' + esc(str(req.text) || "No search yet") + "</div></div>" +
         (chips.length ? '<div class="lf-chips">' + chips.map(function (c) { return '<span class="lf-chip"><b>' + esc(c.label) + "</b>" + esc(c.value) + "</span>"; }).join("") + "</div>" : "") +
-        '<div class="lf-empty">No people yet. Ask in Who to find, and Lead scout adds them here.</div>';
+        '<div class="lf-empty">No people yet.<br>Press <b>Find people</b> in Who to find, and Lead scout adds them here.</div>';
     } else {
       var shown = ui.all ? people : people.slice(0, SHOWN);
       h = '<div class="lf-head"><div class="lf-title">' + esc(str(req.text) || "Leads") + "</div>" +
-        '<span class="lf-muted">' + people.length + " found" + (shown.length < people.length ? " · " + shown.length + " shown" : "") + '</span><span class="lf-muted lf-grow">' + picked + " picked</span></div>";
+        '<span class="lf-muted">' + plural(people.length, "person", "people") + " found" + (shown.length < people.length ? " · " + shown.length + " shown" : "") + '</span><span class="lf-muted lf-grow">' + picked + " picked to reach</span></div>";
       if (chips.length) h += '<div class="lf-chips">' + chips.map(function (c) { return '<span class="lf-chip"><b>' + esc(c.label) + "</b>" + esc(c.value) + "</span>"; }).join("") + "</div>";
       h += '<div id="people">' + shown.map(row).join("") + "</div>";
       if (people.length > SHOWN) h += '<div><button type="button" class="lf-link" id="all">' + (ui.all ? "Show fewer" : "Show all " + people.length) + "</button></div>";
@@ -523,7 +737,7 @@ function initials(name) {
       if (!state.enabled || ui.busy) return;
       var card = sendPayload(people, rec.request);
       ui.busy = "send"; say(""); draw();
-      Promise.resolve().then(function () { return store.land({ zone: zoneFor(store.get("kitZones"), "outreach", card.zone), title: card.title, text: card.text }); })
+      Promise.resolve().then(function () { return store.land({ zone: zoneFor(base.get("kitZones"), "outreach", card.zone), title: card.title, text: card.text }); })
         .then(function () {
           store.set("settings", Object.assign({}, rec.settings || {}, { sentKey: sentKeyOf(card), sentAt: new Date().toISOString() }));
           say("Sent " + plural(state.count, "person", "people") + " to Outreach. Outreach asker is writing the drafts.");
@@ -532,8 +746,24 @@ function initials(name) {
     }
   });
 
+  // The one-time move: leads kept in this page's own store before the kit
+  // store existed are copied into it. Computed against the kit data as it is
+  // when the own store answers, so a copy never lands on top of newer picks.
+  var moveTried = false;
+  function moveOwn() {
+    if (moveTried || !kit || typeof base.all !== "function") return;
+    moveTried = true;
+    Promise.resolve().then(function () { return base.all(); })
+      .then(function (own) {
+        var patch = moveToKit(ui.data, own);
+        if (patch) kit.set(patch);
+      })
+      .catch(function () {});
+  }
+
   store.subscribe(function (data) {
     ui.data = data || {};
+    moveOwn();
     if (!ui.balChecked && spendMode(records(ui.data).people) === "apollo") loadBalance();
     draw();
   });
