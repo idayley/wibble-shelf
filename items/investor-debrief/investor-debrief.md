@@ -113,7 +113,7 @@ Update the `investor:<slug>` record by sending the **whole record back with its 
 
 | Reading | Step | Other fields |
 |---|---|---|
-| `next` | one step on (never past 8) | `dates[<new step>] = at`; `lastContact = at`; replace `next` with the dated action the investor named: `{ "text": "<the action>", "due": "<its date>" }` (drop `next` if the date is unclear) |
+| `next` | if the step is below 4 (Follow-up), move to 4; at 4 or above, one step on (never past 8). But if the step is already 4 and `dates["4"]` is on or after `at`, the founder pressed **Met** on this meeting's prep sheet already: leave it at 4 | `dates[<new step>] = at` when the step changed; `lastContact = at`; replace `next` with the dated action the investor named: `{ "text": "<the action>", "due": "<its date>" }` (drop `next` if the date is unclear) |
 | `intro` | at least step 3 (First meeting) | `dates["3"] = at` when the step changed; `lastContact = at`; set `next` to what is needed for the first meeting if they named a date: `{ "text": "...", "due": "..." }`, else drop `next` |
 | `maybe` | unchanged | `lastContact = at`; leave `next` as it is |
 | `pass` | unchanged | `passed: true`, `passedAt = at`, `lastContact = at`; `bar` = what they named, in their words (omit if none); drop `next` |

@@ -230,11 +230,12 @@ test("story: hard questions are ready, need evidence or are yours to write", () 
   assert.equal(v.readyLine, "2 of 6 ready");
 });
 
-test("story: Fill answers is disabled, with a reason, until Discovery has a scored call", () => {
+test("story: Fill answers stays enabled, with a reason as a hint while Discovery is empty or unreadable", () => {
   const r = ST.records({});
-  assert.equal(ST.questionsView(r, undefined).fill.disabled, true);
-  assert.equal(ST.questionsView(r, ST.fromDiscovery({}, 0)).fill.disabled, true);
+  assert.equal(ST.questionsView(r, undefined).fill.disabled, false);
+  assert.equal(ST.questionsView(r, ST.fromDiscovery({}, 0)).fill.disabled, false);
   assert.match(ST.questionsView(r, undefined).fill.reason, /Discovery/);
+  assert.match(ST.questionsView(r, ST.fromDiscovery({}, 0)).fill.reason, /nothing to draw on/);
   const d = ST.fromDiscovery({ "call:1": { person: "p", level: 4 } }, D("2026-10-01"));
   const on = ST.questionsView(r, d);
   assert.equal(on.fill.disabled, false);
@@ -422,7 +423,7 @@ test("investors: Find investors lands the source and what was typed", () => {
 
 // ---- To send -----------------------------------------------------------------
 
-const TS = logic("send.html", ["draftsView", "sentPatch", "metPatch", "requestCard", "records"]);
+const TS = logic("send.html", ["draftsView", "sentPatch", "metPatch", "requestCard", "updateCard", "records"]);
 const sendStore = {
   "investor:np": { name: "Priya Shah", step: 0, how: "warm", next: { text: "Ask Jon", due: "2026-10-14" } },
   "investor:dw": { name: "Dana Whitfield", step: 3, how: "know", dates: { 3: "2026-10-12" } },
@@ -484,6 +485,43 @@ test("to send: Sent moves the step only when the draft advances", () => {
   const upd = TS.sentPatch(r, "d", D("2026-10-14"));
   assert.equal(upd.investor, null);
   assert.equal(TS.sentPatch(r, "nope", 0), null);
+});
+
+test("to send: Sent on a cold note or a note to someone you know stays put and waits a week for a reply", () => {
+  const store = {
+    "investor:ml": { name: "Marcus Lee", step: 0, how: "cold", lastContact: "2026-10-01", next: { text: "Draft a cold note", due: "2026-10-14" } },
+    "investor:fr": { name: "Fran", step: 0, how: "know" },
+    "draft:c1": { kind: "cold", investor: "ml", text: "Hi", advances: false, status: "new" },
+    "draft:c2": { kind: "direct", investor: "fr", text: "Hi", advances: false, status: "new" },
+  };
+  const r = TS.records(store);
+  for (const [id, key] of [["c1", "investor:ml"], ["c2", "investor:fr"]]) {
+    const p = TS.sentPatch(r, id, D("2026-10-14"));
+    assert.equal(p.investor.key, key);
+    assert.equal(p.investor.value.step, 0);
+    assert.equal(p.investor.value.lastContact, "2026-10-14");
+    assert.deepEqual(p.investor.value.next, { text: "Waiting for their reply", due: "2026-10-21" });
+  }
+  // a check-in keeps the investor's own next step
+  const keep = TS.sentPatch(TS.records({ "investor:er": { name: "E", step: 4, next: { text: "Send news", due: "2026-10-30" } }, "draft:k": { kind: "checkin", investor: "er", advances: false } }), "k", D("2026-10-14"));
+  assert.deepEqual(keep.investor.value.next, { text: "Send news", due: "2026-10-30" });
+});
+
+test("to send: the monthly update button lands a card titled Monthly update, empty, in the send zone", () => {
+  assert.deepEqual(TS.updateCard(undefined), { zone: "send", title: "Monthly update", text: "" });
+  assert.equal(TS.updateCard({ send: "z3" }).zone, "z3");
+  const html = readFileSync(new URL("send.html", dir), "utf8");
+  assert.match(html, /Draft the monthly update/);
+});
+
+test("pages: opening a note reads it, show again is local, a re-asked note reopens, an asked check-in clears", () => {
+  const story = readFileSync(new URL("story.html", dir), "utf8");
+  assert.match(story, /if \(!want\) ui\.consumed = ""/);
+  assert.match(story, /act === "note"\) \{[^}]*markRead\(id, r\)/);
+  const inv = readFileSync(new URL("investors.html", dir), "utf8");
+  assert.doesNotMatch(inv, /setRead\(id, false\)/);
+  assert.match(inv, /act === "again"\) \{ ui\.again\[id\] = true/);
+  assert.match(inv, /if \(d\.draft\.pending\) delete ui\.asked\[d\.id\]/);
 });
 
 test("to send: Met on a prep sheet moves the investor to Follow-up, never backwards", () => {

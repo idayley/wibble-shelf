@@ -11,9 +11,9 @@ const src = readFileSync(new URL("./core.js", import.meta.url), "utf8");
 const {
   STEPS, PHASES, GUIDE, WHY_THEY_ASK, STEP_NOTE, DRAFT_NOTE, READING_NOTE,
   records, roundOf, phaseAt, quietDays, nextFor, alsoWaiting, weekNotes, unreadWeek, fromDiscovery, applyReading,
-  questionStatus, isoDay, addDays, advanceStep, noteById, plural, dayLabel, rangeLabel,
+  questionStatus, isoDay, addDays, advanceStep, metInvestor, noteById, plural, dayLabel, rangeLabel,
 } = new Function(
-  src + "\nreturn { STEPS, PHASES, GUIDE, WHY_THEY_ASK, STEP_NOTE, DRAFT_NOTE, READING_NOTE, records, roundOf, phaseAt, quietDays, nextFor, alsoWaiting, weekNotes, unreadWeek, fromDiscovery, applyReading, questionStatus, isoDay, addDays, advanceStep, noteById, plural, dayLabel, rangeLabel };",
+  src + "\nreturn { STEPS, PHASES, GUIDE, WHY_THEY_ASK, STEP_NOTE, DRAFT_NOTE, READING_NOTE, records, roundOf, phaseAt, quietDays, nextFor, alsoWaiting, weekNotes, unreadWeek, fromDiscovery, applyReading, questionStatus, isoDay, addDays, advanceStep, metInvestor, noteById, plural, dayLabel, rangeLabel };",
 )();
 
 const D = (s) => Date.parse(s + "T12:00:00");
@@ -53,8 +53,9 @@ test("dates cross month and year ends", () => {
   assert.equal(isoDay("2026-10-01"), "2026-10-01");
 });
 
-test("quiet after 10 days with no next step due", () => {
-  assert.equal(quietDays({ lastContact: "2026-10-01", step: 4 }, D("2026-10-11")), null);
+test("quiet from 10 days with no next step due", () => {
+  assert.equal(quietDays({ lastContact: "2026-10-01", step: 4 }, D("2026-10-10")), null);
+  assert.equal(quietDays({ lastContact: "2026-10-01", step: 4 }, D("2026-10-11")), 10);
   assert.equal(quietDays({ lastContact: "2026-10-01", step: 4 }, D("2026-10-12")), 11);
   assert.equal(quietDays({ lastContact: "2026-10-01", step: 4, next: { due: "2026-10-14" } }, D("2026-10-12")), null);
   assert.equal(quietDays({ lastContact: "2026-10-01", passed: true }, D("2026-10-30")), null);
@@ -99,7 +100,22 @@ test("a question needing evidence comes before the soonest step", () => {
   });
   const n = nextFor(r, D("2026-10-08"));
   assert.equal(n.zone, "story");
-  assert.match(n.text, /still needs evidence/);
+  assert.match(n.text, /Write an answer to “margins” in 1 · Story/);
+  assert.doesNotMatch(n.text, /Fill answers/);
+  const withText = records({
+    settings: { round: { set: true } },
+    "question:pmf": { status: "ready" }, "question:big": { status: "ready" }, "question:pay": { status: "ready" },
+    "question:margins": { status: "needs", source: "meeting", text: "What are your margins?" },
+    "investor:a": { name: "Dana", step: 3 }, "draft:x": { status: "sent" },
+  });
+  assert.equal(nextFor(withText, D("2026-10-08")).text, "Write an answer to “What are your margins?” in 1 · Story.");
+  // a drafted question still marked needs does ask for Fill answers
+  const drafted = records({
+    settings: { round: { set: true } },
+    "question:pmf": { status: "ready" }, "question:big": { status: "needs" }, "question:pay": { status: "ready" },
+    "investor:a": { name: "Dana", step: 3 }, "draft:x": { status: "sent" },
+  });
+  assert.match(nextFor(drafted, D("2026-10-08")).text, /Fill answers/);
   // a step due today still comes first
   const r2 = records({
     settings: { round: { set: true } },
@@ -108,6 +124,39 @@ test("a question needing evidence comes before the soonest step", () => {
     "draft:x": { status: "sent" },
   });
   assert.equal(nextFor(r2, D("2026-10-08")).zone, "investors");
+});
+
+test("day one ends once all three answers exist, needs or not, and a sent draft ends it", () => {
+  const needs = {
+    settings: { round: { set: true } }, "investor:a": { name: "Dana", step: 0 },
+    "question:pmf": { status: "ready" }, "question:big": { status: "needs" }, "question:pay": { status: "needs" },
+  };
+  const n = nextFor(records(needs), D("2026-10-08"));
+  assert.equal(n.cap, "NEXT FOR YOU");
+  assert.doesNotMatch(n.text, /Fill answers/);
+  assert.deepEqual(nextFor(records(needs), D("2026-10-08")).start.map((x) => x.done), [true, true, true]);
+  // two records is still day one
+  const two = { ...needs }; delete two["question:pay"];
+  assert.match(nextFor(records(two), D("2026-10-08")).text, /Fill answers/);
+  // a sent draft ends day one even with answers still needing evidence
+  const sent = records({ ...needs, "draft:x": { status: "sent" } });
+  assert.equal(nextFor(sent, D("2026-10-08")).start, undefined);
+  const sentTwo = records({ ...two, "draft:x": { status: "sent" } });
+  assert.equal(nextFor(sentTwo, D("2026-10-08")).start, undefined);
+});
+
+test("once any draft exists, a requested follow-up or a due step comes ahead of the day-one checklist", () => {
+  const base = { settings: { round: { set: true } }, "investor:a": { name: "Dana", step: 3 } };
+  const asked = records({ ...base, "draft:y": { kind: "followup", investor: "a", status: "requested" } });
+  const n = nextFor(asked, D("2026-10-08"));
+  assert.equal(n.zone, "send");
+  assert.match(n.text, /Dana/);
+  assert.equal(n.start, undefined);
+  const due = records({ ...base, "investor:a": { name: "Dana", step: 3, next: { text: "Send references", due: "2026-10-08" } }, "draft:y": { kind: "intro", status: "new" } });
+  assert.match(nextFor(due, D("2026-10-08")).text, /Send references/);
+  // no draft yet: the checklist still leads
+  const noDraft = records({ ...base, "investor:a": { name: "Dana", step: 3, next: { text: "Send references", due: "2026-10-08" } } });
+  assert.match(nextFor(noDraft, D("2026-10-08")).text, /Fill answers/);
 });
 
 test("a follow-up request from a meeting asks for the draft in To send", () => {
@@ -174,6 +223,7 @@ test("the notes carry their sources, and the five questions their own", () => {
 
 test("readings move the step", () => {
   assert.equal(applyReading({ step: 3 }, "next", "2026-10-02").step, 4);
+  assert.equal(applyReading({ step: 4 }, "next", "2026-10-02").step, 5);
   assert.equal(applyReading({ step: 3 }, "intro", "2026-10-02").step, 3);
   assert.equal(applyReading({ step: 3 }, "pass", "2026-10-02").passed, true);
   assert.equal(applyReading({ step: 3 }, "maybe", "2026-10-02").step, 3);
@@ -184,6 +234,24 @@ test("readings move the step", () => {
   assert.equal(now.lastContact, "2026-10-02");
   assert.equal(now.dates[4], "2026-10-02");
   assert.equal(was.step, 3);
+});
+
+test("readings: Met then a next reading, or the reverse, both end at Follow-up", () => {
+  const was = { name: "Dana", step: 3, lastContact: "2026-10-01" };
+  const a = applyReading(metInvestor(was, "2026-10-14"), "next", "2026-10-14");
+  assert.equal(a.step, 4);
+  const b = metInvestor(applyReading(was, "next", "2026-10-14"), "2026-10-14");
+  assert.equal(b.step, 4);
+  // the meeting dated before the day Met was pressed is still the same meeting
+  assert.equal(applyReading(metInvestor(was, "2026-10-14"), "next", "2026-10-13").step, 4);
+  // a next reading from earlier than Follow-up lands on Follow-up, as Met does
+  assert.equal(applyReading({ step: 2 }, "next", "2026-10-02").step, 4);
+  // a later meeting at 4 or above moves one step on
+  assert.equal(applyReading({ step: 4, dates: { 4: "2026-10-01" } }, "next", "2026-10-20").step, 5);
+  assert.equal(applyReading({ step: 5 }, "next", "2026-10-20").step, 6);
+  // Met never goes backwards
+  assert.equal(metInvestor({ step: 5 }, "2026-10-14").step, 5);
+  assert.equal(advanceStep({ step: 0 }, "2026-10-14").step, 1);
 });
 
 test("from Discovery: counts across markets, the strongest quote, sharpened bets", () => {
@@ -209,6 +277,29 @@ test("from Discovery: a lapsed or broken commitment doesn't count, nor does a ca
   };
   const f = fromDiscovery(d, D("2026-10-01"));
   assert.deepEqual([f.calls, f.hot, f.commits], [2, 2, 0]);
+});
+
+test("from Discovery: counts what Discovery counts, each person once by their latest call", () => {
+  const d = {
+    "person:f": { name: "Fran", relationship: "friend-family" },
+    "person:a": { name: "Ana" },
+    "person:b": { name: "Bo" },
+    "person:c": { name: "Cy" },
+    "call:1": { person: "f", level: 4, date: "2026-09-01" },
+    "call:2": { person: "f", level: 4, date: "2026-09-02" },
+    "call:3": { person: "a", level: 5, date: "2026-09-03", quote: "Earlier line" },
+    "call:4": { person: "a", level: 2, date: "2026-09-20" },
+    "call:5": { person: "b", level: 5, tainted: true },
+    "call:6": { person: "c", level: 5, inSegment: false },
+    "call:7": { person: "b", level: 4, date: "2026-09-10", confidence: "low", speaker: "ambiguous" },
+    "call:8": { person: "c", level: 4, date: "2026-09-11", commitment: { what: "pilot", status: "kept" } },
+    "call:9": { level: 5 },
+  };
+  const f = fromDiscovery(d, D("2026-10-01"));
+  // Ana's latest call is a 2; Fran, the tainted, out-of-segment, ambiguous and personless calls don't count
+  assert.deepEqual([f.calls, f.hot, f.commits], [2, 1, 1]);
+  const idKeyed = fromDiscovery({ "person:key": { id: "pid", name: "Pia" }, "call:1": { person: "pid", level: 5, quote: "Said it" } }, 0);
+  assert.deepEqual(idKeyed.quote, { text: "Said it", who: "Pia" });
 });
 
 test("records sorts the store by kind and reads the read map", () => {

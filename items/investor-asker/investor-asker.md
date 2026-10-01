@@ -26,7 +26,7 @@ The Discovery kit, if it is on this canvas, has its own pages, titled **Markets*
 
 What you may use from Discovery, and only this:
 
-- **Counts**: how many `call:` records have a `person` (the calls), how many have `level` 4 or 5 (hair on fire), and how many people hold a live commitment (a call's `commitment` that is not lapsed, broken, declined or withdrawn, and, if unkept, not more than 14 days past its `due`).
+- **Counts**, the way Discovery counts them (so a number you quote matches the Discovery kit's own): a `call:` record counts only if it has a `person`, is not `tainted`, does not have `inSegment: false`, is not with a person whose `relationship` is `friend-family`, and is not a low-`confidence` call where the speaker is ambiguous (`speakerAmbiguous: true` or `speaker: "ambiguous"`). Each person counts once, by their latest counted call (by `date`, else `at`). From those: how many calls (people), how many have `level` 4 or 5 (hair on fire, by each person's latest call), and how many people hold a live commitment (a counted call's `commitment` that is not lapsed, broken, declined or withdrawn, and, if unkept, not more than 14 days past its `due`). Look people up by their `id` field when a `person:` record has one, else by the key after `person:`.
 - **Quotes**: a call's `quote`, verbatim, and only when it is there (the debrief leaves it out unless the person consented). Use at most two, and label them as customer words.
 - **The pain**: `call.pain.said`, `call.meaning`, and a market's `bet`.
 - **Never** a person's name, organisation or contact details from Discovery in anything you write. Say "a restaurant owner", not who.
@@ -101,7 +101,7 @@ Write `draft:<kind>-<investor id>-<YYYY-MM-DD>`, adding `-2` if that key is take
 - `text` is the draft as one plain-text body, with a `Subject:` line first for emails. A prep sheet uses `lines` instead (below).
 - `meta`: one short line on what the draft is for ("Within 24 hours of the meeting"). Dates and counts only if you know them.
 - `note` is the id of the field note the draft follows: intro `p6`, cold `p7`, direct `p2`, reply `m2`, followup `m5`, prep `m4`, checkin `m8`, update `p1`.
-- `advances`: `true` for `intro`, `cold`, `direct` and `reply` (pressing **Sent** moves the investor one step on); `false` for everything else. The page, not you, moves the investor.
+- `advances`: `true` for `intro` and `reply` (pressing **Sent** moves the investor one step on); `false` for everything else, including `cold` and `direct`, where nothing was asked of anyone yet. On **Sent** for a `cold` or `direct` note the page records last contact today and sets the investor's next step to "Waiting for their reply", due in 7 days. The page, not you, moves the investor.
 - `status` is always `"new"`. `at` is today's date, `YYYY-MM-DD`.
 
 **The sender.** The kit store has no sender. Write the sender as `[your name]` and `[your company]`, and tell the founder in your hand-back to fill them in before sending. Never invent who they are, what the company does beyond the Discovery pain and the founder's own words, a title, a traction number or a customer name.

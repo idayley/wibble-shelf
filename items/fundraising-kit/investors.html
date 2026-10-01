@@ -18,7 +18,7 @@
     - investor:<id> moved one step (step, dates, lastContact; the old next
       step is dropped), from Move to <next step>, and passed (passed,
       passedAt, lastContact) from Passed after an in-page confirm;
-    - read.<noteId> = true | false, from Got it and show again;
+    - read.<noteId> = true, from Got it (show again only re-opens the note here);
     - settings.tab, the tab being shown.
   Find investors lands a card in this zone, and that landing is what runs
   the scout. A Draft button lands a card in To send, titled
@@ -284,14 +284,14 @@ function phaseAt(round, now) {
   return round.phases.length - 1;
 }
 
-/* Whole days since last contact, when the investor has gone quiet: 11 or
+/* Whole days since last contact, when the investor has gone quiet: 10 or
    more days with no next step due still ahead. Passed and signed
    investors aren't quiet. Otherwise null. */
 function quietDays(inv, now) {
   if (!inv || inv.passed || inv.step === 8 || !validDay(inv.lastContact)) return null;
   var today = isoDay(now);
   var days = diffDays(today, inv.lastContact);
-  if (days <= QUIET_AFTER) return null;
+  if (days < QUIET_AFTER) return null;
   if (inv.next && validDay(inv.next.due) && inv.next.due >= today) return null;
   return days;
 }
@@ -331,6 +331,19 @@ function liveInvestors(r) { return r.investors.filter(function (i) { return !i.p
 
 function byDue(a, b) { return a.next.due < b.next.due ? -1 : a.next.due > b.next.due ? 1 : 0; }
 
+/* The two things that can't wait: a follow-up a meeting asked for, then the
+   investor step due soonest (today or overdue). Null when neither. */
+function urgent(r, live, byId, today) {
+  var asks = r.drafts.filter(function (d) { return d.status === "requested"; });
+  if (asks.length) {
+    var who = byId[asks[0].investor];
+    return { zone: "send", text: "Draft the follow-up for " + (who && who.name ? who.name : "your last meeting") + " in 3 · To send. Within a day reads as how you’ll run the company." };
+  }
+  var due = live.filter(function (i) { return i.next && validDay(i.next.due) && i.next.due <= today; }).sort(byDue);
+  if (due.length) return { zone: "investors", text: due[0].name + ": " + due[0].next.text + ". Due " + (due[0].next.due === today ? "today" : "since " + due[0].next.due) + ", in 2 · Investors." };
+  return null;
+}
+
 /* What the operator does next, as the strip and the zone ring say it.
    zone is one of the kit's zone keys (progress, story, investors, send,
    meetings). cap is the small label over it. During day one, start lists
@@ -339,41 +352,47 @@ function nextFor(r, now) {
   var today = isoDay(now);
   var haveInv = r.investors.length > 0;
   var roundSet = !!(r.settings.round && r.settings.round.set);
-  var answered = DRAFTED.every(function (id) { return questionStatus(r, id) === "ready"; });
-  var done = (haveInv ? 1 : 0) + (roundSet ? 1 : 0) + (answered ? 1 : 0);
-  var dayOne = !(haveInv && roundSet && answered && sentAny(r));
+  // Fill answers has run once all three records exist, whatever they say:
+  // the asker writes "needs" honestly when Discovery lacks the evidence, and
+  // that must not keep the operator on day one. Day one ends when a draft is sent.
+  var filled = DRAFTED.every(function (id) { return r.questions.some(function (q) { return q.id === id; }); });
+  var done = (haveInv ? 1 : 0) + (roundSet ? 1 : 0) + (filled ? 1 : 0);
+  var dayOne = !sentAny(r);
   function out(zone, text, cap, start) {
     var o = { zone: zone, text: text, cap: cap || "NEXT FOR YOU" };
     if (start) o.start = start;
     return o;
   }
+  var live = liveInvestors(r);
+  var byId = {};
+  r.investors.forEach(function (i) { byId[i.id] = i; });
+  var early = urgent(r, live, byId, today);
+  // Once any draft exists, a requested follow-up or a step due comes ahead
+  // of the day-one checklist.
+  if (early && r.drafts.length) return out(early.zone, early.text);
   if (dayOne) {
     var start = [
       { label: "Add the investors you know", done: haveInv },
       { label: "Set the round", done: roundSet },
-      { label: "Fill answers from Discovery", done: answered },
+      { label: "Fill answers from Discovery", done: filled },
     ];
     var cap = done < 3 ? "START HERE · " + done + " OF 3 DONE" : "NEXT FOR YOU";
     if (!haveInv) return out("investors", "Add the investors you already know in 2 · Investors. Names are enough.", cap, start);
     if (!roundSet) return out("story", "Set the round in 1 · Story: how much, and what it buys.", cap, start);
-    if (!answered) return out("story", "Press Fill answers from Discovery in 1 · Story. Your calls already hold the evidence.", cap, start);
+    if (!filled) return out("story", "Press Fill answers from Discovery in 1 · Story. Your calls already hold the evidence.", cap, start);
     if (!r.drafts.length) return out("investors", "You’re set up. Pick someone you know in 2 · Investors and draft a first note.", cap, start);
     return out("send", "Send your note from 3 · To send, then press Sent. That’s the raise started.", cap, start);
   }
-  var live = liveInvestors(r);
-  var byId = {};
-  r.investors.forEach(function (i) { byId[i.id] = i; });
-  // A follow-up request from a meeting is a step due today.
-  var asks = r.drafts.filter(function (d) { return d.status === "requested"; });
-  if (asks.length) {
-    var who = byId[asks[0].investor];
-    return out("send", "Draft the follow-up for " + (who && who.name ? who.name : "your last meeting") + " in 3 · To send. Within a day reads as how you’ll run the company.");
-  }
-  var due = live.filter(function (i) { return i.next && validDay(i.next.due) && i.next.due <= today; }).sort(byDue);
-  if (due.length) return out("investors", due[0].name + ": " + due[0].next.text + ". Due " + (due[0].next.due === today ? "today" : "since " + due[0].next.due) + ", in 2 · Investors.");
+  if (early) return out(early.zone, early.text);
   var needing = questionsNeeding(r);
   if (needing.length) {
-    return out("story", (needing.length === 1 ? "A hard question still needs" : needing.length + " hard questions still need") + " evidence. Press Fill answers from Discovery in 1 · Story.");
+    var drafted = needing.filter(function (id) { return DRAFTED.indexOf(id) >= 0; });
+    if (drafted.length) {
+      return out("story", (drafted.length === 1 ? "A hard question still needs" : drafted.length + " hard questions still need") + " evidence. Press Fill answers from Discovery in 1 · Story.");
+    }
+    var q = r.questions.filter(function (x) { return x.id === needing[0]; })[0];
+    var qt = (q && typeof q.text === "string" && q.text.trim()) || needing[0];
+    return out("story", "Write an answer to “" + qt + "” in 1 · Story.");
   }
   var soon = live.filter(function (i) { return i.next && validDay(i.next.due); }).sort(byDue);
   if (soon.length) return out("investors", soon[0].name + ": " + soon[0].next.text + ". Due " + soon[0].next.due + ", in 2 · Investors.");
@@ -414,18 +433,38 @@ function commitmentLive(c, now) {
   return due + 14 * DAY >= now;
 }
 
-/* What the Story page says about Discovery, from a Discovery store: calls
-   with a person, how many scored 4 or 5 (hair on fire), people holding a
-   live commitment, the strongest quote with who said it, and how many
-   times the bets were sharpened. any is false until there is a call. */
+/* What the Story page says about Discovery, from a Discovery store, by
+   Discovery's own rule: a call counts when it has a person, is in the
+   segment, isn't tainted by a pitch, isn't with a friend or family member
+   and isn't a low-confidence call where the speaker is unclear; each
+   person counts once, by their latest counted call. Then: how many
+   scored 4 or 5 (hair on fire), people holding a live commitment, the
+   strongest quote with who said it, and how many times the bets were
+   sharpened. any is false until there is a call. */
+function discoveryEligible(c, who) {
+  if (!c || typeof c !== "object" || !c.person) return false;
+  var p = who[c.person];
+  if (c.inSegment === false) return false;
+  if (c.tainted) return false;
+  if (p && p.relationship === "friend-family") return false;
+  if (c.confidence === "low" && (c.speakerAmbiguous === true || c.speaker === "ambiguous")) return false;
+  return true;
+}
+
+function discoveryTime(c) {
+  var t = c.date != null && c.date !== "" ? Date.parse(c.date) : NaN;
+  if (isNaN(t) && c.at != null && c.at !== "") t = typeof c.at === "number" ? c.at : Date.parse(c.at);
+  return isNaN(t) ? 0 : t;
+}
+
 function fromDiscovery(data, now) {
-  var calls = 0, hot = 0, sharpened = 0, best = null, who = {};
-  var committed = {};
+  var sharpened = 0, best = null, who = {};
+  var committed = {}, latest = {};
   var ms = typeof now === "number" ? now : Date.parse(now);
   for (var k in data || {}) {
     var v = data[k];
     if (!v || typeof v !== "object") continue;
-    if (k.indexOf("person:") === 0) who[k.slice(7)] = v;
+    if (k.indexOf("person:") === 0) who[v.id || k.slice(7)] = v;
     else if (k.indexOf("market:") === 0) {
       var bv = v.bet && Number(v.bet.v);
       if (isFinite(bv) && bv > 1) sharpened += bv - 1;
@@ -434,12 +473,17 @@ function fromDiscovery(data, now) {
   for (var k2 in data || {}) {
     if (k2.indexOf("call:") !== 0) continue;
     var c = data[k2];
-    if (!c || typeof c !== "object" || !c.person) continue;
-    calls++;
+    if (!discoveryEligible(c, who)) continue;
+    var prev = latest[c.person];
+    if (!prev || discoveryTime(c) >= discoveryTime(prev)) latest[c.person] = c;
     var lv = Number(c.level) || 0;
-    if (lv >= 4) hot++;
     if (c.commitment && commitmentLive(c.commitment, ms)) committed[c.person] = true;
     if (typeof c.quote === "string" && c.quote.trim() && (!best || lv > best.lv)) best = { lv: lv, text: c.quote.trim(), person: c.person };
+  }
+  var calls = 0, hot = 0;
+  for (var pid in latest) {
+    calls++;
+    if ((Number(latest[pid].level) || 0) >= 4) hot++;
   }
   var quote = null;
   if (best) {
@@ -452,8 +496,11 @@ function fromDiscovery(data, now) {
 /* ---- readings ------------------------------------------------------------ */
 
 /* An investor after a meeting read as next, maybe, pass or intro. Returns
-   a new record; the input isn't changed. next moves them a step, intro
-   books the first meeting, maybe leaves the step, pass marks them
+   a new record; the input isn't changed. next is idempotent for a first
+   meeting, like pressing Met on a prep sheet: below Follow-up (4) it moves
+   them to 4, and at 4 it leaves them there when Met already put them there
+   on or after the meeting's day; otherwise it moves them one step on.
+   intro books the first meeting, maybe leaves the step, pass marks them
    passed. */
 function applyReading(inv, reading, at) {
   var o = Object.assign({}, inv);
@@ -461,7 +508,11 @@ function applyReading(inv, reading, at) {
   var before = step;
   o.dates = Object.assign({}, o.dates);
   o.lastContact = at;
-  if (reading === "next") step = Math.min(8, step + 1);
+  if (reading === "next") {
+    if (step < 4) step = 4;
+    else if (step === 4 && typeof o.dates[4] === "string" && o.dates[4] >= at) step = 4;
+    else step = Math.min(8, step + 1);
+  }
   else if (reading === "intro") step = Math.max(step, 3);
   else if (reading === "pass") { o.passed = true; o.passedAt = at; }
   if (step !== before) o.dates[step] = at;
@@ -469,11 +520,28 @@ function applyReading(inv, reading, at) {
   return o;
 }
 
-/* An investor moved on one step by hand or by a sent draft: applyReading's
-   "next", and the old next step (which belonged to the step they left) is
-   dropped, so nothing stale is shown as due. */
+/* An investor moved on exactly one step by hand or by a sent draft, the
+   old next step (which belonged to the step they left) dropped so nothing
+   stale is shown as due. */
 function advanceStep(inv, at) {
-  var o = applyReading(inv, "next", at);
+  var o = Object.assign({}, inv);
+  var step = typeof o.step === "number" ? o.step : 0;
+  var to = Math.min(8, step + 1);
+  o.dates = Object.assign({}, o.dates);
+  o.lastContact = at;
+  if (to !== step) o.dates[to] = at;
+  o.step = to;
+  delete o.next;
+  return o;
+}
+
+/* What pressing Met on a prep sheet does to an investor: last contact is
+   today and they move to Follow-up (4) if below it, never backwards. The
+   old next step is dropped. */
+function metInvestor(inv, at) {
+  var o = Object.assign({}, inv, { lastContact: at });
+  var step = typeof o.step === "number" ? o.step : 0;
+  if (step < 4) { o.step = 4; o.dates = Object.assign({}, inv.dates); o.dates[4] = at; }
   delete o.next;
   return o;
 }
@@ -723,7 +791,7 @@ function draftCard(inv, kind, zones) {
   var app = document.getElementById("app");
   var kit = window.wibble && window.wibble.kit;
   var data = {};
-  var ui = { source: "know", typed: "", paste: "", sel: null, status: "", asked: {}, confirm: null };
+  var ui = { source: "know", typed: "", paste: "", sel: null, status: "", asked: {}, again: {}, confirm: null };
 
   function esc(s) {
     return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
@@ -785,11 +853,13 @@ function draftCard(inv, kind, zones) {
     var tl = d.timeline.map(function (t) {
       return '<div class="fr-tli fr-' + t.state + '"><i></i><span>' + esc(t.label) + '</span><span class="fr-w">' + esc(t.when) + "</span></div>";
     }).join("");
-    var note = d.note.read
-      ? '<button class="fr-pill fr-dim" type="button" style="align-self:flex-start" data-act="unread" data-id="' + esc(d.note.id) + '">Field note read · show again</button>'
+    var note = d.note.read && !ui.again[d.note.id]
+      ? '<button class="fr-pill fr-dim" type="button" style="align-self:flex-start" data-act="again" data-id="' + esc(d.note.id) + '">Field note read · show again</button>'
       : '<div class="fr-field"><div class="fr-fhead">FIELD NOTE · ' + esc(d.note.title.toUpperCase()) + '<button class="fr-pill fr-soft fr-grow" type="button" data-act="gotit" data-id="' + esc(d.note.id) + '">Got it</button></div><div>' + esc(d.note.text) + '</div><div class="fr-src">' + esc(d.note.src) + "</div></div>";
     var draft = "";
     if (d.draft) {
+      // Asked holds only until the draft shows up (or is sent), so a later check-in asks afresh.
+      if (d.draft.pending) delete ui.asked[d.id];
       if (ui.asked[d.id] === d.draft.kind) draft = '<div class="fr-ok" role="status">Asked. The draft lands in To send.</div>';
       else if (d.draft.pending === "requested") draft = '<div class="fr-ask">A follow-up is requested. Press Draft on its card in To send.</div>';
       else if (d.draft.pending === "waiting") draft = '<div class="fr-ask">A draft is waiting in To send.</div>';
@@ -868,8 +938,8 @@ function draftCard(inv, kind, zones) {
       ui.paste = "";
       list.forEach(function (p) { kit.set(p[0], p[1]); });
       render();
-    } else if (act === "gotit") setRead(id, true);
-    else if (act === "unread") setRead(id, false);
+    } else if (act === "gotit") { delete ui.again[id]; if (!r.read[id]) setRead(id, true); else render(); }
+    else if (act === "again") { ui.again[id] = true; render(); }
     else if (act === "move" && inv) put(inv, advanceStep(inv, today));
     else if (act === "pass" && inv) { ui.confirm = id; render(); }
     else if (act === "pass-no") { ui.confirm = null; render(); }
