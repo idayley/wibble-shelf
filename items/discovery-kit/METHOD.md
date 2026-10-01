@@ -10,6 +10,25 @@ Three agents help. **Scout** finds people, **Asker** drafts the messages and
 call sheets, and **Debrief** scores each call. You send every message and make
 every call yourself.
 
+## Walkthrough
+
+The kit puts four zones on your canvas, left to right, with a progress strip
+across the top that says what to do next.
+
+1. **Markets.** Write the bet. Press **Find people** and Scout adds people to
+   People.
+2. **People.** Pick how to reach each person (email, LinkedIn, call). Press
+   **Ask for a call** and Asker drafts one message per way you picked, into
+   To send.
+3. **To send.** Copy each draft, send it yourself, press **Sent**. When someone
+   says yes, press **Booked** and Asker writes a one-screen call sheet.
+4. **Calls.** Drop in the recording or transcript. Debrief scores the call, and
+   the page counts calls against your pass line. A strong call gets a
+   follow-up draft in To send.
+
+Everything the four pages show lives in one shared store on your Mac. The
+agents write to it and the pages read it. Only the pages work out the verdict.
+
 ## 1. A bet per market
 
 Write each market down as a bet that could turn out wrong: *who* has *what
@@ -18,7 +37,7 @@ rebuild the same report by hand every week, found in their trade association's
 forum" is a bet. "Small businesses" is not one, because you can't say where to
 find them or what would prove you wrong.
 
-Set the pass line **before the first call** (below). The board locks it once a
+Set the pass line **before the first call** (below). Markets locks it once a
 call is counted. Founders who state their tests up front are more willing to
 drop a bad idea (Camuffo et al., 2020).
 
@@ -60,15 +79,39 @@ deposit, a pre-order, a letter of intent). "Keep me posted" is not a
 commitment. A commitment that hasn't happened 14 days after its due date lapses
 and stops counting.
 
+## The bet gets sharper
+
+The calls exist to show you where the bet is wrong. After each call, Debrief
+records the pain the person described, in their words, and whether it matches
+the pain in your bet. It also records whether they raised it unprompted and
+what they do about it now.
+
+When a *different* pain leads in at least two calls and beats the pain in your
+bet, Debrief writes a **suggested bet** on the Calls page. It never changes the
+bet itself. You choose **Update the bet** or **Keep ours**.
+
+**Carry-over rule.** Calls count toward the pass line only for the bet they
+support. When you update, the bet becomes the next version and the old one is
+kept. An earlier call carries over only if the person described the *new* pain,
+and Debrief shows the quote that proves it. You can flip any one call before
+you press Update. The calls that don't carry over stay under the old bet,
+tagged "v1 only". Unsent drafts written for the old bet get a "written for v1"
+tag and a **Redraft** button.
+
+**A new who is a new market.** A sharper pain for the same kind of person is a
+new version of the bet. A different kind of person is a different market:
+nothing carries over, because what those people told you says nothing about a
+new group. Start a new market instead.
+
 ## 3. The pass line
 
 The default is **3 of 10 calls at level 4 or higher, plus 1 commitment.**
 
 Only some calls count toward it: people in the market's segment, not friends or
-family, not calls where the speaker was unclear, and each person once. The board
+family, not calls where the speaker was unclear, and each person once. The Calls page
 works this out; the agents never compute a verdict.
 
-The board then says one of three things:
+The page then says one of three things:
 
 - **Persevere** when the line is met, the hits come from at least two different
   organisations, and at least one hit holds the budget or makes the decision.
@@ -78,7 +121,7 @@ The board then says one of three things:
   a line of 3 of 10.
 - **Keep talking** otherwise.
 
-You can override the verdict with a written note. The board shows your call next
+You can override the verdict with a written note. The page shows your call next
 to its own.
 
 ### Why these numbers
@@ -111,7 +154,7 @@ reasonably be anywhere from about **11% to 60%**. Three of ten tells you there
 is something there. It doesn't tell you how big it is.
 
 **The close miss.** When a market ends at Pivot with one hit short of the line
-and at least one commitment, the board offers to **extend to 15 calls**, with
+and at least one commitment, the page offers to **extend to 15 calls**, with
 the same number of hits needed. That trade has a price. At 15 calls, a true
 3-in-10 market misses only about 13% of the time instead of 38%, but a true
 1-in-10 market now passes by luck about 18% of the time instead of 7%. That's
@@ -123,7 +166,7 @@ The 11–60% range is a 95% Wilson interval for 3 out of 10.)
 
 **One more signal.** Watch how many people you ask actually agree to a call.
 Furr and Ahlstrom treat that reply rate as evidence of pain in its own right. The
-board's funnel (asked, then booked) shows it.
+funnel (asked, then booked) shows it.
 
 ## 4. How a call should go
 

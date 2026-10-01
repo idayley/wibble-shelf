@@ -329,6 +329,14 @@ test("calls: learning rows count the bet's pain, what came up unprompted and wha
   assert.equal(C.learningRows([], mk()).length, 0);
 });
 
+test("calls: the carry sentence names suggest.topic when Debrief wrote one", () => {
+  const sg = { ...csuggest, topic: "No-shows" };
+  assert.equal(C.topicOf(sg, ccalls, mk()), "no-shows");
+  assert.equal(C.topicOf({ ...csuggest, topic: "  " }, ccalls, mk()), "last-minute no-shows");
+  assert.equal(C.carrySentence(sg, ccalls, cpeople),
+    "If you update, 2 of 4 earlier calls still count: Maria and Lucia described no-shows. Ken’s and Greg’s calls stay under the old bet.");
+});
+
 test("calls: the strongest quote is the highest level, the latest on a tie", () => {
   assert.deepEqual(C.strongestQuote(ccalls, cpeople), { text: "qc3", who: "Lucia Ferro" });
   assert.equal(C.strongestQuote([], cpeople), null);

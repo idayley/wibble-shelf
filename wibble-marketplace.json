@@ -135,9 +135,14 @@
       "repo": "https://github.com/idayley/wibble-shelf",
       "ref": "4bbad1403c5aab2300284623f66404d371a564b5",
       "path": "items/discovery-kit/kit.json",
-      "version": "1.0.3",
-      "description": "Customer discovery for founders: find people, ask for calls, score each call on a hair-on-fire ladder, and see when a market has earned a yes.",
+      "version": "2.0.0",
+      "description": "Customer discovery for founders in four steps: find people, ask for calls, score each call on a hair-on-fire ladder, and let your bet get sharper as calls come in.",
       "history": [
+        {
+          "version": "2.0.0",
+          "date": "30 Sep",
+          "note": "Rebuilt like Lead finder: four steps, Find people, a bet that gets sharper as calls come in."
+        },
         {
           "version": "1.0.3",
           "date": "28 Sep",

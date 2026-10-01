@@ -449,6 +449,7 @@ function strongestQuote(calls, people) {
 
 /* The pain the new bet is about, in the words the calls used. */
 function topicOf(suggest, calls, market) {
+  if (suggest && typeof suggest.topic === "string" && suggest.topic.trim()) return lower(suggest.topic.trim());
   var rows = (suggest && suggest.rows) || [];
   var row = rows.filter(function (r) { return /own/i.test(r.label || ""); })[0] || learningRows(calls, market)[1];
   return row && row.text ? lower(row.text) : "the new pain";
