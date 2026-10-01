@@ -50,11 +50,21 @@
       "id": "walkthrough",
       "name": "Walkthrough",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "3ed5cf33e35419836077695e99c78b9ae1a0b24d",
+      "ref": "8dcb248c7e8825495d704870d2e9c153d01d15c4",
       "path": "items/walkthrough/walkthrough.md",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "description": "Films a persona using your app and cuts it into a calm captioned video, with numbered steps and chapters, for QA by watching or a demo.",
+      "art": {
+        "body": "items/walkthrough/art/body.png",
+        "face": "items/walkthrough/art/face.png",
+        "aspect": 1.6184
+      },
       "history": [
+        {
+          "version": "1.0.1",
+          "date": "30 Sep",
+          "note": "Its own wibblet: a camcorder."
+        },
         {
           "version": "1.0.0",
           "date": "30 Sep",
