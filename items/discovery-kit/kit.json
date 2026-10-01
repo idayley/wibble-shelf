@@ -5,18 +5,25 @@
     { "kind": "agent", "id": "discovery-debrief" }
   ],
   "zones": [
-    { "key": "discovery", "name": "Discovery", "dx": 0, "dy": 0, "w": 600 },
-    {
-      "key": "debrief", "name": "Debrief", "dx": 640, "dy": 0, "w": 440,
-      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-debrief" }, "into": "calls" }
-    },
-    {
-      "key": "calls", "name": "Calls", "dx": 1120, "dy": 0, "w": 600,
-      "rule": { "when": { "kind": "data", "field": "followUp", "op": "=", "value": "yes" }, "run": { "agent": "discovery-asker" }, "into": "followups" }
-    },
-    { "key": "followups", "name": "Follow-ups", "dx": 1760, "dy": 0, "w": 440 }
+    { "key": "progress", "name": "Your progress", "shows": "board", "dx": 0, "dy": 0, "w": 2300, "h": 240 },
+    { "key": "markets", "name": "1 · Markets", "color": "blue", "shows": "board", "dx": 0, "dy": 300, "w": 1100, "h": 900,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-scout" }, "into": "people" } },
+    { "key": "people", "name": "2 · People", "color": "orange", "shows": "board", "dx": 1200, "dy": 300, "w": 1100, "h": 900,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-asker" }, "into": "send" } },
+    { "key": "send", "name": "3 · To send", "color": "green", "shows": "board", "dx": 0, "dy": 1300, "w": 1100, "h": 900,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-asker", "note": "A Booked card: write the one-screen call sheet for that person, using the current bet and Your asking." }, "into": "send" } },
+    { "key": "calls", "name": "4 · Calls", "color": "pink", "shows": "board", "dx": 1200, "dy": 1300, "w": 1100, "h": 1100,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-debrief" }, "into": "calls" } }
   ],
   "pages": [
-    { "zone": "discovery", "title": "Discovery board", "file": "board.html", "dx": 16, "dy": 48, "width": "wide" }
+    { "zone": "progress", "title": "Your progress", "file": "progress.html", "width": "card", "size": "fill", "stayOut": true, "maxHeight": 320 },
+    { "zone": "markets", "title": "Markets", "file": "markets.html", "width": "card", "size": "xl", "stayOut": true },
+    { "zone": "markets", "title": "What happens in Markets", "file": "note-markets.html", "width": "card", "size": "s", "stayOut": true },
+    { "zone": "people", "title": "People", "file": "people.html", "width": "card", "size": "xl", "stayOut": true },
+    { "zone": "people", "title": "What happens in People", "file": "note-people.html", "width": "card", "size": "s", "stayOut": true },
+    { "zone": "send", "title": "To send", "file": "send.html", "width": "card", "size": "xl", "stayOut": true },
+    { "zone": "send", "title": "What happens in To send", "file": "note-send.html", "width": "card", "size": "s", "stayOut": true },
+    { "zone": "calls", "title": "Calls", "file": "calls.html", "width": "card", "size": "xl", "stayOut": true, "maxHeight": 1000 },
+    { "zone": "calls", "title": "What happens in Calls", "file": "note-calls.html", "width": "card", "size": "s", "stayOut": true }
   ]
 }

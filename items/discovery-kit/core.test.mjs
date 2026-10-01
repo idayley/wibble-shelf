@@ -1,5 +1,5 @@
-// The board's rules (spec §4.3, §4.4), run under node against the page's
-// own <script id="logic"> block -- so what is tested is what ships.
+// The kit's shared rules, run under node against core.js, the one copy that
+// sync-core.mjs pastes into every page.
 //
 //   node --test items/discovery-kit/
 
@@ -7,11 +7,9 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-const html = readFileSync(new URL("./board.html", import.meta.url), "utf8");
-const block = html.match(/<script id="logic">([\s\S]*?)<\/script>/);
-assert.ok(block, "board.html has a <script id=\"logic\"> block");
+const src = readFileSync(new URL("./core.js", import.meta.url), "utf8");
 const L = new Function(
-  block[1] + "\nreturn { counted, tally, verdict, nudge, storageWarning, lineLocked, records, commitmentLapsed };",
+  src + "\nreturn { counted, tally, verdict, verdictLine, verdictLabel, lineLocked, records, commitmentLapsed, countsFor, funnel, nextStep, lineOf, plural };",
 )();
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -19,7 +17,7 @@ const NOW = Date.parse("2026-06-15T12:00:00Z");
 const daysAgo = (n) => new Date(NOW - n * DAY).toISOString().slice(0, 10);
 
 // A market with the default pass line (3 of 10 at level 4+, 1 commitment).
-const market = (id = "a", extra = {}) => ({ id, name: `Market ${id.toUpperCase()}`, passLine: { calls: 10, hits: 3, commitments: 1 }, ...extra });
+const market = (id = "a", extra = {}) => ({ id, name: `Market ${id.toUpperCase()}`, passLine: { calls: 10, hits: 3, commitments: 1 }, bet: { v: 1 }, ...extra });
 
 let seq = 0;
 function world() {
@@ -34,7 +32,7 @@ function world() {
       return id;
     },
     call(c) {
-      calls.push({ id: `c${++seq}`, market: "a", date: daysAgo(3), level: 1, confidence: "high", inSegment: true, tainted: false, ...c });
+      calls.push({ id: `c${++seq}`, market: "a", date: daysAgo(3), betV: 1, level: 1, confidence: "high", inSegment: true, tainted: false, ...c });
     },
     // One person, one call, in one step.
     talk(level, p = {}, c = {}) {
@@ -278,71 +276,6 @@ test("the pass line locks after the first counted call, not before", () => {
   assert.equal(L.lineLocked(market(), w.calls, w.people), true);
 });
 
-test("nudge: no markets says how to start", () => {
-  assert.match(L.nudge([], [], NOW, {}), /Add a market/);
-});
-
-test("nudge precedence: a close miss beats the market with most hits", () => {
-  const w = closeMiss();
-  w.talk(5, { market: "b", org: "P" }, { market: "b" });
-  w.talk(4, { market: "b", org: "Q" }, { market: "b" });
-  w.talk(4, { market: "b", org: "R" }, { market: "b" });
-  const line = L.nudge([market("a", { order: 1 }), market("b", { order: 0 })], w.calls, NOW, w.people);
-  assert.match(line, /^Market A: close miss, 2 of 3/);
-  assert.match(line, /Extend to 15/);
-});
-
-test("nudge precedence: most hits (still keep talking) beats a quiet market", () => {
-  const w = world();
-  w.talk(5, { org: "A" });
-  w.talk(4, { org: "B" });
-  w.talk(1);
-  w.talk(4, { market: "b" }, { market: "b" });
-  const line = L.nudge([market("a"), market("b"), market("c")], w.calls, NOW, w.people);
-  assert.equal(line, "Market A: 3 calls, 2 hair-on-fire. 7 more before the pass line can be judged.");
-});
-
-test("nudge precedence: with no hits anywhere, a market with no calls this week", () => {
-  const w = world();
-  w.talk(2);
-  w.talk(1, { market: "b" }, { market: "b", date: daysAgo(10) });
-  w.talk(1, { market: "b" }, { market: "b", date: daysAgo(12) });
-  const line = L.nudge([market("a"), market("b")], w.calls, NOW, w.people);
-  assert.equal(line, "Market B: no calls in the last 7 days, 2 of 10 so far.");
-});
-
-test("nudge precedence: otherwise the market with the fewest calls", () => {
-  const w = world();
-  w.talk(2);
-  w.talk(2);
-  w.talk(1, { market: "b" }, { market: "b" });
-  const line = L.nudge([market("a"), market("b")], w.calls, NOW, w.people);
-  assert.equal(line, "Market B: fewest calls, 1 of 10.");
-});
-
-test("nudge skips decided markets: overridden or already persevere/pivot", () => {
-  const { w } = passing();
-  w.talk(1, { market: "b" }, { market: "b" });
-  const line = L.nudge([market("a"), market("b", { override: { verdict: "Pivot", note: "" } })], w.calls, NOW, w.people);
-  assert.match(line, /Every market has a verdict/);
-});
-
-test("counts only, never percentages, in every verdict-side line", () => {
-  const lines = [
-    L.nudge([market("a")], closeMiss().calls, NOW, closeMiss().people),
-    L.nudge([market("a")], [], NOW, {}),
-  ];
-  const { w } = passing();
-  lines.push(L.nudge([market("a"), market("b")], w.calls, NOW, w.people));
-  for (const l of lines) assert.doesNotMatch(l, /%/);
-});
-
-test("storage warning past 80% of 256 KB", () => {
-  assert.equal(L.storageWarning(0), false);
-  assert.equal(L.storageWarning(0.8 * 256 * 1024), false);
-  assert.equal(L.storageWarning(0.8 * 256 * 1024 + 1), true);
-});
-
 test("records: the store's keys come apart by kind", () => {
   const r = L.records({
     "market:b": { name: "B", order: 1 },
@@ -359,7 +292,127 @@ test("records: the store's keys come apart by kind", () => {
   assert.equal(r.settings.sender, "S");
 });
 
-test("the page names no market, company or bet of its own", () => {
-  // Generic kit: the only market names in the page are placeholders.
-  assert.doesNotMatch(html, /Market [A-Z]\b/, "no sample markets baked in");
+
+// ---- bets: a call counts for the bet it was made under, or carries over --
+
+test("countsFor: the call's own bet, unless counts says otherwise", () => {
+  assert.equal(L.countsFor({ betV: 1 }, 2), false);
+  assert.equal(L.countsFor({ betV: 1 }, 1), true);
+  assert.equal(L.countsFor({ betV: 1, counts: { "2": true } }, 2), true);
+  assert.equal(L.countsFor({ betV: 1, counts: { "1": false } }, 1), false);
+});
+
+test("a market on bet v2 tallies only the calls that carried over", () => {
+  const w = world();
+  // Four calls at levels 5, 4, 2, 1; the two no-show calls carry to v2.
+  w.talk(5, { org: "A" }, { counts: { "2": true } });
+  w.talk(4, { org: "B" }, { counts: { "2": true } });
+  w.talk(2, { org: "C" });
+  w.talk(1, { org: "D" });
+  const v1 = L.tally(market("a"), w.calls, w.people, NOW);
+  assert.equal(v1.n, 4);
+  assert.equal(v1.hits, 2);
+  const m2 = market("a", { bet: { v: 2 } });
+  const t = L.tally(m2, w.calls, w.people, NOW);
+  assert.equal(t.n, 2);
+  assert.equal(t.hits, 2);
+  // The line stays locked: v1's calls still lock it.
+  assert.equal(L.lineLocked(m2, w.calls, w.people), true);
+});
+
+test("the pass line reads {hits, of, commits} and the older spelling", () => {
+  assert.deepEqual(L.lineOf({ passLine: { hits: 2, of: 8, commits: 0 } }), { calls: 8, hits: 2, commitments: 0 });
+  assert.deepEqual(L.lineOf({ passLine: { calls: 6, hits: 2, commitments: 1 } }), { calls: 6, hits: 2, commitments: 1 });
+});
+
+test("verdict label and line: not started, counts, never a percentage", () => {
+  const w = world();
+  const m = market();
+  let t = L.tally(m, w.calls, w.people, NOW);
+  assert.equal(L.verdictLabel(L.verdict(m, t), t), "Not started");
+  assert.equal(L.verdictLine(m, t, L.verdict(m, t)), "No calls yet. You can still change the pass line.");
+  w.talk(5, { org: "A" });
+  w.talk(4, { org: "B" });
+  t = L.tally(m, w.calls, w.people, NOW);
+  const line = L.verdictLine(m, t, L.verdict(m, t));
+  assert.match(line, /^One more hair-on-fire call in the next 8 makes it Persevere/);
+  assert.doesNotMatch(line, /%/);
+  assert.equal(L.verdictLabel(L.verdict(m, t), t), "Keep talking");
+});
+
+// ---- funnel and next step ------------------------------------------------
+
+const ch = (email, li, call) => ({ email: !!email, li: !!li, call: !!call });
+const P = (id, status, over = {}) => ({ id, market: "a", name: id, status, channels: ch(), ...over });
+function rec(over = {}) {
+  const base = {
+    "settings": { active: "a" },
+    "market:a": { name: "A", order: 0, passLine: { hits: 3, of: 10, commits: 1 }, bet: { v: 1, who: "w", pain: "p", shown: "s", where: "x" } },
+  };
+  return L.records({ ...base, ...over });
+}
+
+test("funnel counts people by how far they got, and hits among counted calls", () => {
+  const w = world();
+  w.talk(5, { id: "p1", status: "called" });
+  w.talk(1, { id: "p2", status: "called" });
+  const people = { ...w.people, n1: P("n1", "new"), a1: P("a1", "asked"), b1: P("b1", "booked"), s1: P("s1", "skipped"), o: P("o", "asked", { market: "z" }) };
+  assert.deepEqual(L.funnel(market(), people, w.calls), [
+    ["Found", 6], ["Asked", 4], ["Booked", 3], ["Called", 2], ["Hair on fire", 1],
+  ]);
+});
+
+test("nextStep: no market, then no bet, writes the first bet", () => {
+  assert.equal(L.nextStep(L.records({})).zone, "markets");
+  assert.equal(L.nextStep(L.records({})).text, "Write your first bet");
+  assert.equal(L.nextStep(L.records({ "market:a": { name: "A" } })).text, "Write your first bet");
+});
+
+test("nextStep: no people says press Find people", () => {
+  const n = L.nextStep(rec());
+  assert.equal(n.zone, "markets");
+  assert.equal(n.text, "Press Find people");
+});
+
+test("nextStep: people but none picked or asked says pick who to ask", () => {
+  const n = L.nextStep(rec({ "person:p1": P("p1", "new") }));
+  assert.equal(n.zone, "people");
+  assert.equal(n.text, "Pick who to ask");
+  // A picked channel, or an already-asked person, moves on.
+  assert.notEqual(L.nextStep(rec({ "person:p1": P("p1", "new", { channels: ch(1) }) })).text, "Pick who to ask");
+});
+
+test("nextStep: unsent drafts say send your asks", () => {
+  const draft = (status) => ({ id: "d1", person: "p1", market: "a", kind: "ask", body: "hi", betV: 1, status, at: "2026-09-30T00:00:00Z" });
+  const n = L.nextStep(rec({ "person:p1": P("p1", "new", { channels: ch(1) }), "draft:d1": draft("draft") }));
+  assert.equal(n.zone, "send");
+  assert.equal(n.text, "Send your asks");
+  const sent = L.nextStep(rec({ "person:p1": P("p1", "asked"), "draft:d1": draft("sent") }));
+  assert.notEqual(sent.zone, "send");
+});
+
+test("nextStep: booked with no call scored says drop the recording", () => {
+  const n = L.nextStep(rec({ "person:p1": P("p1", "booked") }));
+  assert.equal(n.zone, "calls");
+  assert.equal(n.text, "Drop the recording after your call");
+});
+
+test("nextStep: otherwise the verdict's sentence, with the sharper-bet line when one is open", () => {
+  const calls = {
+    "person:p1": P("p1", "called", { org: "North" }),
+    "call:c1": { id: "c1", person: "p1", market: "a", at: "2026-09-20T00:00:00Z", level: 5, betV: 1 },
+  };
+  const n = L.nextStep(rec(calls), NOW);
+  assert.equal(n.zone, "calls");
+  assert.match(n.text, /more hair-on-fire calls? in the next 9 makes it Persevere/);
+  assert.equal(n.also, undefined);
+  const s = L.nextStep(rec({ ...calls, "suggest:a": { status: "open", from: 1 } }), NOW);
+  assert.equal(s.also, "a sharper bet, suggested in Calls");
+  assert.equal(L.nextStep(rec({ ...calls, "suggest:a": { status: "kept" } }), NOW).also, undefined);
+});
+
+test("records collects drafts and suggestions", () => {
+  const r = L.records({ "draft:d1": { person: "p1" }, "suggest:a": { status: "open" } });
+  assert.equal(r.drafts[0].id, "d1");
+  assert.equal(r.suggest.a.status, "open");
 });
