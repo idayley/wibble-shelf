@@ -303,3 +303,99 @@ test("send: Copy takes the subject line with the body", () => {
   assert.equal(T.copyText(draft("1", { subject: "A short call?" })), "Subject: A short call?\n\nHi 1");
   assert.equal(T.copyText(draft("1")), "Hi 1");
 });
+
+// ---- the Calls page --------------------------------------------------------
+
+const C = logic("calls.html", ["learningRows", "strongestQuote", "carrySentence", "applyUpdate", "askingNotes", "topicOf", "firstName", "whenLabel", "carriedText", "dotsOf", "tally"]);
+const cpeople = { mc: person("mc", "Maria Chen"), lf: person("lf", "Lucia Ferro"), ki: person("ki", "Ken Ito"), gh: person("gh", "Greg Hale") };
+const ncall = (id, p, level, said, matches, unprompted, over = {}) => ({
+  id, person: p, market: "rest", at: `2026-09-2${id.slice(1)}T10:00:00Z`, level, quote: "q" + id, meaning: "m", doNow: "text a list",
+  pain: { said, matchesBet: matches, unprompted }, coaching: { keep: "walk me through", change: "pitched early" }, betV: 1, ...over,
+});
+const NOSHOW = "Last-minute no-shows";
+const ccalls = [
+  ncall("c1", "mc", 4, NOSHOW, false, true),
+  ncall("c2", "ki", 1, "Swaps are annoying", true, false, { doNow: "sister handles it" }),
+  ncall("c3", "lf", 4, NOSHOW, false, true),
+  ncall("c4", "gh", 2, NOSHOW, false, false),
+];
+const csuggest = { status: "open", from: 4, bet: { who: "w", pain: "Staff no-show", shown: "s", where: "x" }, rows: [{ label: "Came up on its own", text: NOSHOW, n: 3, of: 4 }], quote: { text: "q", who: "Maria Chen" }, carry: { c1: { counts: true, why: "x" }, c3: { counts: true, why: "x" }, c2: { counts: false, why: "y" }, c4: { counts: false, why: "y" } } };
+
+test("calls: learning rows count the bet's pain, what came up unprompted and what they do now", () => {
+  const rows = C.learningRows(ccalls, mk());
+  assert.deepEqual(rows[0], { label: "Our bet said", text: "Rota breaks", n: 1, of: 4 });
+  assert.deepEqual(rows[1], { label: "Came up on its own", text: NOSHOW, n: 2, of: 4 });
+  assert.deepEqual(rows[2], { label: "What they do now", text: "text a list", n: 3, of: 4 });
+  assert.equal(C.learningRows([], mk()).length, 0);
+});
+
+test("calls: the strongest quote is the highest level, the latest on a tie", () => {
+  assert.deepEqual(C.strongestQuote(ccalls, cpeople), { text: "qc3", who: "Lucia Ferro" });
+  assert.equal(C.strongestQuote([], cpeople), null);
+});
+
+test("calls: the carry sentence for none, one and several carried", () => {
+  const sg = (ids) => ({ ...csuggest, carry: Object.fromEntries(ccalls.map((c) => [c.id, { counts: ids.includes(c.id) }])) });
+  assert.equal(C.carrySentence(sg(["c1", "c3"]), ccalls, cpeople),
+    "If you update, 2 of 4 earlier calls still count: Maria and Lucia described last-minute no-shows. Ken’s and Greg’s calls stay under the old bet.");
+  assert.equal(C.carrySentence(sg(["c1"]), ccalls, cpeople),
+    "If you update, 1 of 4 earlier calls still counts: Maria described last-minute no-shows. Ken’s, Lucia’s and Greg’s calls stay under the old bet.");
+  assert.equal(C.carrySentence(sg([]), ccalls, cpeople), "If you update, none of the 4 earlier calls still count. They all stay under the old bet.");
+  assert.equal(C.carrySentence(sg(["c1", "c2", "c3", "c4"]), ccalls, cpeople), "If you update, all 4 earlier calls still count.");
+  assert.equal(C.carrySentence(sg([]), [], cpeople), "");
+});
+
+test("calls: applyUpdate bumps v, keeps the old bet and sets counts from the toggles", () => {
+  const m = mk({ id: "rest" });
+  const out = C.applyUpdate(m, csuggest, { c4: true }, ccalls, "2026-09-30T12:00:00Z");
+  assert.equal(out.market.bet.v, 2);
+  assert.equal(out.market.bet.pain, "Staff no-show");
+  assert.equal(out.market.bet.fromCalls, 4);
+  assert.equal(out.market.bets.length, 1);
+  assert.deepEqual(out.market.bets[0], { ...bet, until: "2026-09-30T12:00:00.000Z" });
+  const by = Object.fromEntries(out.calls.map((c) => [c.id, c]));
+  assert.deepEqual([by.c1.counts[2], by.c2.counts[2], by.c3.counts[2], by.c4.counts[2]], [true, false, true, true]);
+  assert.equal(ccalls[0].counts, undefined, "inputs are not mutated");
+  assert.equal(m.bet.v, 1);
+});
+
+test("calls: after an update the tally counts carried calls plus new v2 calls only", () => {
+  const m = mk({ id: "rest" });
+  const out = C.applyUpdate(m, csuggest, {}, ccalls, NOW);
+  const fresh = { id: "c9", person: "nw", market: "rest", at: "2026-09-30T10:00:00Z", level: 5, betV: 2, pain: { said: NOSHOW, matchesBet: true, unprompted: true } };
+  const people = { ...cpeople, nw: person("nw", "New", {}, { org: "Z" }) };
+  assert.equal(C.tally(m, ccalls, people, NOW).n, 4);
+  const t = C.tally(out.market, [...out.calls, fresh], people, NOW);
+  assert.equal(t.n, 3);
+  assert.equal(t.hits, 3);
+});
+
+test("calls: the confirmation and the topic read from the store", () => {
+  const m = mk({ id: "rest" });
+  const out = C.applyUpdate(m, csuggest, {}, ccalls, NOW);
+  assert.equal(C.topicOf(csuggest, ccalls, m), "last-minute no-shows");
+  assert.equal(C.carriedText(out.market, out.calls, csuggest, m),
+    "Bet is now v2. 2 earlier calls carried over; 2 stay under v1. New call sheets ask about last-minute no-shows.");
+});
+
+test("calls: Your asking takes the most frequent note, the most recent on a tie", () => {
+  const cs = [
+    ncall("c1", "mc", 4, "x", true, true, { coaching: { keep: "Walk me through last Friday", change: "Pitched early" } }),
+    ncall("c2", "ki", 1, "x", true, true, { coaching: { keep: "walk me through last friday", change: "Asked would you use" } }),
+    ncall("c3", "lf", 4, "x", true, true, { coaching: { keep: "Dug into the cost", change: "Asked would you use" } }),
+    ncall("c4", "gh", 4, "x", true, true, { coaching: { keep: "Stayed quiet", change: "Pitched early" } }),
+  ];
+  const a = C.askingNotes(cs);
+  assert.equal(a.keep, "Walk me through last Friday");
+  assert.equal(a.change, "Pitched early");
+  assert.deepEqual(C.askingNotes([]), { keep: "", change: "" });
+});
+
+test("calls: dots are green at 4 and 5, gray below; dates read as the mockup's", () => {
+  assert.deepEqual(C.dotsOf(4), ["hot", "hot", "hot", "hot", "off"]);
+  assert.deepEqual(C.dotsOf(2), ["on", "on", "off", "off", "off"]);
+  const now = new Date("2026-09-30T12:00:00").getTime();
+  assert.equal(C.whenLabel("2026-09-29T12:00:00", now), "Tue");
+  assert.equal(C.whenLabel("2026-09-24T12:00:00", now), "last Thu");
+  assert.equal(C.firstName("Maria Chen"), "Maria");
+});

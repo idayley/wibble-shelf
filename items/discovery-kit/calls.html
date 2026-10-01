@@ -1,0 +1,672 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Calls</title>
+<!--
+  THE CALLS PAGE. Placed by the Discovery kit in 4 · Calls. Debrief scores
+  each call you drop here, and this page shows them: level, their own
+  words, what it means. Under them is the learning card, which says where
+  your bet was wrong, and Your asking, which says what your own questions
+  did. Debrief can suggest a sharper bet. Nothing changes until you press
+  Update the bet, and you choose which earlier calls still count.
+
+  Everything it knows lives in the kit store (window.wibble.kit): call:<id>
+  records, suggest:<market>, and the market's bet. Update the bet writes the
+  new version, the old one and each call's counts in one set.
+
+  The shared rules are in the first script block, pasted from core.js by
+  sync-core.mjs. This page's own rules are in the second, with no DOM, so
+  pages.test.mjs can run them under node.
+
+  Classes start with dk- on purpose: the frame drops any kit rule whose
+  class a page's stylesheet also names.
+-->
+<style>
+body{margin:0;padding:16px;font:13px/1.5 var(--sans,system-ui,sans-serif);color:var(--text,#ddd)}
+.dk-wrap{display:grid;gap:12px}
+.dk-drop{padding:14px;border:1px dashed rgba(110,196,140,.45);border-radius:12px;font-size:12.5px;color:#9fcfae;text-align:center}
+.dk-list{display:flex;flex-direction:column;gap:12px;max-height:340px;overflow-y:auto;overscroll-behavior:contain;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.18) transparent;padding:0 4px 20px 0;-webkit-mask-image:linear-gradient(#000 calc(100% - 28px),transparent);mask-image:linear-gradient(#000 calc(100% - 28px),transparent)}
+.dk-card{display:flex;flex-direction:column;gap:6px;padding:12px 14px;border-radius:12px;background:var(--win,#232323);box-shadow:inset 0 1px 0 rgba(255,255,255,.08),0 1px 2px rgba(0,0,0,.36),0 6px 16px rgba(0,0,0,.34);box-sizing:border-box;flex:none}
+.dk-learn{gap:12px;padding:18px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08),inset 0 0 0 1px rgba(110,196,140,.35),0 6px 16px rgba(0,0,0,.34)}
+.dk-row{display:flex;align-items:center;gap:8px}
+.dk-name{font-size:13.5px;font-weight:600}
+.dk-muted{color:var(--muted,#999);font-size:12px}
+.dk-right{margin-left:auto;display:flex;align-items:center;gap:7px}
+.dk-dots{display:flex;gap:3px}
+.dk-dots i{display:block;width:9px;height:9px;border-radius:5px;background:#3a3a3a}
+.dk-dots i.on{background:#9a9a9a}
+.dk-dots i.hot{background:#6ec48c}
+.dk-mono{font:12px/1.2 var(--mono,ui-monospace,monospace);white-space:nowrap}
+.dk-q{font-size:12.5px;color:var(--text,#ececec);line-height:1.45}
+.dk-mean{font-size:12px;color:var(--muted,#9a9a9a)}
+.dk-v1{display:inline-block;font-size:11px;font-weight:600;padding:1px 7px;margin-right:6px;border-radius:999px;background:rgba(255,255,255,.08);color:#d6d6d6}
+.dk-ttl{font-size:15px;font-weight:600;line-height:1.3}
+.dk-head{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.dk-rows{display:grid;grid-template-columns:138px minmax(0,1fr) 54px;gap:8px 12px;font-size:12.5px;line-height:1.45;align-items:baseline}
+.dk-rows .dk-n{text-align:right;color:#999}
+.dk-rows .dk-n.dk-lead{color:#9fdcbc}
+.dk-rows .dk-lead-t{color:var(--text,#fff);font-weight:600}
+.dk-quote{font-size:12.5px;color:var(--text,#ececec);padding-left:12px;border-left:2px solid rgba(110,196,140,.5)}
+.dk-hair{height:1px;background:var(--hair,rgba(255,255,255,.08))}
+.dk-cap{font:700 11px/1.2 var(--mono,ui-monospace,monospace);letter-spacing:.06em;color:var(--muted,#999);white-space:nowrap}
+.dk-sug{display:flex;flex-direction:column;gap:10px}
+.dk-sug-t{font-size:13px;line-height:1.5}
+.dk-sug-t .dk-cap{margin-right:6px}
+.dk-carry{font-size:12px;line-height:1.5;color:#b3b3b3}
+.dk-carry b{color:var(--text,#fff);font-weight:600}
+.dk-flips{display:flex;flex-direction:column;gap:6px}
+.dk-flip{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:12px}
+.dk-flip .dk-who{font-weight:600;min-width:84px}
+.dk-flip .dk-why{color:var(--muted,#9a9a9a);flex:1;min-width:120px}
+.dk-segs{display:inline-flex;gap:2px;padding:2px;border-radius:8px;background:rgba(255,255,255,.06)}
+.dk-seg{font:inherit;font-size:12px;font-weight:500;border:0;border-radius:6px;padding:3px 9px;min-height:26px;background:transparent;color:var(--muted,#bbb);cursor:pointer;white-space:nowrap}
+.dk-seg[aria-pressed="true"]{background:rgba(110,196,140,.2);color:#cdeedb}
+.dk-seg:focus-visible,.dk-btn:focus-visible{outline:2px solid #6ec48c;outline-offset:2px}
+.dk-acts{display:flex;gap:8px}
+.dk-btn{min-height:44px;padding:10px 14px;border:0;border-radius:10px;background:var(--edge,#333);color:var(--text,#fff);font-family:inherit;font-size:14px;font-weight:600;cursor:pointer}
+.dk-btn.dk-go{flex-grow:1;background:#6ec48c;color:#0f2016}
+.dk-done{display:flex;align-items:center;gap:8px;background:rgba(120,200,160,.1);border-radius:10px;padding:10px 12px;font-size:12.5px;color:#bfe6d0;line-height:1.45}
+.dk-kept{font-size:12px;color:var(--muted,#999)}
+.dk-ask{display:grid;grid-template-columns:138px minmax(0,1fr);gap:6px 12px;font-size:12.5px;line-height:1.45}
+.dk-ask b.dk-k{color:#9fdcbc;font-weight:600}
+.dk-ask b.dk-c{color:#f0cfa8;font-weight:600}
+.dk-empty{padding:28px 22px;border:1px dashed var(--edge,rgba(255,255,255,.14));border-radius:12px;font-size:13px;color:var(--faint,#8a8a8a);text-align:center;line-height:1.5}
+.dk-empty b{color:var(--text,#ddd);font-weight:600}
+.dk-sub{margin:0;font-size:12.5px;color:var(--muted,#b3b3b3);line-height:1.45}
+@media (max-width:420px){.dk-rows{grid-template-columns:minmax(0,1fr) 54px}.dk-rows .dk-lab{grid-column:1/-1;margin-bottom:-6px}.dk-ask{grid-template-columns:minmax(0,1fr)}}
+[hidden]{display:none!important}
+</style>
+</head>
+<body>
+<div class="dk-wrap" id="app"></div>
+<script id="core">
+/* THE DISCOVERY KIT'S SHARED RULES. Every page needs the same count of
+   calls, the same verdict and the same "what's next", or the strip, the
+   Markets page and the agents drift apart. Pure functions, no DOM, no
+   window. This file is the only copy: sync-core.mjs pastes it into each
+   page's <script id="core">, and core.test.mjs runs it under node. */
+
+var DAY = 24 * 60 * 60 * 1000;
+var LAPSE_DAYS = 14;
+var EXTENDED_CALLS = 15;
+var DEFAULT_LINE = { calls: 10, hits: 3, commitments: 1 };
+var VERDICTS = ["Persevere", "Pivot", "Keep talking"];
+var BUYERS = ["budget holder", "decision maker"];
+
+function toMs(t) {
+  if (t == null || t === "") return NaN;
+  if (typeof t === "number") return t;
+  if (t instanceof Date) return t.getTime();
+  return Date.parse(t);
+}
+
+/* People arrive as a map (id -> person) or a list; either works. */
+function peopleIndex(people) {
+  if (!people) return {};
+  if (Array.isArray(people)) {
+    var out = {};
+    for (var i = 0; i < people.length; i++) if (people[i] && people[i].id) out[people[i].id] = people[i];
+    return out;
+  }
+  return people;
+}
+
+/* The pass line, with the kit's default filling anything left out. The
+   store spells it {hits, of, commits}; the older spelling {calls, hits,
+   commitments} still reads. */
+function lineOf(market) {
+  var p = (market && market.passLine) || {};
+  function n(v, d) { v = Number(v); return isFinite(v) && v >= 0 ? Math.floor(v) : d; }
+  var calls = n(p.of != null ? p.of : p.calls, DEFAULT_LINE.calls) || DEFAULT_LINE.calls;
+  return {
+    calls: calls,
+    hits: n(p.hits, DEFAULT_LINE.hits),
+    commitments: n(p.commits != null ? p.commits : p.commitments, DEFAULT_LINE.commitments),
+  };
+}
+
+function targetOf(market) {
+  var line = lineOf(market);
+  return market && market.extended ? Math.max(EXTENDED_CALLS, line.calls) : line.calls;
+}
+
+function speakerAmbiguous(call) {
+  return call.speakerAmbiguous === true || call.speaker === "ambiguous";
+}
+
+/* A call that could count, before each person is taken once: in the
+   segment, not tainted by a pitch, not a friend or family member, and not
+   a low-confidence call where we can't tell who said what. A call with no
+   person on the board can't be checked, so it doesn't count. */
+function eligible(call, byId) {
+  if (!call || !call.person) return false;
+  var person = byId[call.person];
+  if (call.inSegment === false) return false;
+  if (call.tainted) return false;
+  if (person && person.relationship === "friend-family") return false;
+  if (call.confidence === "low" && speakerAmbiguous(call)) return false;
+  return true;
+}
+
+function callTime(call) {
+  var t = toMs(call.date);
+  if (isNaN(t)) t = toMs(call.at);
+  return isNaN(t) ? 0 : t;
+}
+
+/* A call counts for bet v when it says so, else when it was made under
+   that bet. A sharper bet carries over the calls that already described
+   its pain; the rest stay with the version they were made under. */
+function countsFor(call, v) {
+  return call.counts && typeof call.counts[v] === "boolean" ? call.counts[v] : call.betV === v;
+}
+
+/* The calls that count toward the pass line: eligible, and each person
+   once, their latest call. */
+function counted(calls, people) {
+  var byId = peopleIndex(people);
+  var latest = {};
+  var order = [];
+  for (var i = 0; i < (calls || []).length; i++) {
+    var c = calls[i];
+    if (!eligible(c, byId)) continue;
+    var prev = latest[c.person];
+    if (!prev) { order.push(c.person); latest[c.person] = c; }
+    else if (callTime(c) >= callTime(prev)) latest[c.person] = c;
+  }
+  return order.map(function (p) { return latest[p]; });
+}
+
+/* A commitment is live when it was offered or kept and hasn't lapsed. An
+   unkept one lapses 14 days after its due date. */
+function commitmentLapsed(commitment, now) {
+  if (!commitment) return true;
+  var s = commitment.status;
+  if (s === "fulfilled" || s === "kept") return false;
+  if (s === "lapsed" || s === "declined" || s === "withdrawn") return true;
+  var due = toMs(commitment.due);
+  if (isNaN(due)) return false;
+  return due + LAPSE_DAYS * DAY < toMs(now);
+}
+
+function orgKey(call, person) {
+  var o = (call.org || (person && person.org) || "").trim().toLowerCase();
+  return o || null;
+}
+
+function marketCalls(market, calls) {
+  var id = market && market.id;
+  return (calls || []).filter(function (c) { return c && c.market === id; });
+}
+
+/* The version of the bet a market is on now. */
+function betV(market) {
+  var v = market && market.bet && market.bet.v;
+  return typeof v === "number" ? v : 1;
+}
+
+/* Everything the verdict needs, for one market, from the calls that count
+   for its current bet. Commitments come from any eligible call (a
+   follow-up call without one doesn't erase an earlier one), one per
+   person. Organisations are counted among the hits only. */
+function tally(market, calls, people, now) {
+  var byId = peopleIndex(people);
+  var v = betV(market);
+  var mine = marketCalls(market, calls).filter(function (c) { return countsFor(c, v); });
+  var cs = counted(mine, byId);
+  var line = lineOf(market);
+  var ladder = [0, 0, 0, 0, 0, 0];
+  var hits = 0, orgs = {}, buyers = 0;
+  for (var i = 0; i < cs.length; i++) {
+    var c = cs[i], lv = Math.max(0, Math.min(5, Math.round(Number(c.level) || 0)));
+    ladder[lv]++;
+    if (lv >= 4) {
+      hits++;
+      var p = byId[c.person];
+      var k = orgKey(c, p);
+      if (k) orgs[k] = true;
+      if (p && BUYERS.indexOf(p.buyingRole) >= 0) buyers++;
+    }
+  }
+  var live = {}, commitments = [];
+  for (var j = 0; j < mine.length; j++) {
+    var cc = mine[j];
+    if (!cc.commitment || !eligible(cc, byId)) continue;
+    var lapsed = commitmentLapsed(cc.commitment, now);
+    commitments.push({ call: cc.id, person: cc.person, what: cc.commitment.what, currency: cc.commitment.currency, due: cc.commitment.due, status: cc.commitment.status, lapsed: lapsed });
+    if (!lapsed) live[cc.person] = true;
+  }
+  return {
+    n: cs.length,
+    hits: hits,
+    commits: Object.keys(live).length,
+    orgs: Object.keys(orgs).length,
+    buyers: buyers,
+    target: targetOf(market),
+    line: line,
+    ladder: ladder,
+    commitments: commitments,
+    notCounted: mine.length - cs.length,
+  };
+}
+
+/* The pass line may be edited only until the first call is counted. Any
+   bet's calls lock it: a sharper bet doesn't reopen the line. */
+function lineLocked(market, calls, people) {
+  return counted(marketCalls(market, calls), people).length > 0;
+}
+
+/* The founder's override wins, and is shown beside the automatic
+   verdict, never instead of it. */
+function verdict(market, t) {
+  var line = t.line || lineOf(market);
+  var persevere = t.hits >= line.hits && t.commits >= line.commitments && t.orgs >= 2 && t.buyers >= 1;
+  var cantMeet = t.hits + (t.target - t.n) < line.hits;
+  var auto = persevere ? "Persevere" : (t.n >= t.target || cantMeet) ? "Pivot" : "Keep talking";
+  var closeMiss = auto === "Pivot" && t.hits === line.hits - 1 && t.commits >= 1 && !(market && market.extended);
+  var override = market && market.override && VERDICTS.indexOf(market.override.verdict) >= 0 ? market.override : null;
+  var out = { auto: auto, closeMiss: closeMiss, shown: override ? override.verdict : auto };
+  if (override) out.override = override;
+  return out;
+}
+
+function plural(n, one, many) { return n + " " + (n === 1 ? one : (many || one + "s")); }
+
+/* What a tab or the verdict line calls the verdict: a market with no
+   counted calls hasn't started. */
+function verdictLabel(v, t) {
+  return t.n === 0 && !v.override ? "Not started" : v.shown;
+}
+
+/* The verdict in one sentence, with counts and never a percentage. */
+function verdictLine(market, t, v) {
+  var line = t.line;
+  if (v.shown === "Persevere") return "Persevere. You can hand this market to Lead finder.";
+  if (v.shown === "Pivot") {
+    if (v.closeMiss) {
+      return "Close miss: " + t.hits + " of " + line.hits + " hair-on-fire, with a commitment. Extend to 15 calls before deciding?";
+    }
+    return "The pass line was not met. Sharpen the bet or try another market.";
+  }
+  if (t.n === 0) return "No calls yet. You can still change the pass line.";
+  var need = line.hits - t.hits, left = t.target - t.n;
+  if (need > 0) {
+    return (need === 1 ? "One more hair-on-fire call" : plural(need, "more hair-on-fire call")) +
+      " in the next " + left + " makes it Persevere. At Persevere you can hand this market to Lead finder.";
+  }
+  var lack = [];
+  if (t.commits < line.commitments) lack.push("a commitment");
+  if (t.orgs < 2) lack.push("a hit from a second organisation");
+  if (t.buyers < 1) lack.push("a budget holder or decision maker");
+  return "The hits are in. Still missing: " + lack.join(", ") + ".";
+}
+
+/* Records out of the store, by kind. */
+function records(data) {
+  var out = { markets: [], people: {}, calls: [], waves: [], drafts: [], suggest: {}, settings: (data && data.settings) || {} };
+  for (var k in data || {}) {
+    var v = data[k];
+    if (!v || typeof v !== "object") continue;
+    if (k.indexOf("market:") === 0) out.markets.push(Object.assign({ id: k.slice(7) }, v));
+    else if (k.indexOf("person:") === 0) out.people[v.id || k.slice(7)] = Object.assign({ id: k.slice(7) }, v);
+    else if (k.indexOf("call:") === 0) out.calls.push(Object.assign({ id: k.slice(5) }, v));
+    else if (k.indexOf("draft:") === 0) out.drafts.push(Object.assign({ id: k.slice(6) }, v));
+    else if (k.indexOf("suggest:") === 0) out.suggest[k.slice(8)] = v;
+    else if (k.indexOf("wave:") === 0) out.waves.push(Object.assign({ key: k }, v));
+  }
+  out.markets.sort(function (a, b) { return (a.order || 0) - (b.order || 0); });
+  return out;
+}
+
+/* The market the strip and the pages show: the chosen one, else the first. */
+function activeOf(r) {
+  var id = r.settings && r.settings.active;
+  for (var i = 0; i < r.markets.length; i++) if (r.markets[i].id === id) return r.markets[i];
+  return r.markets[0] || null;
+}
+
+function peopleOf(r, market) {
+  var id = market && market.id;
+  return Object.keys(r.people).map(function (k) { return r.people[k]; }).filter(function (p) { return p.market === id; });
+}
+
+function isPicked(p) {
+  var c = p.channels || {};
+  return !!(c.email || c.li || c.call);
+}
+
+/* The funnel for one market, as counts: found, asked, booked, called, and
+   how many of the counted calls were hair-on-fire (level 4 or 5). */
+function funnel(market, people, calls) {
+  var mine = peopleOf({ people: peopleIndex(people) }, market);
+  function n(statuses) { return mine.filter(function (p) { return statuses.indexOf(p.status) >= 0; }).length; }
+  var t = tally(market, calls, people, 0);
+  return [
+    ["Found", mine.length],
+    ["Asked", n(["asked", "booked", "called"])],
+    ["Booked", n(["booked", "called"])],
+    ["Called", n(["called"])],
+    ["Hair on fire", t.hits],
+  ];
+}
+
+/* What the founder does next, for the active market, as the strip and the
+   zone badge say it. zone is one of the kit's zone keys; step is which of
+   the four steps in the strip is current. */
+function nextStep(r, now) {
+  var m = activeOf(r);
+  function out(zone, text, why, step) {
+    var o = { zone: zone, text: text, why: why, step: step };
+    if (m && r.suggest && r.suggest[m.id] && r.suggest[m.id].status === "open") o.also = "a sharper bet, suggested in Calls";
+    return o;
+  }
+  if (!m || !m.bet) return out("markets", "Write your first bet", "So you know what to listen for. Do it in 1 · Markets.", 0);
+  var mine = peopleOf(r, m);
+  if (!mine.length) return out("markets", "Press Find people", "Scout looks for people already showing this pain. It is in 1 · Markets.", 1);
+  var touched = mine.some(function (p) { return isPicked(p) || p.status === "asked" || p.status === "booked" || p.status === "called"; });
+  if (!touched) return out("people", "Pick who to ask", "In 2 · People, then press Draft asks.", 1);
+  var unsent = (r.drafts || []).filter(function (d) { return d.market === m.id && d.status === "draft"; });
+  if (unsent.length) return out("send", "Send your asks", "Send the " + unsent.length + " from 3 · To send yourself, then press Sent on each.", 2);
+  var booked = mine.some(function (p) { return p.status === "booked"; });
+  var scored = marketCalls(m, r.calls).length;
+  if (booked && !scored) return out("calls", "Drop the recording after your call", "Debrief scores it in 4 · Calls.", 3);
+  var t = tally(m, r.calls, r.people, now == null ? Date.now() : now);
+  return out("calls", verdictLine(m, t, verdict(m, t)), "", 3);
+}
+</script>
+<script id="logic">
+/* THIS PAGE'S RULES. Pure functions, no DOM, no window: pages.test.mjs
+   pulls this block out of the page, after core, and runs it under node. */
+var DAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+function norm(s) { return String(s == null ? "" : s).trim().replace(/\s+/g, " ").toLowerCase(); }
+function firstName(name) { return String(name || "Someone").trim().split(/\s+/)[0]; }
+function lower(s) { return /^[A-Z][a-z]/.test(s) ? s.charAt(0).toLowerCase() + s.slice(1) : s; }
+function joinNames(list) { return list.length < 2 ? list.join("") : list.slice(0, -1).join(", ") + " and " + list[list.length - 1]; }
+
+/* The most common text among the items, by its own key; a tie goes to
+   whoever came first. Returns {text, n} or null. */
+function topBy(items, pick) {
+  var seen = {}, order = [];
+  items.forEach(function (it) {
+    var t = pick(it), k = norm(t);
+    if (!k) return;
+    if (!seen[k]) { seen[k] = { text: String(t).trim(), n: 0 }; order.push(k); }
+    seen[k].n++;
+  });
+  var best = null;
+  order.forEach(function (k) { if (!best || seen[k].n > best.n) best = seen[k]; });
+  return best;
+}
+
+/* Five dots for a level: green at 4 and 5, gray below, dim past the level. */
+function dotsOf(level) {
+  var lv = Math.max(0, Math.min(5, Math.round(Number(level) || 0)));
+  var out = [];
+  for (var i = 0; i < 5; i++) out.push(i < lv ? (lv >= 4 ? "hot" : "on") : "off");
+  return out;
+}
+
+/* "Tue" this calendar week (Monday on), "last Thu" the week before, else
+   "Sep 12". */
+function whenLabel(iso, now) {
+  var ms = toMs(iso);
+  if (isNaN(ms)) return "";
+  var d = new Date(ms), n = new Date(toMs(now));
+  var weekStart = new Date(n.getFullYear(), n.getMonth(), n.getDate() - ((n.getDay() + 6) % 7)).getTime();
+  if (ms >= weekStart) return DAYS[d.getDay()];
+  if (ms >= weekStart - 7 * DAY) return "last " + DAYS[d.getDay()];
+  return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][d.getMonth()] + " " + d.getDate();
+}
+
+/* What the calls say, from the per-call fields Debrief wrote: how many
+   described the bet's pain, the pain that came up unprompted, and what
+   people do about it now. */
+function learningRows(calls, market) {
+  var cs = calls || [];
+  if (!cs.length) return [];
+  var of = cs.length;
+  var rows = [{ label: "Our bet said", text: (market && market.bet && market.bet.pain) || "", n: cs.filter(function (c) { return c.pain && c.pain.matchesBet; }).length, of: of }];
+  var own = topBy(cs.filter(function (c) { return c.pain && c.pain.unprompted; }), function (c) { return c.pain.said; });
+  if (own) rows.push({ label: "Came up on its own", text: own.text, n: own.n, of: of });
+  var now = topBy(cs, function (c) { return c.doNow; });
+  if (now) rows.push({ label: "What they do now", text: now.text, n: now.n, of: of });
+  return rows;
+}
+
+/* The one quote to show: the highest level, the latest on a tie. */
+function strongestQuote(calls, people) {
+  var byId = peopleIndex(people), best = null;
+  (calls || []).forEach(function (c) {
+    if (!c.quote) return;
+    if (!best || c.level > best.level || (c.level === best.level && callTime(c) >= callTime(best))) best = c;
+  });
+  if (!best) return null;
+  var p = byId[best.person];
+  return { text: best.quote, who: (p && p.name) || "Someone" };
+}
+
+/* The pain the new bet is about, in the words the calls used. */
+function topicOf(suggest, calls, market) {
+  var rows = (suggest && suggest.rows) || [];
+  var row = rows.filter(function (r) { return /own/i.test(r.label || ""); })[0] || learningRows(calls, market)[1];
+  return row && row.text ? lower(row.text) : "the new pain";
+}
+
+/* The sentence before the press: which earlier calls still count under the
+   suggested bet. suggest.carry holds Debrief's judgment, with any flip the
+   operator made laid over it. */
+function carrySentence(suggest, calls, people) {
+  var cs = calls || [], N = cs.length;
+  if (!N) return "";
+  var byId = peopleIndex(people), carry = (suggest && suggest.carry) || {};
+  function nm(c) { return firstName((byId[c.person] || {}).name); }
+  var yes = cs.filter(function (c) { return carry[c.id] && carry[c.id].counts; }).map(nm);
+  var no = cs.filter(function (c) { return !(carry[c.id] && carry[c.id].counts); }).map(nm);
+  var topic = topicOf(suggest, cs, null);
+  if (N === 1) {
+    return yes.length ? "If you update, your earlier call still counts: " + yes[0] + " described " + topic + "." : "If you update, your earlier call stays under the old bet.";
+  }
+  if (!yes.length) return "If you update, none of the " + N + " earlier calls still count. They all stay under the old bet.";
+  if (!no.length) return "If you update, all " + N + " earlier calls still count.";
+  var poss = no.map(function (n) { return n + "’s"; });
+  return "If you update, " + yes.length + " of " + N + " earlier calls still " + (yes.length === 1 ? "counts" : "count") + ": " + joinNames(yes) + " described " + topic + ". " +
+    joinNames(poss) + " " + (no.length === 1 ? "call stays" : "calls stay") + " under the old bet.";
+}
+
+/* Update the bet. The old bet goes into bets, the suggested one becomes the
+   next version, and each call gets its own answer for that version from the
+   operator's toggles, else Debrief's. Nothing passed in is changed. */
+function applyUpdate(market, suggest, toggles, calls, now) {
+  var v = betV(market), nv = v + 1;
+  var carry = (suggest && suggest.carry) || {}, t = toggles || {};
+  var until = new Date(isNaN(toMs(now)) ? Date.now() : toMs(now)).toISOString();
+  var old = Object.assign({}, market.bet, { v: v, until: until });
+  var sb = (suggest && suggest.bet) || {};
+  var from = suggest && typeof suggest.from === "number" ? suggest.from : (calls || []).length;
+  var next = Object.assign({}, market, {
+    bet: { v: nv, who: sb.who, pain: sb.pain, shown: sb.shown, where: sb.where, fromCalls: from },
+    bets: (market.bets || []).concat([old]),
+  });
+  var patched = (calls || []).map(function (c) {
+    var yes = typeof t[c.id] === "boolean" ? t[c.id] : !!(carry[c.id] && carry[c.id].counts);
+    var counts = Object.assign({}, c.counts);
+    counts[nv] = yes;
+    return Object.assign({}, c, { counts: counts });
+  });
+  return { market: next, calls: patched };
+}
+
+/* The line shown once the bet is updated, read back from the store so it
+   survives a reload. */
+function carriedText(market, calls, suggest, oldMarket) {
+  var v = betV(market), cs = (calls || []).filter(function (c) { return (typeof c.betV === "number" ? c.betV : 1) < v; });
+  var yes = cs.filter(function (c) { return c.counts && c.counts[v] === true; }).length, no = cs.length - yes;
+  var topic = topicOf(suggest, cs, oldMarket || market);
+  var s = "Bet is now v" + v + ". ";
+  if (cs.length) s += plural(yes, "earlier call") + " carried over; " + no + (no === 1 ? " stays" : " stay") + " under v" + (v - 1) + ". ";
+  return s + "New call sheets ask about " + topic + ".";
+}
+
+/* Your asking: the note that came up most, the most recent on a tie. */
+function askingNotes(calls) {
+  var cs = (calls || []).slice().sort(function (a, b) { return callTime(a) - callTime(b); });
+  function pick(field) {
+    var seen = {}, order = [];
+    cs.forEach(function (c) {
+      var t = c.coaching && c.coaching[field], k = norm(t);
+      if (!k) return;
+      if (!seen[k]) { seen[k] = { text: String(t).trim(), n: 0, last: 0 }; order.push(k); }
+      seen[k].n++;
+      seen[k].last = callTime(c);
+    });
+    var best = null;
+    order.forEach(function (k) {
+      var s = seen[k];
+      if (!best || s.n > best.n || (s.n === best.n && s.last >= best.last)) best = s;
+    });
+    return best ? best.text : "";
+  }
+  return { keep: pick("keep"), change: pick("change") };
+}
+
+/* Everything the page draws, from the kit store's data. */
+function callsModel(data, now) {
+  var r = records(data), m = activeOf(r);
+  var model = { empty: !m, market: m };
+  if (!m) return model;
+  var v = betV(m);
+  var all = marketCalls(m, r.calls).sort(function (a, b) { return callTime(b) - callTime(a) || String(a.id).localeCompare(String(b.id)); });
+  var live = all.filter(function (c) { return countsFor(c, v); });
+  var sg = r.suggest[m.id] || null;
+  model.items = all.map(function (c) {
+    var p = r.people[c.person] || {};
+    var when = [p.org, whenLabel(c.at, now)].filter(Boolean).join(" · ");
+    return { id: c.id, who: p.name || "Someone", when: when, dots: dotsOf(c.level), level: Math.round(Number(c.level) || 0), quote: c.quote || "", meaning: c.meaning || "", v1: !countsFor(c, v), betV: typeof c.betV === "number" ? c.betV : 1 };
+  });
+  model.count = all.length;
+  var useSuggestRows = sg && sg.status !== "taken" && sg.rows && sg.rows.length;
+  model.rows = useSuggestRows ? sg.rows : learningRows(live, m);
+  model.quote = useSuggestRows && sg.quote && sg.quote.text ? sg.quote : strongestQuote(live, r.people);
+  model.learnCount = useSuggestRows && typeof sg.from === "number" ? sg.from : live.length;
+  model.live = live;
+  model.people = r.people;
+  model.suggest = sg;
+  model.status = sg ? sg.status : "";
+  model.asking = askingNotes(all.slice(0, 8));
+  return model;
+}
+</script>
+<script>
+(function () {
+  var app = document.getElementById("app");
+  var kit = window.wibble && window.wibble.kit;
+  var data = {};
+  // Flips the operator made before updating, and the list's scroll across redraws.
+  var ui = { toggles: {}, key: "", scroll: 0 };
+  function esc(s) {
+    return String(s == null ? "" : s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function callCard(it) {
+    return '<div class="dk-card"><div class="dk-row"><span class="dk-name">' + esc(it.who) + '</span><span class="dk-muted">' + esc(it.when) + "</span>" +
+      '<div class="dk-right"><div class="dk-dots" aria-hidden="true">' + it.dots.map(function (d) { return '<i class="' + d + '"></i>'; }).join("") + '</div><span class="dk-mono">level ' + it.level + "</span></div></div>" +
+      (it.quote ? '<div class="dk-q">“' + esc(it.quote) + "”</div>" : "") +
+      '<div class="dk-mean">' + (it.v1 ? '<span class="dk-v1">v' + it.betV + " only</span>" : "") + esc(it.meaning) + "</div></div>";
+  }
+  function effective(s) {
+    var carry = {}, sc = (s.suggest && s.suggest.carry) || {};
+    s.live.forEach(function (c) {
+      carry[c.id] = { counts: typeof ui.toggles[c.id] === "boolean" ? ui.toggles[c.id] : !!(sc[c.id] && sc[c.id].counts), why: sc[c.id] && sc[c.id].why };
+    });
+    return Object.assign({}, s.suggest, { carry: carry });
+  }
+  function suggestBox(s) {
+    var sg = s.suggest, eff = effective(s), b = sg.bet || {};
+    var raw = carrySentence(eff, s.live, s.people), i = raw.search(/[:.]/), head = raw.slice(0, i), tail = raw.slice(i);
+    var carryHtml = esc(head).replace(/^(If you update, )(.*)$/, "$1<b>$2</b>") + esc(tail);
+    var flips = s.live.length ? '<div class="dk-flips">' + s.live.map(function (c) {
+      var p = s.people[c.person] || {}, yes = eff.carry[c.id].counts, why = eff.carry[c.id].why;
+      return '<div class="dk-flip"><span class="dk-who">' + esc(firstName(p.name)) + '</span><span class="dk-why">' + esc(why || "") + '</span><span class="dk-segs" role="group" aria-label="' + esc(firstName(p.name)) + ': counts or stays under the old bet">' +
+        '<button class="dk-seg" type="button" data-flip="' + esc(c.id) + '" data-to="1" aria-pressed="' + yes + '">Counts</button>' +
+        '<button class="dk-seg" type="button" data-flip="' + esc(c.id) + '" data-to="0" aria-pressed="' + !yes + '">Stays under v' + betV(s.market) + "</button></span></div>";
+    }).join("") + "</div>" : "";
+    return '<div class="dk-sug"><div class="dk-sug-t"><span class="dk-cap">SUGGESTED BET</span>' + esc(b.pain || "") + ".</div>" + (b.shown ? '<div class="dk-muted">Now: ' + esc(b.shown) + ".</div>" : "") +
+      '<div class="dk-carry">' + carryHtml + "</div>" + flips +
+      '<div class="dk-acts"><button class="dk-btn dk-go" type="button" data-act="update">Update the bet</button><button class="dk-btn" type="button" data-act="keep">Keep ours</button></div></div>';
+  }
+  function learnCard(s) {
+    if (!s.count) return "";
+    var rows = s.rows.map(function (r, i) {
+      var lead = i === 1;
+      return '<span class="dk-muted dk-lab">' + esc(r.label) + '</span><span' + (lead ? ' class="dk-lead-t"' : "") + ">" + esc(r.text) + '</span><span class="dk-mono dk-n' + (lead ? " dk-lead" : "") + '">' + r.n + " of " + r.of + "</span>";
+    }).join("");
+    var sg = s.suggest, v = betV(s.market), tail = "";
+    if (sg && sg.status === "open") tail = '<div class="dk-hair"></div>' + suggestBox(s);
+    else if (sg && sg.status === "taken") tail = '<div class="dk-hair"></div><div class="dk-done">' + esc(carriedText(s.market, marketCalls(s.market, records(data).calls), sg)) + "</div>";
+    else if (sg && sg.status === "kept") tail = '<div class="dk-hair"></div><div class="dk-kept">You kept your bet. Debrief will suggest a change again if the calls point somewhere else.</div>';
+    var asking = s.asking.keep || s.asking.change
+      ? '<div class="dk-hair"></div><div class="dk-ask"><span class="dk-cap" style="padding-top:2px">YOUR ASKING</span>' +
+        (s.asking.keep ? '<span><b class="dk-k">Keep:</b> ' + esc(s.asking.keep) + "</span>" : "<span></span>") +
+        (s.asking.change ? '<span></span><span><b class="dk-c">Change:</b> ' + esc(s.asking.change) + "</span>" : "") + "</div>"
+      : "";
+    return '<div class="dk-card dk-learn"><div class="dk-head"><div class="dk-ttl">What the calls are saying</div><span class="dk-muted">' + esc(s.market.name || "") + " · after " + plural(s.learnCount, "call") + "</span></div>" +
+      (s.rows.length ? '<div class="dk-rows">' + rows + "</div>" : '<div class="dk-muted">No calls under v' + v + " yet.</div>") +
+      (s.quote ? '<div class="dk-quote">“' + esc(s.quote.text) + "” <span class=\"dk-muted\">· " + esc(s.quote.who) + "</span></div>" : "") + tail + asking + "</div>";
+  }
+  var model = null;
+  function render() {
+    if (!kit) return;
+    var s = callsModel(data, Date.now());
+    model = s;
+    if (s.empty) {
+      app.innerHTML = '<div class="dk-empty">Nothing to show yet.<br>Write a bet in <b>Markets</b> first.</div>';
+      return;
+    }
+    var key = s.market.id + ":" + betV(s.market) + ":" + s.status;
+    if (key !== ui.key) { ui.key = key; ui.toggles = {}; }
+    var list = app.querySelector(".dk-list");
+    if (list) ui.scroll = list.scrollTop;
+    var body = s.count
+      ? '<div class="dk-list" tabindex="0" aria-label="Scored calls">' + s.items.map(callCard).join("") + "</div>"
+      : '<div class="dk-empty">No calls yet.<br>Drop a recording or notes above. <b>Debrief</b> scores it.</div>';
+    app.innerHTML = '<div class="dk-drop">Drop a recording or transcript here</div>' + body + learnCard(s);
+    var nl = app.querySelector(".dk-list");
+    if (nl) nl.scrollTop = ui.scroll;
+  }
+  if (!kit) {
+    app.innerHTML = '<p class="dk-sub">Place this kit from the zone menu.</p>';
+    return;
+  }
+  app.addEventListener("click", function (e) {
+    var t = e.target.closest ? e.target : null;
+    var flip = t && t.closest("[data-flip]");
+    var act = t && t.closest("[data-act]");
+    if (flip) {
+      ui.toggles[flip.getAttribute("data-flip")] = flip.getAttribute("data-to") === "1";
+      render();
+      return;
+    }
+    if (!act || !model || model.empty || !model.suggest || model.suggest.status !== "open") return;
+    var m = model.market, sg = model.suggest, patch = {};
+    if (act.getAttribute("data-act") === "update") {
+      var out = applyUpdate(m, effective(model), ui.toggles, model.live, new Date());
+      var mk = Object.assign({}, out.market);
+      patch["market:" + m.id] = mk;
+      out.calls.forEach(function (c) { patch["call:" + c.id] = c; });
+      patch["suggest:" + m.id] = Object.assign({}, sg, { status: "taken" });
+    } else if (act.getAttribute("data-act") === "keep") {
+      patch["suggest:" + m.id] = Object.assign({}, sg, { status: "kept" });
+    } else return;
+    kit.set(patch);
+  });
+  kit.subscribe(function (d) {
+    data = d || {};
+    render();
+  });
+})();
+</script>
+</body>
+</html>
