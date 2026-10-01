@@ -77,11 +77,16 @@
       "id": "discovery-scout",
       "name": "Scout",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "ref": "c0b720bfd3f48f5ec405d218e1b843fa6fe6f488",
       "path": "items/discovery-scout/discovery-scout.md",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "description": "Finds real people worth talking to about one market and adds them to your Discovery board, without ever contacting anyone.",
       "history": [
+        {
+          "version": "2.0.0",
+          "date": "30 Sep",
+          "note": "Writes people into the Discovery kit's shared store; uses Apollo when you pick it."
+        },
         {
           "version": "1.0.0",
           "date": "26 Sep",
@@ -94,11 +99,16 @@
       "id": "discovery-asker",
       "name": "Asker",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "108aa353f77c13b423c401ff474afd678a60706f",
+      "ref": "c0b720bfd3f48f5ec405d218e1b843fa6fe6f488",
       "path": "items/discovery-asker/discovery-asker.md",
-      "version": "1.0.0",
+      "version": "2.0.0",
       "description": "Drafts short call requests, a one-page call sheet and follow-ups for customer-discovery calls; you send every message.",
       "history": [
+        {
+          "version": "2.0.0",
+          "date": "30 Sep",
+          "note": "Asks, call sheets and follow-ups go to the To send page, tagged with the bet they were written for."
+        },
         {
           "version": "1.0.0",
           "date": "26 Sep",
@@ -111,11 +121,16 @@
       "id": "discovery-debrief",
       "name": "Debrief",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "e0e0adb63fc36e1533dca870e5912e19b8bcac37",
+      "ref": "c0b720bfd3f48f5ec405d218e1b843fa6fe6f488",
       "path": "items/discovery-debrief/discovery-debrief.md",
-      "version": "1.0.1",
+      "version": "2.0.0",
       "description": "Scores a customer-discovery call on the earlyvangelist ladder, quoting the person's own words as evidence.",
       "history": [
+        {
+          "version": "2.0.0",
+          "date": "30 Sep",
+          "note": "Notes the pain each person described, and suggests a sharper bet when the calls point elsewhere."
+        },
         {
           "version": "1.0.1",
           "date": "26 Sep",
@@ -133,7 +148,7 @@
       "id": "discovery-kit",
       "name": "Discovery kit",
       "repo": "https://github.com/idayley/wibble-shelf",
-      "ref": "4bbad1403c5aab2300284623f66404d371a564b5",
+      "ref": "c0b720bfd3f48f5ec405d218e1b843fa6fe6f488",
       "path": "items/discovery-kit/kit.json",
       "version": "2.0.0",
       "description": "Customer discovery for founders in four steps: find people, ask for calls, score each call on a hair-on-fire ladder, and let your bet get sharper as calls come in.",
