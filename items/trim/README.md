@@ -67,25 +67,11 @@ Trim can only remove old tool output from what your agents send. It can't add an
 
 ## Turning on the judge
 
-Trim works with just the age and payback rules if you skip this. To get the smarter behavior:
+Trim works with just the age and payback rules if you skip this. To get the smarter behavior, open Trim's page on the shelf and press **Set up** under "Its helper". Wibble runs `setup.sh`, which makes a Python runtime with mlx-lm and a 4-bit copy of Qwen3.5-4B (a one-time download of about 9 GB; Apple silicon only). If you set the judge up by hand with an older version of this README, it reuses that instead of downloading again.
 
-```bash
-# 1. a venv for the model runtime (Apple silicon only)
-python3 -m venv ~/.venvs/openjev
-~/.venvs/openjev/bin/pip install mlx-lm
+After that there is nothing to run or remember. Wibble starts the judge (`run.sh`) the first time Trim asks it something, and stops it after 10 minutes with no questions, so its 2.5 GB of memory comes back while no agent is working. The first questions after it wakes go unjudged while it loads; Trim falls back to the age and payback rules for those, and picks the judge back up within a minute. The switch on Trim's page turns it off for good.
 
-# 2. a local, quantized copy of a model you already have cached
-~/.venvs/openjev/bin/python -m mlx_lm convert \
-  --hf-path Qwen/Qwen3.5-4B \
-  --mlx-path ~/.cache/openjev/qwen35-4b-q4 \
-  --quantize --q-bits 4 --q-group-size 64 --dtype bfloat16
-
-# 3. run it
-~/.venvs/openjev/bin/python items/trim/openjev-serve.py \
-  --model ~/.cache/openjev/qwen35-4b-q4
-```
-
-It listens on `127.0.0.1:8791` only, and holds the model loaded in memory so each question is fast. If it goes down, Trim notices within a minute, falls back to the age and payback rules alone, and picks the judge back up on its own once it answers again — nothing to restart by hand.
+It listens on `127.0.0.1:8791` only. Everything it keeps lives in Wibble's own folder (`extension-helpers/trim`).
 
 ## Engines
 

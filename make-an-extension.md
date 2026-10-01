@@ -38,8 +38,9 @@ main.js       the code, plain JavaScript, no build step
 | `protocols.list` | see the names of your skills, agents and rules |
 | `context.trim` | remove old tool output from what your agents send. It sees each result's tool and file or command, the start of new results, your latest message and recent replies; it can't add or change anything. At most one enabled extension can hold it |
 | `net.fetch` | reach the hosts your manifest's `hosts` list names, and nowhere else |
+| `helper.run` | have Wibble run a program it ships on the operator's Mac, once they press Set up, while it's in use (see below) |
 
-Without `net.fetch` it can't reach the internet at all, and it can't open your files either way. Ask for only what you use.
+Without `net.fetch` it can't reach the internet at all, and without `helper.run` it can't open your files either way. Ask for only what you use.
 
 `net.fetch` also needs a `hosts` array in `wibble.json`, one `"host:port"` per address it's allowed to reach:
 
@@ -80,6 +81,30 @@ wibble.net.fetch(url, { method, headers, body }): Promise<{ status: number; head
 - `Host`, `Cookie`, `Content-Length`, `Transfer-Encoding` and `Connection` headers are never forwarded, and no redirect is followed.
 - Request body capped at 1 MiB; a 10 s connect timeout and a 60 s read timeout.
 - No extension has the worker's own `fetch`, `XMLHttpRequest`, `WebSocket`, `EventSource` or `Worker` — with `net.fetch` granted, `wibble.net.fetch` is the only way out at all.
+
+**`helper.run`** — a program your extension needs running on the operator's Mac, such as a small local model. Declare it, ship two scripts beside `main.js`, and Wibble does the rest:
+
+```json
+"capabilities": ["net.fetch", "helper.run"],
+"hosts": ["127.0.0.1:8791"],
+"helper": {
+  "name": "Judge",
+  "about": "What it is and what setting it up takes (download size, memory).",
+  "host": "127.0.0.1:8791",
+  "setup": "setup.sh",
+  "run": "run.sh",
+  "idleMinutes": 10
+}
+```
+
+- Nothing runs until the operator presses **Set up** on your page. Wibble then runs `setup` once with `/bin/sh`; when it exits 0 the helper is ready. Make it safe to run again (skip finished steps), and print short plain lines: the last few show on the page as it runs, and the last one is the error if it fails.
+- After that, any `wibble.net.fetch` to the helper's `host` starts `run` if it's asleep, and every such fetch counts as use. After `idleMinutes` (1–240, default 10) without one, Wibble stops it. The fetch that wakes it isn't held: it fails fast while the program loads, so fall back and try again in a little while.
+- `host` must be `127.0.0.1:<port>` or `localhost:<port>` and be in `hosts`. `setup` and `run` are plain file names in your folder.
+- Both scripts get `WIBBLE_HELPER_HOME`, a folder that's yours to keep things in (a venv, a model), and run from your extension's folder in their own process group. Output goes to `setup.log` and `helper.log` there. `run` should `exec` the program, so stopping it stops the program.
+- A helper that exits within a minute of starting isn't tried again for ten minutes. The operator can turn it off with the switch on your page.
+- The page tells the operator plainly that the program can do anything they can. Ask for it only when there's no other way.
+
+Trim's judge is the worked example: `items/trim/setup.sh` and `run.sh`.
 
 ## A chip's hover card (`detail`)
 

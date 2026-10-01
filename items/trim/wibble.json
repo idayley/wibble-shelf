@@ -1,7 +1,29 @@
 {
-  "id": "trim", "name": "Trim",
+  "id": "trim",
+  "name": "Trim",
   "description": "Quietly removes old tool output your agents no longer need, so every request costs less. Shows what it saved.",
-  "version": "1.1.0", "author": "idayley", "main": "main.js", "api": 1, "slot": "top",
-  "capabilities": ["panel.render", "storage", "context.trim", "net.fetch"],
-  "hosts": ["127.0.0.1:8791", "openrouter.ai"]
+  "version": "1.2.0",
+  "author": "idayley",
+  "main": "main.js",
+  "api": 1,
+  "slot": "top",
+  "capabilities": [
+    "panel.render",
+    "storage",
+    "context.trim",
+    "net.fetch",
+    "helper.run"
+  ],
+  "hosts": [
+    "127.0.0.1:8791",
+    "openrouter.ai"
+  ],
+  "helper": {
+    "name": "Judge",
+    "about": "A small model on your Mac (Qwen3.5-4B) that tells Trim which old output your agent still needs, so it cuts more safely. Setting it up downloads about 9 GB once; while it runs it uses about 2.5 GB of memory.",
+    "host": "127.0.0.1:8791",
+    "setup": "setup.sh",
+    "run": "run.sh",
+    "idleMinutes": 10
+  }
 }
