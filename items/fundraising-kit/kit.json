@@ -1,0 +1,30 @@
+{
+  "items": [
+    { "kind": "agent", "id": "investor-scout" },
+    { "kind": "agent", "id": "investor-asker" },
+    { "kind": "agent", "id": "investor-debrief" }
+  ],
+  "reads": ["discovery-kit"],
+  "zones": [
+    { "key": "progress", "name": "The round", "shows": "board", "dx": 0, "dy": 0, "w": 2300, "h": 240 },
+    { "key": "story", "name": "1 · Story", "color": "blue", "shows": "board", "dx": 0, "dy": 300, "w": 760, "h": 1700,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "investor-asker", "note": "Fill answers: draft the hard-question answers from Discovery." }, "into": "story" } },
+    { "key": "investors", "name": "2 · Investors", "color": "orange", "shows": "board", "dx": 820, "dy": 300, "w": 1480, "h": 1700,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "investor-scout" }, "into": "investors" } },
+    { "key": "send", "name": "3 · To send", "color": "pink", "shows": "board", "dx": 0, "dy": 2060, "w": 1380, "h": 900,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "investor-asker", "note": "Pick the draft by the card title: intro request, cold note, reply, follow-up, prep sheet, check-in or monthly update." }, "into": "send" } },
+    { "key": "meetings", "name": "4 · Meetings", "color": "green", "shows": "board", "dx": 1440, "dy": 2060, "w": 860, "h": 900,
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "investor-debrief" }, "into": "meetings" } }
+  ],
+  "pages": [
+    { "zone": "progress", "title": "The round", "file": "progress.html", "width": "card", "size": "fill", "stayOut": true, "maxHeight": 320 },
+    { "zone": "story", "title": "Story", "file": "story.html", "width": "card", "size": "xl", "stayOut": true, "maxHeight": 1400 },
+    { "zone": "story", "title": "What happens in Story", "file": "note-story.html", "width": "card", "size": "s", "stayOut": true },
+    { "zone": "investors", "title": "Investors", "file": "investors.html", "width": "card", "size": "xl", "stayOut": true, "maxHeight": 1400 },
+    { "zone": "investors", "title": "What happens in Investors", "file": "note-investors.html", "width": "card", "size": "s", "stayOut": true },
+    { "zone": "send", "title": "To send", "file": "send.html", "width": "card", "size": "xl", "stayOut": true, "maxHeight": 1000 },
+    { "zone": "send", "title": "What happens in To send", "file": "note-send.html", "width": "card", "size": "s", "stayOut": true },
+    { "zone": "meetings", "title": "Meetings", "file": "meetings.html", "width": "card", "size": "xl", "stayOut": true, "maxHeight": 1000 },
+    { "zone": "meetings", "title": "What happens in Meetings", "file": "note-meetings.html", "width": "card", "size": "s", "stayOut": true }
+  ]
+}
