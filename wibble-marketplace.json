@@ -236,9 +236,14 @@
       "repo": "https://github.com/idayley/wibble-shelf",
       "ref": "59bf24d07047be861c33d248c8fffe004544355e",
       "path": "items/lead-scout/lead-scout.md",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "Turns a note about who you want to reach into filters, finds people who fit, and adds them to your lead board. Never spends credits or contacts anyone.",
       "history": [
+        {
+          "version": "1.1.0",
+          "date": "1 Oct",
+          "note": "Adds people to the Lead finder kit's shared store, only people who are not there yet."
+        },
         {
           "version": "1.0.0",
           "date": "29 Sep",
@@ -253,9 +258,14 @@
       "repo": "https://github.com/idayley/wibble-shelf",
       "ref": "59bf24d07047be861c33d248c8fffe004544355e",
       "path": "items/outreach-asker/outreach-asker.md",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "description": "Writes one email, call sheet or LinkedIn note per person for the ways you chose to reach them; you send every message.",
       "history": [
+        {
+          "version": "1.1.0",
+          "date": "1 Oct",
+          "note": "Drafts go to the To send page instead of separate cards, and a draft already there is never rewritten."
+        },
         {
           "version": "1.0.0",
           "date": "29 Sep",
@@ -273,6 +283,11 @@
       "version": "1.1.0",
       "description": "Find people to reach, pick how to reach each one, and get drafts to send. Works with Apollo (free search, credits only when you say so), web search or your own list.",
       "history": [
+        {
+          "version": "1.1.0",
+          "date": "1 Oct",
+          "note": "A progress strip says what is next and why, the lead board shares one store with a new To send page (Copy, Sent), and every zone note says what triggers it."
+        },
         {
           "version": "1.0.7",
           "date": "30 Sep",
