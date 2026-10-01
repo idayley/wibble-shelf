@@ -47,6 +47,23 @@
     },
     {
       "kind": "agent",
+      "id": "walkthrough",
+      "name": "Walkthrough",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "3ed5cf33e35419836077695e99c78b9ae1a0b24d",
+      "path": "items/walkthrough/walkthrough.md",
+      "version": "1.0.0",
+      "description": "Films a persona using your app and cuts it into a calm captioned video, with numbered steps and chapters, for QA by watching or a demo.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "30 Sep",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "agent",
       "id": "discovery-scout",
       "name": "Scout",
       "repo": "https://github.com/idayley/wibble-shelf",
