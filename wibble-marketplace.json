@@ -329,6 +329,74 @@
           "note": "First version."
         }
       ]
+    },
+    {
+      "kind": "agent",
+      "id": "investor-scout",
+      "name": "Investor scout",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "0431491f01c898470bcb866e77973287577a6cd1",
+      "path": "items/investor-scout/investor-scout.md",
+      "version": "1.0.0",
+      "description": "Finds investors worth your time and adds each to your Fundraising board with kind, stage, whether they lead, check size and warm path. Never invents a check size or contacts anyone.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "1 Oct",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "agent",
+      "id": "investor-asker",
+      "name": "Investor asker",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "0431491f01c898470bcb866e77973287577a6cd1",
+      "path": "items/investor-asker/investor-asker.md",
+      "version": "1.0.0",
+      "description": "Drafts intro requests, notes, replies, follow-ups, prep sheets, check-ins and a monthly update for your raise, and answers the hard questions from your Discovery calls; you send every message.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "1 Oct",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "agent",
+      "id": "investor-debrief",
+      "name": "Investor debrief",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "0431491f01c898470bcb866e77973287577a6cd1",
+      "path": "items/investor-debrief/investor-debrief.md",
+      "version": "1.0.0",
+      "description": "Reads an investor meeting from your notes or transcript, quotes their own words as evidence, moves them along, and asks for a follow-up on a real next step.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "1 Oct",
+          "note": "First version."
+        }
+      ]
+    },
+    {
+      "kind": "bundle",
+      "id": "fundraising-kit",
+      "name": "Fundraising kit",
+      "repo": "https://github.com/idayley/wibble-shelf",
+      "ref": "0431491f01c898470bcb866e77973287577a6cd1",
+      "path": "items/fundraising-kit/kit.json",
+      "version": "1.0.0",
+      "description": "Run a pre-seed raise in four zones: your story, your investors, what to send, and what each meeting told you. Reads your Discovery kit for the evidence, and says what is next and why.",
+      "history": [
+        {
+          "version": "1.0.0",
+          "date": "1 Oct",
+          "note": "First version."
+        }
+      ]
     }
   ]
 }
