@@ -11,7 +11,7 @@
     { "key": "people", "name": "2 · People", "color": "orange", "shows": "board", "dx": 1200, "dy": 300, "w": 1100, "h": 900,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-asker" }, "into": "send" } },
     { "key": "send", "name": "3 · To send", "color": "green", "shows": "board", "dx": 0, "dy": 1300, "w": 1100, "h": 900,
-      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-asker", "note": "A Booked card: write the one-screen call sheet for that person, using the current bet and Your asking." }, "into": "send" } },
+      "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-asker", "note": "Pick the job by the card title: Booked is a call sheet for that person, Follow-up is a follow-up draft for that call." }, "into": "send" } },
     { "key": "calls", "name": "4 · Calls", "color": "pink", "shows": "board", "dx": 1200, "dy": 1300, "w": 1100, "h": 1100,
       "rule": { "when": { "kind": "anything" }, "run": { "agent": "discovery-debrief" }, "into": "calls" } }
   ],

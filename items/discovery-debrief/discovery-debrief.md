@@ -142,7 +142,9 @@ Write `call:<person id>-<YYYY-MM-DD>` (add `-2`, `-3` for a second call with the
 - Leave out `commitment` when there's none.
 - `meaning` says what the call shows in plain words, with the level's reason in a few words.
 
-**Never** write a verdict, a count, a pass line or a best quote. The Calls page works all of that out from the calls. Never leave a call out, or bend a field, to help the numbers. **Never change a person, a market or `market.bet`.** You don't move a person to called: the founder presses **Called** on the To send page.
+**The person's `buyingRole`.** Where the call showed it, set it on the person record: read `person:<id>`, set `buyingRole` to `"budget holder"`, `"decision maker"`, `"user"` or `"unknown"` (only what the call revealed: who signs, who holds the budget), and send the whole record back under the same key. Change nothing else on it. The verdict needs a budget holder or decision maker among the hits, and this is where you learn it. If the call showed nothing, leave the record alone.
+
+**Never** write a verdict, a count, a pass line or a best quote. The Calls page works all of that out from the calls. Never leave a call out, or bend a field, to help the numbers. **Never change a market or `market.bet`, or a person beyond `buyingRole`.** You don't move a person to called: the founder presses **Called** on the To send page.
 
 ## 8. Compare across the market's calls
 
@@ -195,7 +197,7 @@ Tell the founder in two or three lines: the level and why, in one quote; the com
 - Invent or paraphrase a quote. Quotes are verbatim, or marked `[from notes]`.
 - Raise a level for enthusiasm, compliments, "would" or feature requests.
 - Read the pass-line tally before scoring, or change a score after reading it.
-- Write any key but `call:` and `suggest:`, or change a market, a person, the settings or a verdict.
+- Write any key but `call:`, `suggest:` and a person's `buyingRole`, or change a market, the settings or a verdict.
 - Change `market.bet`. Suggest; the founder decides.
 - Count the same person twice, or treat a colleague of an existing hit as independent without saying so.
 - Contact anyone, or draft messages to them. Asker drafts; the founder sends.

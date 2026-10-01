@@ -117,6 +117,18 @@ test("not persevere without a budget holder or decision maker among the hits", (
   assert.equal(v.auto, "Keep talking");
 });
 
+test("persevere arrives once a hot call's person is a budget holder; user and unknown don't do it", () => {
+  const w = world();
+  w.talk(5, { org: "A", buyingRole: "user" }, { commitment: { what: "intro", status: "offered" } });
+  w.talk(4, { org: "B", buyingRole: "unknown" });
+  w.talk(4, { org: "C" });
+  assert.equal(run(w).t.buyers, 0);
+  assert.equal(run(w).v.auto, "Keep talking");
+  w.talk(4, { org: "D", buyingRole: "budget holder" });
+  assert.equal(run(w).t.buyers, 1);
+  assert.equal(run(w).v.auto, "Persevere");
+});
+
 test("not persevere without the commitment", () => {
   const w = world();
   w.talk(5, { org: "A", buyingRole: "budget holder" });
