@@ -13,13 +13,13 @@ The film comes after the obvious bugs are fixed. It is not a bug report. Caption
 The kit lives at a fixed commit:
 
 ```
-KIT=https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@706bf752788f0a6365728c7c1d001c00ce60b5ca/items/walkthrough/kit
+KIT=https://cdn.jsdelivr.net/gh/idayley/wibble-shelf@d31ad717fcbd548f7a3919b987db2ec50c691394/items/walkthrough/kit
 ```
 
 Before your first film in a session, fetch it into a cache:
 
 ```sh
-K=~/.cache/wibble-walkthrough/706bf752788f0a6365728c7c1d001c00ce60b5ca; mkdir -p "$K"
+K=~/.cache/wibble-walkthrough/d31ad717fcbd548f7a3919b987db2ec50c691394; mkdir -p "$K"
 for f in GUIDE.md walk.mjs compose.mjs compose.html plan.mjs cdp.mjs page.js review.mjs review.html; do [ -s "$K/$f" ] || curl -fsSL "$KIT/$f" -o "$K/$f"; done
 ```
 
