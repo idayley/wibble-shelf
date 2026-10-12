@@ -156,6 +156,15 @@ const WORD = { pass: "Looks right", issue: "Problem", skip: "Can't tell" };
 const flat = [];
 FILMS.forEach((f, fi) => f.steps.forEach((s, si) => flat.push({ f, fi, s, si, key: slug(f.title) + "/" + s.num })));
 let cur = Math.max(0, flat.findIndex(x => x.key === localStorage.getItem(KEY + ":at")));
+/// What a film is called on screen: when every film's title starts the same way
+/// ("Class week, film 2: Practice"), only the part after it. Marks still key on the full title.
+const shortTitle = (() => {
+  if (FILMS.length < 2) return f => f.title;
+  const heads = FILMS.map(f => /^(.*?):\s+(.+)$/.exec(f.title));
+  if (heads.some(m => !m)) return f => f.title;
+  const common = heads.map(m => m[1]).reduce((p, h) => { let i = 0; while (i < p.length && p[i] === h[i]) i++; return p.slice(0, i); });
+  return common.length >= 6 ? f => /^.*?:\s+(.+)$/.exec(f.title)[1] : f => f.title;
+})();
 const chapterOf = (f, s) => (f.chapters || []).find(c => c.index === s.chapter)?.title ?? "";
 const mine = k => S[k] || {};
 const theirs = k => Object.entries(O).map(([name, o]) => ({ name, ...(o.marks[k] || {}) })).filter(m => m.v || m.note);
@@ -189,7 +198,7 @@ function renderSide() {
   const x = flat[cur]; let h = "", sh = "";
   FILMS.forEach((f, fi) => {
     const items = flat.filter(i => i.fi === fi), fc = counts(items), open = fi === x.fi;
-    h += `<div class="film${open ? " cur" : ""}"><button class="fhead" data-go="${flat.indexOf(items[0])}"><span class="t">${FILMS.length > 1 ? fi + 1 + " · " : ""}${esc(f.title)}</span><span class="c">${fc.p + fc.x + fc.s}/${fc.n}${fc.x ? ` · <span style="color:var(--issue)">${fc.x} ⚑</span>` : ""}</span><span class="bar">${barHTML(fc)}</span></button></div>`;
+    h += `<div class="film${open ? " cur" : ""}"><button class="fhead" data-go="${flat.indexOf(items[0])}"><span class="t">${FILMS.length > 1 ? fi + 1 + " · " : ""}${esc(shortTitle(f))}</span><span class="c">${fc.p + fc.x + fc.s}/${fc.n}${fc.x ? ` · <span style="color:var(--issue)">${fc.x} ⚑</span>` : ""}</span><span class="bar">${barHTML(fc)}</span></button></div>`;
     if (!open) return;
     let chap = null;
     items.forEach(i => {
@@ -209,7 +218,7 @@ function render() {
   $("time").textContent = x.s.time + (FILMS.length > 1 ? " in film " + (x.fi + 1) : "");
   $("pressed").hidden = !x.s.pressed; $("pressed").innerHTML = x.s.pressed ? `Pressed <b>${esc(x.s.pressed)}</b>` : "";
   const ch = chapterOf(x.f, x.s);
-  $("crumb").innerHTML = (FILMS.length > 1 ? `Film ${x.fi + 1} · ` : "") + `<b>${esc(x.f.title)}</b>` + (ch && ch !== x.f.title ? ` · ${esc(ch)}` : "");
+  $("crumb").innerHTML = (FILMS.length > 1 ? `Film ${x.fi + 1} · ` : "") + `<b>${esc(shortTitle(x.f))}</b>` + (ch && ch !== shortTitle(x.f) ? ` · ${esc(ch)}` : "");
   $("pos").textContent = `step ${x.si + 1} of ${x.f.steps.length}` + (FILMS.length > 1 ? ` · ${cur + 1}/${flat.length} overall` : "");
   document.querySelectorAll(".v").forEach(b => b.classList.toggle("on", b.dataset.v === r.v));
   $("note").value = r.note || ""; $("note").classList.toggle("need", r.v === "issue" && !r.note);
@@ -244,7 +253,7 @@ function asText() {
   t += multi() ? `Reviewers: ${names.join(", ")}\n` : `Reviewed by ${me || "(no name)"}: ${c.p + c.x + c.s}/${c.n} steps · ${c.x} problems · ${c.s} can't tell\n`;
   t += "\n";
   issues().forEach(({ i, all }) => {
-    t += `- ${FILMS.length > 1 ? `Film ${i.fi + 1} (${i.f.title}), ` : ""}step ${i.s.num} at ${i.s.time}: ${i.s.text}\n`;
+    t += `- ${FILMS.length > 1 ? `Film ${i.fi + 1} (${shortTitle(i.f)}), ` : ""}step ${i.s.num} at ${i.s.time}: ${i.s.text}\n`;
     all.forEach(m => { t += `  ${multi() ? m.name : "Problem"}: ${m.note || "(no note)"}\n`; });
   });
   return t;
