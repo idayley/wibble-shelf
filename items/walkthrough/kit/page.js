@@ -134,7 +134,7 @@
     md.getUserMedia = async c => {
       if (!c || !c.audio) return real(c);
       const { dest } = audio();
-      const tracks = [...dest.stream.getAudioTracks()];
+      const tracks = dest.stream.getAudioTracks().map(t => t.clone());
       if (c.video) { try { tracks.push(...(await real({ video: c.video })).getVideoTracks()); } catch {} }
       return new MediaStream(tracks);
     };

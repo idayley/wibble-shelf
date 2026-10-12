@@ -11,6 +11,8 @@ same care.
 | `plan.mjs` | Every decision the film makes, as pure functions. `node --test plan.test.mjs` covers it. |
 | `page.js` | Runs inside the app: finds things by their words, masks private text, feeds the fake mic. |
 | `compose.html` | The frame the film is drawn in (look A: lower-third caption with a step number). |
+| `review.mjs` | The review: one still per step, shown one at a time for a reviewer to mark. Joins several films into one. |
+| `review.html` | The review page. |
 | `demo/` | Sprout, a small app to practise on: `node demo/serve.mjs`, then http://127.0.0.1:4317. |
 
 Needs Node 22+, ffmpeg and Chrome. On a Mac, `say` gives the persona a voice.
@@ -123,6 +125,20 @@ per second of film.
 
 The film also writes `film.md` next to it, listing every chapter and numbered
 step with its time.
+
+And `film.review/`: a still of every numbered step at the moment its screen
+has settled, with what was pressed outlined, `steps.json`, and `index.html`,
+the review page. Open it in a browser; a reviewer marks each step looks
+right, a problem, or can't tell, adds a note, and can play that step's few
+seconds of film. Marks stay in that browser; Export writes them to a file,
+and Load reads other reviewers' files so everyone's notes land in one list.
+`--no-review` skips it.
+
+```sh
+node review.mjs <film.review> [more…] --out review --title "Class week"
+```
+
+joins several films' reviews into one.
 
 What the film does on its own:
 
