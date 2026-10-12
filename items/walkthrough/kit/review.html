@@ -1,0 +1,309 @@
+<!doctype html>
+<!-- The QA review page that ships with every film: one step at a time, a verdict and a note each,
+     marks kept in this browser. review.mjs fills in FILMS and META; see that file for how. -->
+<html lang="en"><head><meta charset="utf-8"><title>QA review</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<style>
+:root{--bg:#0e0f11;--panel:#16171a;--panel2:#1c1d21;--line:#2a2b30;--text:#ececef;--muted:#9c9da4;--faint:#66676e;--acc:#9b8cff;--pass:#5fd39a;--issue:#f2a33a;--skip:#7d7f88;--ar:1.8}
+[hidden]{display:none!important}*{box-sizing:border-box}html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 -apple-system,BlinkMacSystemFont,"Inter",sans-serif}
+button{font:inherit;color:inherit;cursor:pointer}
+.app{display:grid;grid-template-columns:300px 1fr;height:100vh}
+/* sidebar */
+aside{background:var(--panel);border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0}
+.brand{padding:16px 16px 12px;border-bottom:1px solid var(--line)}
+.brand h1{font-size:13px;margin:0;font-weight:600}.brand p{margin:2px 0 10px;color:var(--muted);font-size:12px}
+.who{display:flex;align-items:center;gap:6px;margin:0 0 12px;font-size:12px;color:var(--faint)}
+.who input{flex:1;min-width:0;background:none;border:1px solid transparent;border-radius:5px;color:var(--text);font:inherit;padding:2px 5px;margin-left:-6px}
+.who input:hover{border-color:var(--line)}.who input:focus{outline:none;border-color:var(--acc);background:var(--bg)}
+.who input::placeholder{color:var(--issue)}
+.link{background:none;border:0;padding:0;color:var(--muted);font-size:12px;white-space:nowrap}.link:hover{color:var(--text)}
+.bar{height:6px;border-radius:3px;background:var(--panel2);display:flex;overflow:hidden}
+.bar i{display:block;height:100%}.bar .p{background:var(--pass)}.bar .x{background:var(--issue)}.bar .s{background:var(--skip)}
+.tally{display:flex;gap:12px;margin-top:8px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.tally b{color:var(--text);font-weight:600}
+.others-line{display:flex;align-items:center;gap:4px 10px;margin-top:10px;font-size:12px;color:var(--muted);flex-wrap:wrap}
+.dot{display:inline-block;width:7px;height:7px;border-radius:50%;margin-right:5px;vertical-align:1px;background:var(--line)}
+.dot.pass{background:var(--pass)}.dot.issue{background:var(--issue)}.dot.skip{background:var(--skip)}
+.ini{display:inline-block;font:600 9px/14px ui-monospace,Menlo,monospace;height:14px;padding:0 3px;border-radius:3px;background:var(--panel2);color:var(--muted);border:1px solid var(--line);letter-spacing:.02em}
+.ini.pass{color:var(--pass);border-color:rgba(95,211,154,.4)}.ini.issue{color:var(--issue);border-color:rgba(242,163,58,.5)}.ini.skip{color:var(--muted)}
+.filmlist{border-bottom:1px solid var(--line);padding:4px 0;max-height:40vh;overflow:auto}.films{overflow:auto;flex:1;padding:2px 0 12px}
+.fhead{width:100%;text-align:left;background:none;border:0;padding:7px 16px;display:grid;grid-template-columns:1fr auto;gap:2px 8px}
+.fhead:hover{background:var(--panel2)}
+.fhead .t{font-weight:600;font-size:13px}.fhead .c{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.fhead .bar{grid-column:1/3;height:3px;margin-top:4px}
+.film.cur .fhead{background:var(--panel2)}.film.cur .fhead .t{color:var(--acc)}
+.chap{font:600 10px/1 ui-monospace,Menlo,monospace;letter-spacing:.08em;text-transform:uppercase;color:var(--faint);padding:10px 16px 4px}
+.step{width:100%;text-align:left;background:none;border:0;padding:5px 16px 5px 14px;display:flex;gap:8px;align-items:baseline;font-size:12.5px;color:var(--muted);border-left:2px solid transparent}
+.step:hover{background:var(--panel2);color:var(--text)}
+.step.cur{background:var(--panel2);color:var(--text);border-left-color:var(--acc)}
+.step .n{font:11px ui-monospace,Menlo,monospace;color:var(--faint);min-width:18px}
+.step .s{flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.step .o{display:flex;gap:2px;flex:none;align-self:center}
+.step .dot{flex:none;margin:0;align-self:center}
+.side-foot{border-top:1px solid var(--line);padding:10px 16px;display:flex;gap:8px}
+.side-foot button{flex:1;background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:7px;font-size:12px}
+.side-foot button:hover{border-color:var(--faint)}
+/* main */
+main{display:flex;flex-direction:column;min-width:0;min-height:0}
+.top{display:flex;align-items:center;gap:12px;padding:12px 24px;border-bottom:1px solid var(--line)}
+.crumb{color:var(--muted);font-size:12.5px;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.crumb b{color:var(--text);font-weight:600}
+.pos{font:12px ui-monospace,Menlo,monospace;color:var(--muted)}
+.stage{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;padding:16px 64px 8px;position:relative}
+.frame{position:relative;max-width:100%;max-height:100%;aspect-ratio:var(--ar);width:min(100%,calc((100vh - 270px)*var(--ar)));border-radius:10px;overflow:hidden;background:#000;border:1px solid var(--line)}
+.frame img,.frame video{width:100%;height:100%;object-fit:contain;display:block}
+.frame video{position:absolute;inset:0;background:#000}
+.badge{position:absolute;top:10px;right:10px;font-size:11px;padding:3px 8px;border-radius:20px;background:rgba(0,0,0,.65);color:var(--text)}
+.nav{position:absolute;top:50%;transform:translateY(-50%);width:40px;height:64px;border-radius:8px;background:rgba(22,23,26,.85);border:1px solid var(--line);font-size:20px;color:var(--muted)}
+.nav:hover{color:var(--text)}.nav.l{left:12px}.nav.r{right:12px}
+.desc{padding:4px 24px 0;display:flex;align-items:baseline;gap:14px}
+.desc .num{font:600 13px ui-monospace,Menlo,monospace;color:var(--acc)}
+.desc .say{font-size:19px;font-weight:500;flex:1}
+.desc .time{font:12px ui-monospace,Menlo,monospace;color:var(--muted);white-space:nowrap}
+.pressed{padding:2px 24px 0 calc(24px + 2.2em);font-size:12px;color:var(--faint)}.pressed b{color:var(--muted);font-weight:500}
+.verdict{display:grid;grid-template-columns:auto 1fr;gap:14px;padding:14px 24px 20px;align-items:start}
+.btns{display:flex;gap:8px}
+.v{border:1px solid var(--line);background:var(--panel);border-radius:8px;padding:10px 16px;min-width:104px;text-align:left}
+.v kbd{float:right;font:11px ui-monospace,Menlo,monospace;color:var(--faint);margin-left:10px;border:1px solid var(--line);border-radius:3px;padding:0 4px}
+.v:hover{border-color:var(--faint)}
+.v.pass.on{background:rgba(95,211,154,.14);border-color:var(--pass);color:var(--pass)}
+.v.issue.on{background:rgba(242,163,58,.14);border-color:var(--issue);color:var(--issue)}
+.v.skip.on{background:rgba(125,127,136,.18);border-color:var(--skip)}
+textarea{width:100%;min-height:44px;height:44px;resize:vertical;background:var(--panel);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px 12px;font:inherit}
+textarea:focus{outline:none;border-color:var(--acc)}
+textarea.need{border-color:var(--issue)}
+.theirs{margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.theirs div{font-size:12.5px;color:var(--muted);display:flex;gap:7px;align-items:baseline}
+.theirs .vw{flex:none}.theirs .vw.issue{color:var(--issue)}.theirs .vw.pass{color:var(--pass)}
+.theirs q{color:var(--text);quotes:none}
+.keys{padding:0 24px 14px;color:var(--faint);font-size:11.5px}.keys kbd{font:11px ui-monospace,Menlo,monospace;border:1px solid var(--line);border-radius:3px;padding:0 4px;color:var(--muted)}
+/* issues drawer */
+.drawer{position:fixed;inset:0 0 0 auto;width:min(520px,100%);background:var(--panel);border-left:1px solid var(--line);transform:translateX(100%);transition:transform .2s;display:flex;flex-direction:column;z-index:5}
+.drawer.open{transform:none}
+.drawer header{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--line)}
+.drawer header h2{font-size:14px;margin:0;flex:1}
+.drawer header button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:6px 10px;font-size:12px}
+.ilist{overflow:auto;padding:8px 0}
+.iss{display:grid;grid-template-columns:120px 1fr;gap:12px;padding:10px 18px;border-bottom:1px solid var(--line);cursor:pointer}
+.iss:hover{background:var(--panel2)}
+.iss img{width:120px;border-radius:4px;border:1px solid var(--line)}
+.iss .w{font-size:11px;color:var(--muted)}.iss .s{font-size:12.5px;margin:2px 0}
+.iss .note{font-size:12.5px;color:var(--issue);margin-top:2px}.iss .note .by{color:var(--muted);margin-right:6px}
+.empty{padding:24px 18px;color:var(--muted)}
+.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:var(--panel2);border:1px solid var(--line);padding:8px 14px;border-radius:8px;font-size:12.5px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:9}.toast.show{opacity:1}
+/* first-visit name card */
+.ask{position:fixed;inset:0;background:rgba(8,8,10,.72);display:flex;align-items:center;justify-content:center;z-index:8}
+.ask[hidden]{display:none}
+.ask form{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:22px 24px;width:min(380px,92vw)}
+.ask h2{font-size:15px;margin:0 0 4px}.ask p{margin:0 0 14px;color:var(--muted);font-size:12.5px}
+.ask input{width:100%;background:var(--bg);border:1px solid var(--line);border-radius:8px;color:var(--text);font:inherit;padding:9px 11px}
+.ask input:focus{outline:none;border-color:var(--acc)}
+.ask .row{display:flex;justify-content:flex-end;gap:8px;margin-top:14px}
+.ask button{background:var(--panel2);border:1px solid var(--line);border-radius:6px;padding:7px 14px;font-size:12.5px}
+.ask button.go{background:var(--acc);border-color:var(--acc);color:#111;font-weight:600}
+</style></head><body>
+<div class="app">
+ <aside>
+  <div class="brand"><h1 id="title"></h1><p id="sub"></p>
+   <div class="who"><span>Reviewer</span><input id="me" placeholder="add your name" spellcheck="false" autocomplete="off"><button class="link" id="export" title="Download your marks as a file to send on">Export</button><span>·</span><button class="link" id="load" title="Load other reviewers' exported marks">Load…</button></div>
+   <div class="bar" id="allbar"></div>
+   <div class="tally" id="tally"></div>
+   <div class="others-line" id="othersLine" hidden></div></div>
+  <div class="filmlist" id="filmlist"></div><div class="films" id="films"></div>
+  <div class="side-foot"><button id="openIssues">Issues list</button><button id="nextOpen">Next unreviewed</button></div>
+ </aside>
+ <main>
+  <div class="top"><div class="crumb" id="crumb"></div><div class="pos" id="pos"></div></div>
+  <div class="stage">
+   <button class="nav l" id="prev" title="Previous (←)">‹</button>
+   <div class="frame" id="frame"><img id="img" alt=""><span class="badge" id="badge" hidden>Playing this step</span></div>
+   <button class="nav r" id="next" title="Next (→)">›</button>
+  </div>
+  <div class="desc"><span class="num" id="num"></span><span class="say" id="say"></span><span class="time" id="time"></span></div>
+  <div class="pressed" id="pressed" hidden></div>
+  <div class="verdict">
+   <div class="btns">
+    <button class="v pass" data-v="pass">Looks right<kbd>P</kbd></button>
+    <button class="v issue" data-v="issue">Problem<kbd>X</kbd></button>
+    <button class="v skip" data-v="skip">Can't tell<kbd>S</kbd></button>
+   </div>
+   <div><textarea id="note" placeholder="What's wrong, or what you expected to see (N)"></textarea><div class="theirs" id="theirs"></div></div>
+  </div>
+  <div class="keys"><kbd>←</kbd> <kbd>→</kbd> move · <kbd>Space</kbd> play this step's video · <kbd>P</kbd> looks right · <kbd>X</kbd> problem · <kbd>S</kbd> can't tell · <kbd>N</kbd> write a note · <kbd>I</kbd> issues list</div>
+ </main>
+</div>
+<div class="drawer" id="drawer"><header><h2 id="ihead">Issues</h2><button id="copy">Copy as text</button><button id="close">Close</button></header><div class="ilist" id="ilist"></div></div>
+<div class="ask" id="ask" hidden><form id="askForm"><h2>Who's reviewing?</h2><p>Your name goes on your marks, so they can be told apart when several people's marks are combined.</p>
+ <input id="askName" placeholder="Your name" autocomplete="off" spellcheck="false"><div class="row"><button type="button" id="askSkip">Later</button><button class="go">Start</button></div></form></div>
+<input type="file" id="files" accept=".json,application/json" multiple hidden>
+<div class="toast" id="toast"></div>
+<script>
+const FILMS = /*FILMS*/[];
+const META = /*META*/{};
+const $ = id => document.getElementById(id), W = window.wibble;
+const esc = t => String(t ?? "").replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const TITLE = META.title || (FILMS.length === 1 ? FILMS[0].title : "Walkthrough review");
+const KEY = "wibble-review:" + TITLE, ME_KEY = "wibble-review:reviewer";
+const load = (k, d) => { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch (e) { return d; } };
+const keep = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+let S = load(KEY, {}), O = load(KEY + ":others", {}), me = localStorage.getItem(ME_KEY) || "";
+const st = k => S[k] || (S[k] = {});
+function save() { keep(KEY, S); keep(KEY + ":others", O); if (W) { W.set("reviews", S); W.set("others", O); } }
+const slug = t => String(t).toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+const initials = n => (n.trim().split(/\s+/).slice(0, 2).map(w => w[0]).join("") || "?").toUpperCase();
+const WORD = { pass: "Looks right", issue: "Problem", skip: "Can't tell" };
+
+// One flat list of every step; a mark's key is film-title/step so marks travel between single and combined reviews.
+const flat = [];
+FILMS.forEach((f, fi) => f.steps.forEach((s, si) => flat.push({ f, fi, s, si, key: slug(f.title) + "/" + s.num })));
+let cur = Math.max(0, flat.findIndex(x => x.key === localStorage.getItem(KEY + ":at")));
+const chapterOf = (f, s) => (f.chapters || []).find(c => c.index === s.chapter)?.title ?? "";
+const mine = k => S[k] || {};
+const theirs = k => Object.entries(O).map(([name, o]) => ({ name, ...(o.marks[k] || {}) })).filter(m => m.v || m.note);
+
+$("title").textContent = TITLE; document.title = "QA review · " + TITLE;
+$("sub").textContent = META.sub || "";
+
+// ---------- playing one step ----------
+const img = $("img"), frame = $("frame"); let vid = null;
+function stopClip() { if (vid) { vid.remove(); vid = null; $("badge").hidden = true; } }
+function playClip() {
+  const x = flat[cur], a = x.s.t0 / 1000, b = x.s.t1 / 1000; if (vid) { stopClip(); return; }
+  vid = document.createElement("video"); vid.src = x.f.video + "#t=" + a + "," + b; vid.preload = "auto"; vid.playsInline = true;
+  vid.addEventListener("loadedmetadata", () => { if (Math.abs(vid.currentTime - a) > 0.5) vid.currentTime = a; vid.play().catch(() => { vid.muted = true; vid.play(); }); });
+  vid.addEventListener("timeupdate", () => { if (vid && vid.currentTime >= b - 0.05) vid.pause(); });
+  vid.addEventListener("error", () => { stopClip(); toast("The film isn't next to this page"); });
+  frame.appendChild(vid); $("badge").hidden = false;
+}
+img.addEventListener("load", () => { if (img.naturalWidth) document.documentElement.style.setProperty("--ar", img.naturalWidth / img.naturalHeight); });
+
+// ---------- sidebar ----------
+function counts(list) { let p = 0, x = 0, s = 0; list.forEach(i => { const v = mine(i.key).v; if (v === "pass") p++; else if (v === "issue") x++; else if (v === "skip") s++; }); return { p, x, s, n: list.length }; }
+function barHTML(c) { const w = v => (100 * v / c.n).toFixed(2) + "%"; return `<i class="p" style="width:${w(c.p)}"></i><i class="x" style="width:${w(c.x)}"></i><i class="s" style="width:${w(c.s)}"></i>`; }
+const chips = k => theirs(k).filter(m => m.v).map(m => `<span class="ini ${m.v}" title="${esc(m.name)}: ${WORD[m.v]}">${esc(initials(m.name))}</span>`).join("");
+function renderSide() {
+  const c = counts(flat); $("allbar").innerHTML = barHTML(c);
+  $("tally").innerHTML = `<span><b>${c.p + c.x + c.s}</b>/${c.n} reviewed</span><span><span class="dot issue"></span><b>${c.x}</b> problem${c.x === 1 ? "" : "s"}</span><span><span class="dot pass"></span><b>${c.p}</b> look right</span>`;
+  const names = Object.keys(O);
+  $("othersLine").hidden = !names.length;
+  $("othersLine").innerHTML = `<span>With</span>${names.map(n => `<span title="${esc(n)}"><span class="ini">${esc(initials(n))}</span> ${esc(n.split(/\s+/)[0])}</span>`).join("")}<button class="link" id="dropOthers" title="Stop showing other reviewers' marks">· clear</button>`;
+  const x = flat[cur]; let h = "", sh = "";
+  FILMS.forEach((f, fi) => {
+    const items = flat.filter(i => i.fi === fi), fc = counts(items), open = fi === x.fi;
+    h += `<div class="film${open ? " cur" : ""}"><button class="fhead" data-go="${flat.indexOf(items[0])}"><span class="t">${FILMS.length > 1 ? fi + 1 + " · " : ""}${esc(f.title)}</span><span class="c">${fc.p + fc.x + fc.s}/${fc.n}${fc.x ? ` · <span style="color:var(--issue)">${fc.x} ⚑</span>` : ""}</span><span class="bar">${barHTML(fc)}</span></button></div>`;
+    if (!open) return;
+    let chap = null;
+    items.forEach(i => {
+      if (i.s.chapter !== chap) { chap = i.s.chapter; const t = chapterOf(f, i.s); if (t) sh += `<div class="chap">${esc(t)}</div>`; }
+      const k = flat.indexOf(i);
+      sh += `<button class="step${k === cur ? " cur" : ""}" data-go="${k}"><span class="n">${i.s.num}</span><span class="s">${esc(i.s.text)}</span><span class="o">${chips(i.key)}</span><span class="dot ${mine(i.key).v || ""}"></span></button>`;
+    });
+  });
+  $("filmlist").innerHTML = h; $("films").innerHTML = sh;
+  const c2 = $("films").querySelector(".step.cur"); if (c2) c2.scrollIntoView({ block: "nearest" });
+}
+
+// ---------- the step ----------
+function render() {
+  stopClip(); const x = flat[cur], r = mine(x.key); localStorage.setItem(KEY + ":at", x.key);
+  img.src = x.s.still; $("num").textContent = x.s.num; $("say").textContent = x.s.text;
+  $("time").textContent = x.s.time + (FILMS.length > 1 ? " in film " + (x.fi + 1) : "");
+  $("pressed").hidden = !x.s.pressed; $("pressed").innerHTML = x.s.pressed ? `Pressed <b>${esc(x.s.pressed)}</b>` : "";
+  const ch = chapterOf(x.f, x.s);
+  $("crumb").innerHTML = (FILMS.length > 1 ? `Film ${x.fi + 1} · ` : "") + `<b>${esc(x.f.title)}</b>` + (ch && ch !== x.f.title ? ` · ${esc(ch)}` : "");
+  $("pos").textContent = `step ${x.si + 1} of ${x.f.steps.length}` + (FILMS.length > 1 ? ` · ${cur + 1}/${flat.length} overall` : "");
+  document.querySelectorAll(".v").forEach(b => b.classList.toggle("on", b.dataset.v === r.v));
+  $("note").value = r.note || ""; $("note").classList.toggle("need", r.v === "issue" && !r.note);
+  $("theirs").innerHTML = theirs(x.key).map(m => `<div><span class="ini ${m.v || ""}">${esc(initials(m.name))}</span><span class="vw ${m.v || ""}">${esc(m.name)}${m.v ? " · " + WORD[m.v] : ""}</span>${m.note ? `<q>${esc(m.note)}</q>` : ""}</div>`).join("");
+  renderSide(); save();
+  const nx = flat[cur + 1]; if (nx) new Image().src = nx.s.still;
+}
+function go(k) { cur = Math.min(flat.length - 1, Math.max(0, k)); render(); }
+function verdict(v) {
+  const x = flat[cur], r = st(x.key); r.v = r.v === v ? undefined : v; save();
+  if (r.v === "pass" || r.v === "skip") { toast(WORD[r.v]); setTimeout(() => go(cur + 1), 180); render(); }
+  else if (r.v === "issue") { render(); $("note").focus(); } else render();
+}
+let tt; function toast(m) { const t = $("toast"); t.textContent = m; t.classList.add("show"); clearTimeout(tt); tt = setTimeout(() => t.classList.remove("show"), 1400); }
+
+// ---------- issues ----------
+// Every step someone marked Problem, with each reviewer's note; yours first.
+function issues() {
+  return flat.map(i => {
+    const all = [...(mine(i.key).v === "issue" ? [{ name: me || "You", you: true, ...mine(i.key) }] : []), ...theirs(i.key).filter(m => m.v === "issue")];
+    return all.length ? { i, all } : null;
+  }).filter(Boolean);
+}
+const multi = () => Object.keys(O).length > 0;
+function renderIssues() {
+  const L = issues(); $("ihead").textContent = `Problems · ${L.length}`;
+  $("ilist").innerHTML = L.length ? L.map(({ i, all }) => `<div class="iss" data-go="${flat.indexOf(i)}"><img src="${esc(i.s.still)}" alt=""><div><div class="w">${FILMS.length > 1 ? `Film ${i.fi + 1} · ` : ""}step ${i.s.num} · ${esc(i.s.time)}</div><div class="s">${esc(i.s.text)}</div>${all.map(m => `<div class="note">${multi() ? `<span class="by">${esc(m.name)}</span>` : ""}${esc(m.note || "(no note yet)")}</div>`).join("")}</div></div>`).join("") : '<div class="empty">No problems marked yet.</div>';
+}
+function asText() {
+  const c = counts(flat), names = [me || "You", ...Object.keys(O)];
+  let t = `${TITLE}${META.sub ? "\n" + META.sub : ""}\n`;
+  t += multi() ? `Reviewers: ${names.join(", ")}\n` : `Reviewed by ${me || "(no name)"}: ${c.p + c.x + c.s}/${c.n} steps · ${c.x} problems · ${c.s} can't tell\n`;
+  t += "\n";
+  issues().forEach(({ i, all }) => {
+    t += `- ${FILMS.length > 1 ? `Film ${i.fi + 1} (${i.f.title}), ` : ""}step ${i.s.num} at ${i.s.time}: ${i.s.text}\n`;
+    all.forEach(m => { t += `  ${multi() ? m.name : "Problem"}: ${m.note || "(no note)"}\n`; });
+  });
+  return t;
+}
+
+// ---------- reviewer, export, load ----------
+function setMe(n) { me = n.trim(); localStorage.setItem(ME_KEY, me); $("me").value = me; }
+function exportMarks() {
+  if (!me) { $("me").focus(); toast("Add your name first"); return; }
+  const marks = {}; for (const [k, r] of Object.entries(S)) if (r && (r.v || r.note)) marks[k] = { v: r.v ?? null, note: r.note || "" };
+  const blob = new Blob([JSON.stringify({ title: TITLE, reviewer: me, exported: new Date().toISOString(), marks }, null, 1)], { type: "application/json" });
+  const a = document.createElement("a"); a.href = URL.createObjectURL(blob); a.download = `${slug(TITLE)}-${slug(me)}-marks.json`; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000); toast(`Saved ${Object.keys(marks).length} marks`);
+}
+async function loadMarks(files) {
+  const got = [];
+  for (const file of files) {
+    let d; try { d = JSON.parse(await file.text()); } catch (e) { toast(`${file.name} isn't a marks file`); continue; }
+    if (!d || typeof d.marks !== "object" || !d.reviewer) { toast(`${file.name} isn't a marks file`); continue; }
+    if (me && d.reviewer.trim().toLowerCase() === me.toLowerCase()) { // your own file back: fill in what's missing here
+      for (const [k, r] of Object.entries(d.marks)) if (!mine(k).v && !mine(k).note) S[k] = { v: r.v || undefined, note: r.note || "" };
+    } else O[d.reviewer] = { exported: d.exported, marks: d.marks };
+    got.push(d.reviewer + (d.title && d.title !== TITLE ? ` (from “${d.title}”)` : ""));
+  }
+  if (got.length) { toast("Loaded " + got.join(", ")); render(); renderIssues(); }
+}
+
+// ---------- wiring ----------
+$("note").addEventListener("input", e => { const r = st(flat[cur].key); r.note = e.target.value; if (r.note && !r.v) r.v = "issue"; save(); $("note").classList.toggle("need", r.v === "issue" && !r.note); renderSide(); renderIssues(); });
+$("note").addEventListener("keydown", e => { if (e.key === "Escape" || (e.key === "Enter" && (e.metaKey || e.ctrlKey))) e.target.blur(); });
+document.querySelectorAll(".v").forEach(b => b.onclick = () => verdict(b.dataset.v));
+$("prev").onclick = () => go(cur - 1); $("next").onclick = () => go(cur + 1);
+$("filmlist").onclick = $("films").onclick = e => { const b = e.target.closest("[data-go]"); if (b) go(+b.dataset.go); };
+$("nextOpen").onclick = () => { for (let k = 1; k <= flat.length; k++) { const j = (cur + k) % flat.length; if (!mine(flat[j].key).v) { go(j); return; } } toast("Every step is reviewed"); };
+$("ilist").onclick = e => { const b = e.target.closest("[data-go]"); if (b) { go(+b.dataset.go); $("drawer").classList.remove("open"); } };
+$("openIssues").onclick = () => { renderIssues(); $("drawer").classList.add("open"); }; $("close").onclick = () => $("drawer").classList.remove("open");
+$("copy").onclick = () => { const t = asText(); navigator.clipboard.writeText(t).then(() => toast("Copied"), () => prompt("Copy this", t)); };
+$("me").addEventListener("change", e => setMe(e.target.value));
+$("me").addEventListener("keydown", e => { if (e.key === "Enter" || e.key === "Escape") e.target.blur(); });
+$("export").onclick = exportMarks;
+$("load").onclick = () => $("files").click();
+$("files").onchange = e => { loadMarks([...e.target.files]); e.target.value = ""; };
+$("othersLine").onclick = e => { if (e.target.id === "dropOthers") { O = {}; save(); render(); renderIssues(); } };
+$("askForm").onsubmit = e => { e.preventDefault(); setMe($("askName").value); $("ask").hidden = true; };
+$("askSkip").onclick = () => { $("ask").hidden = true; sessionStorage.setItem(ME_KEY, "later"); };
+document.addEventListener("keydown", e => {
+  if (/^(TEXTAREA|INPUT)$/.test(e.target.tagName) || !$("ask").hidden) return; if (e.metaKey || e.ctrlKey || e.altKey) return; const k = e.key.toLowerCase();
+  if (k === "arrowright" || k === "j") go(cur + 1); else if (k === "arrowleft" || k === "k") go(cur - 1);
+  else if (k === "p") verdict("pass"); else if (k === "x") verdict("issue"); else if (k === "s") verdict("skip");
+  else if (k === "n") { e.preventDefault(); $("note").focus(); } else if (k === " ") { e.preventDefault(); playClip(); }
+  else if (k === "i") { renderIssues(); $("drawer").classList.toggle("open"); } else if (k === "escape") { $("drawer").classList.remove("open"); stopClip(); }
+});
+if (W && W.subscribe) W.subscribe(all => {
+  let changed = false;
+  if (all?.reviews && JSON.stringify(all.reviews) !== JSON.stringify(S)) { S = all.reviews; changed = true; }
+  if (all?.others && JSON.stringify(all.others) !== JSON.stringify(O)) { O = all.others; changed = true; }
+  if (changed) render();
+});
+$("me").value = me;
+if (!flat.length) document.body.innerHTML = '<div class="empty">This review has no steps.</div>';
+else { render(); if (!me && !sessionStorage.getItem(ME_KEY)) { $("ask").hidden = false; $("askName").focus(); } }
+</script></body></html>
