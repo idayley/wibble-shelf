@@ -21,6 +21,7 @@
   #cam img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; display: block; }
   #cur { position: absolute; left: 0; top: 0; transform-origin: 2px 2px; filter: drop-shadow(0 3px 6px rgba(0,0,0,.35)); will-change: transform; }
   .ring { position: absolute; width: 60px; height: 60px; margin: -30px 0 0 -30px; border-radius: 50%; border: 3px solid #fff; box-shadow: 0 0 0 3px var(--acc), 0 6px 18px rgba(0,0,0,.25); }
+  .mark { position: absolute; box-sizing: border-box; border-radius: 8px; border: 2px solid var(--acc); box-shadow: 0 0 0 2px #fff, 0 6px 18px rgba(0,0,0,.2); }
   #cap { position: absolute; display: flex; pointer-events: none; }
   #cap .glass { display: flex; align-items: center; gap: 16px; padding: 15px 26px 15px 16px; border-radius: 16px; max-width: 100%; box-sizing: border-box;
     background: rgba(18,16,24,.8); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); box-shadow: 0 0 0 1px rgba(255,255,255,.08), 0 18px 40px -16px rgba(0,0,0,.6); }
@@ -46,6 +47,7 @@
   <div id="win">
     <div id="cam"><img id="a" alt=""><img id="b" alt=""></div>
     <div id="rings"></div>
+    <div id="marks"></div>
     <div id="cur"><svg width="27" height="38" viewBox="0 0 24 34" style="display:block;overflow:visible"><path d="M2 2 L2 26 L8.2 20.4 L12.4 30.2 L16.6 28.4 L12.5 18.8 L20.8 18.8 Z" fill="#fff" stroke="#16141c" stroke-width="1.6" stroke-linejoin="round"/></svg></div>
     <div id="cap"><div class="glass"><span class="n"></span><span class="t"></span></div></div>
   </div>
@@ -94,6 +96,9 @@ async function show(s) {
     cur.style.transform = `translate(${(s.cursor.x * k).toFixed(1)}px,${(s.cursor.y * k).toFixed(1)}px) scale(${s.cursor.press.toFixed(3)})`;
   } else cur.style.opacity = 0;
   $("#rings").innerHTML = (s.rings || []).map(r => `<div class="ring" style="left:${(r.x * k).toFixed(1)}px;top:${(r.y * k).toFixed(1)}px;opacity:${r.alpha.toFixed(3)};transform:scale(${r.scale.toFixed(3)})"></div>`).join("");
+
+  // Review stills: a static outline round each target that was pressed (never in the film).
+  $("#marks").innerHTML = (s.marks || []).map(m => `<div class="mark" style="left:${((m.x - 4) * k).toFixed(1)}px;top:${((m.y - 4) * k).toFixed(1)}px;width:${((m.w + 8) * k).toFixed(1)}px;height:${((m.h + 8) * k).toFixed(1)}px"></div>`).join("");
 
   const cap = $("#cap");
   if (s.cap && s.cap.alpha > 0.001) {

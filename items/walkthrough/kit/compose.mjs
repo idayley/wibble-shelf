@@ -17,9 +17,13 @@
 //   --silent         no sound at all
 //   --fps 30         frames per second (30 or 60)
 //   --chrome <path>
-// Writes film.mp4 and film.md (the chapter and step index, with times).
+//   --no-review      skip the review folder (below)
+// Writes film.mp4 and film.md (the chapter and step index, with times), and
+// film.review/ beside them: stills/NN.jpg (one clean still per caption, app
+// window only: no caption, pointer or zoom, an outline on what was pressed) and
+// steps.json (the step list), for the review app (review.mjs makes index.html).
 import { spawn } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,7 +46,7 @@ const bool = name => { const i = argv.indexOf(name); if (i < 0) return false; ar
 const FPS = +flag("--fps", 30), sheet = flag("--sheet"), frameMs = flag("--frame"), chrome = flag("--chrome");
 const scriptPath = flag("--script"), titleArg = flag("--title"), personaArg = flag("--persona"), appArg = flag("--app");
 let out = flag("--out");
-const music = bool("--music"), silent = bool("--silent");
+const music = bool("--music"), silent = bool("--silent"), noReview = bool("--no-review");
 const reelDirs = argv.map(d => path.resolve(d));
 if (!reelDirs.length) { console.error("usage: node compose.mjs <reel> [reels…] --out film.mp4 [--script flow.json] [--sheet s.png | --frame ms]"); process.exit(2); }
 out ||= path.join(reelDirs[reelDirs.length - 1], "film.mp4");
@@ -135,7 +139,7 @@ await c.send("Page.navigate", { url: `${ORIGIN}/compose.html` });
 for (let i = 0; i < 100; i++) { if (await c.js("!!window.film").catch(() => false)) break; await new Promise(r => setTimeout(r, 100)); }
 await c.js("film.ready()");
 const ticks = chapterCards.map(p => p.out0 / tl.dur);
-await c.js(`film.layout(${JSON.stringify({ view, box: [0, 40, 1728, 960], ticks })}) && true`);
+const L = await c.js(`film.layout(${JSON.stringify({ view, box: [0, 40, 1728, 960], ticks })})`);
 
 // ---------- where each caption sits ----------
 for (const run of runs) {
@@ -207,6 +211,45 @@ if (sheet) {
   console.log("wrote", sheet, `(${ts.length} frames)`); process.exit(0);
 }
 
+// ---------- review: one clean still per step ----------
+if (!noReview) {
+  const reviewDir = out.replace(/\.mp4$/, "") + ".review";
+  mkdirSync(path.join(reviewDir, "stills"), { recursive: true });
+  const PRESS = new Set(["click", "type", "fill", "select", "check", "press"]);
+  const steps = [];
+  for (const r of runs) {
+    const t = Math.max(r.out0, r.out1 - 300), marks = [];
+    // a press that changed the page leaves its target behind: mark it only if that spot still looks as it did before the press
+    const fr = frameAt(tl, t);
+    for (const st of r.steps) {
+      if (!st.target || !PRESS.has(st.do) || st.nav) continue;
+      const g = st.target, t0 = reels[st.reel].steps.find(x => x.n === st.n)?.t0;
+      const [A, B] = await Promise.all([t0 != null ? c.js(`film.grid(${JSON.stringify(frameUrl(st.reel, t0))}, 288, 160)`) : null, c.js(`film.grid(${JSON.stringify(frameUrl(fr.reel, fr.src))}, 288, 160)`)]);
+      const d = A ? regionDiff(A, B, g, 288, 160) : 0;
+      if (d < 0.25) marks.push(g);
+    }
+    const s = state(t);
+    Object.assign(s, { cam: { s: 1, fx: view[0] / 2, fy: view[1] / 2 }, b: null, rings: [], cap: null, cursor: null, marks });
+    await c.js(`film.show(${JSON.stringify(s)})`);
+    const nn = String(r.num).padStart(2, "0");
+    const m = await c.send("Page.captureScreenshot", { format: "jpeg", quality: 88, clip: { x: L.x, y: L.y, width: L.w, height: L.h, scale: 1 } });
+    writeFileSync(path.join(reviewDir, "stills", `${nn}.jpg`), Buffer.from(m.data, "base64"));
+    const pressed = r.steps.filter(st => st.target && PRESS.has(st.do)).map(st => (r0 => r0?.spec?.target?.text ?? r0?.el?.name)(reels[st.reel].steps.find(x => x.n === st.n))).find(Boolean);
+    steps.push({ num: r.num, text: r.text, chapter: r.chapter, t0: Math.round(r.out0), t1: Math.round(r.out1), time: mmss(r.out0), still: `stills/${nn}.jpg`, pressed: pressed ?? null });
+  }
+  await c.js(`film.show(${JSON.stringify(state(0))})`);
+  const chapters = chapterCards.map(p => ({ index: p.card.index, title: p.card.title }));
+  writeFileSync(path.join(reviewDir, "steps.json"), JSON.stringify({
+    title: title.title, persona: title.persona, app: title.app, recorded: new Date(first.startedAt).toISOString().slice(0, 10),
+    film: "../" + path.basename(out), duration: Math.round(tl.dur), view, chapters, steps,
+  }, null, 2) + "\n");
+  console.log(`  review: ${steps.length} stills in ${reviewDir}`);
+  if (existsSync(path.join(here, "review.mjs"))) {
+    try { const { buildReview } = await import("./review.mjs"); await buildReview([reviewDir], reviewDir, { title: title.title }); }
+    catch (e) { console.log("  ! review page not built:", e.message); }
+  }
+}
+
 // ---------- picture ----------
 const video = path.join(work, "picture.mp4");
 const enc = spawn("ffmpeg", ["-y", "-loglevel", "error", "-f", "image2pipe", "-framerate", String(FPS), "-i", "-",
@@ -253,6 +296,15 @@ await run("ffmpeg", ["-y", "-loglevel", "error", "-i", video, "-i", wav, "-map",
   "-c:a", "aac", "-b:a", "160k", "-shortest", "-movflags", "+faststart", out]);
 console.log("wrote", out, `(${cues.length} sounds)`);
 process.exit(0);
+
+// Mean luminance change inside a view-space rect, between two grids of the same frame size.
+function regionDiff(A, B, r, gw, gh) {
+  const x0 = Math.floor((r.x / view[0]) * gw), x1 = Math.max(x0 + 1, Math.ceil(((r.x + r.w) / view[0]) * gw));
+  const y0 = Math.floor((r.y / view[1]) * gh), y1 = Math.max(y0 + 1, Math.ceil(((r.y + r.h) / view[1]) * gh));
+  let s = 0, n = 0;
+  for (let y = clamp(y0, 0, gh - 1); y < Math.min(y1, gh); y++) for (let x = clamp(x0, 0, gw - 1); x < Math.min(x1, gw); x++) { s += Math.abs(A[y * gw + x] - B[y * gw + x]); n++; }
+  return n ? s / n : 0;
+}
 
 // The index that goes beside the film: every chapter and step with its time,
 // so a reviewer can say "step 07 at 1:12".
