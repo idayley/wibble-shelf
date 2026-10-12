@@ -18,6 +18,8 @@
 //   --fps 30         frames per second (30 or 60)
 //   --chrome <path>
 //   --no-review      skip the review folder (below)
+//   --review-only    write only film.md and film.review/ (with its index.html), then stop: no picture, no sound,
+//                    and an existing film.mp4 is left alone. Gives a film already made its review in about a minute.
 // Writes film.mp4 and film.md (the chapter and step index, with times), and
 // film.review/ beside them: stills/NN.jpg (one clean still per caption, app
 // window only: no caption, pointer or zoom, an outline on what was pressed) and
@@ -46,7 +48,7 @@ const bool = name => { const i = argv.indexOf(name); if (i < 0) return false; ar
 const FPS = +flag("--fps", 30), sheet = flag("--sheet"), frameMs = flag("--frame"), chrome = flag("--chrome");
 const scriptPath = flag("--script"), titleArg = flag("--title"), personaArg = flag("--persona"), appArg = flag("--app");
 let out = flag("--out");
-const music = bool("--music"), silent = bool("--silent"), noReview = bool("--no-review");
+const music = bool("--music"), silent = bool("--silent"), noReview = bool("--no-review"), reviewOnly = bool("--review-only");
 const reelDirs = argv.map(d => path.resolve(d));
 if (!reelDirs.length) { console.error("usage: node compose.mjs <reel> [reels…] --out film.mp4 [--script flow.json] [--sheet s.png | --frame ms]"); process.exit(2); }
 out ||= path.join(reelDirs[reelDirs.length - 1], "film.mp4");
@@ -212,7 +214,7 @@ if (sheet) {
 }
 
 // ---------- review: one clean still per step ----------
-if (!noReview) {
+if (!noReview || reviewOnly) {
   const reviewDir = out.replace(/\.mp4$/, "") + ".review";
   mkdirSync(path.join(reviewDir, "stills"), { recursive: true });
   const PRESS = new Set(["click", "type", "fill", "select", "check", "press"]);
@@ -225,8 +227,8 @@ if (!noReview) {
       if (!st.target || !PRESS.has(st.do) || st.nav) continue;
       const g = st.target, t0 = reels[st.reel].steps.find(x => x.n === st.n)?.t0;
       const [A, B] = await Promise.all([t0 != null ? c.js(`film.grid(${JSON.stringify(frameUrl(st.reel, t0))}, 288, 160)`) : null, c.js(`film.grid(${JSON.stringify(frameUrl(fr.reel, fr.src))}, 288, 160)`)]);
-      const d = A ? regionDiff(A, B, g, 288, 160) : 0;
-      if (d < 0.25) marks.push(g);
+      const d = A ? regionDiff(A, B, g, 288, 160) : 0, wd = A ? regionDiff(A, B, { x: 0, y: 0, w: view[0], h: view[1] }, 288, 160) : 0;
+      if (d < 0.25 && wd < 0.03) marks.push(g);
     }
     const s = state(t);
     Object.assign(s, { cam: { s: 1, fx: view[0] / 2, fy: view[1] / 2 }, b: null, rings: [], cap: null, cursor: null, marks });
@@ -249,6 +251,8 @@ if (!noReview) {
     catch (e) { console.log("  ! review page not built:", e.message); }
   }
 }
+
+if (reviewOnly) process.exit(0);
 
 // ---------- picture ----------
 const video = path.join(work, "picture.mp4");
